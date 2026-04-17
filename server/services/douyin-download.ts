@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import { YtDlp } from 'ytdlp-nodejs'
+import { spawn } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { fileToBase64DataUrl } from './file'
 import { createAppError } from '../utils/errors'
 import { validateUrl } from '../utils/validators'
@@ -30,11 +31,33 @@ function getTempDownloadDir() {
   return config.tempVideoDir || path.join(process.cwd(), '.tmp', 'douyin-downloads')
 }
 
-function guessMimeByPath(filePath: string) {
-  const ext = path.extname(filePath).toLowerCase()
-  if (ext === '.webm') return 'video/webm'
-  if (ext === '.mov') return 'video/quicktime'
-  return 'video/mp4'
+function getDydlBin() {
+  return path.join(process.cwd(), 'node_modules', '.bin', process.platform === 'win32' ? 'dydl.cmd' : 'dydl')
+}
+
+function runDydlDownload(url: string, outputDir: string, filename: string) {
+  return new Promise<void>((resolve, reject) => {
+    const bin = getDydlBin()
+    const args = ['video', '-d', outputDir, '-f', filename, url]
+
+    const child = spawn(bin, args, {
+      stdio: ['ignore', 'pipe', 'pipe']
+    })
+
+    let stderr = ''
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk.toString()
+    })
+
+    child.on('error', (error) => {
+      reject(error)
+    })
+
+    child.on('close', (code) => {
+      if (code === 0) return resolve()
+      reject(new Error(stderr || `dydl exited with ${code}`))
+    })
+  })
 }
 
 export async function downloadDouyinVideoAsDataUrl(url: string, requestId: string) {
@@ -42,35 +65,21 @@ export async function downloadDouyinVideoAsDataUrl(url: string, requestId: strin
   const dir = getTempDownloadDir()
   await fs.mkdir(dir, { recursive: true })
 
-  const ytdlp = new YtDlp()
+  const filename = `${Date.now()}-${randomUUID()}.mp4`
+  const filePath = path.join(dir, filename)
 
-  let filePath = ''
   try {
-    const result = await ytdlp
-      .download(safeUrl)
-      .output(dir)
-      .type('mp4')
-      .on('progress', () => {})
-      .run()
-
-    filePath = result.filePaths?.[0] || ''
-    if (!filePath) {
-      throw createAppError({
-        code: 'VIDEO_FETCH_FAILED',
-        message: '链接视频下载失败，请稍后重试',
-        statusCode: 422
-      })
-    }
+    await runDydlDownload(safeUrl, dir, filename)
 
     const buffer = await fs.readFile(filePath)
-    const mimeType = guessMimeByPath(filePath)
-    const dataUrl = fileToBase64DataUrl(buffer, mimeType)
+    const dataUrl = fileToBase64DataUrl(buffer, 'video/mp4')
 
     console.info('[douyin.download]', {
       requestId,
       sourceHost: new URL(safeUrl).hostname,
-      outputFile: path.basename(filePath),
-      sizeBytes: buffer.byteLength
+      outputFile: filename,
+      sizeBytes: buffer.byteLength,
+      engine: 'douyin-downloader'
     })
 
     return {
@@ -78,24 +87,23 @@ export async function downloadDouyinVideoAsDataUrl(url: string, requestId: strin
       sourcePath: filePath,
       cleanup: async () => {
         try {
-          if (filePath) await fs.unlink(filePath)
+          await fs.unlink(filePath)
         } catch {
           // ignore
         }
       }
     }
   } catch (error) {
-    if (error && typeof error === 'object' && 'code' in error) throw error
-
     console.error('[douyin.download] failed', {
       requestId,
       sourceHost: new URL(safeUrl).hostname,
-      message: error instanceof Error ? error.message : 'unknown'
+      message: error instanceof Error ? error.message : 'unknown',
+      engine: 'douyin-downloader'
     })
 
     throw createAppError({
       code: 'VIDEO_FETCH_FAILED',
-      message: '链接视频下载失败，请稍后重试',
+      message: '链接视频下载失败，请稍后重试或改为上传视频',
       statusCode: 422
     })
   }

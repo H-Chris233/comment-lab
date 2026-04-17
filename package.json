@@ -13,9 +13,9 @@
     "e2e:aliyun": "node scripts/e2e-aliyun-generate.mjs"
   },
   "dependencies": {
+    "douyin-downloader": "^0.1.8",
     "nuxt": "^3.20.0",
-    "openai": "^4.104.0",
-    "ytdlp-nodejs": "^3.4.4"
+    "openai": "^4.104.0"
   },
   "devDependencies": {
     "@types/supertest": "^6.0.3",
