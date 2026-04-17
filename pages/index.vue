@@ -188,6 +188,7 @@ function handleFileError(msg: string) {
           :request-id="requestId"
           :copied-hint="copiedHint"
           :can-show-raw="canShowRaw"
+          :raw-text="rawText"
           @copy-all="handleCopyAll"
           @copy-one="handleCopyOne"
           @delete-one="handleDeleteOne"

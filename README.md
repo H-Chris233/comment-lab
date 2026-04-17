@@ -52,3 +52,15 @@ E2E_BASE_URL=http://localhost:3000 E2E_VIDEO_FILE=./your-video.mp4 npm run e2e:a
 ```
 
 脚本会输出 requestId、模型名、请求条数与清洗后条数，便于联调排障。
+
+
+## 输出格式
+
+- `text`: 按行文本清洗
+- `json`: 强制按 JSON 数组解析；若模型未返回合法数组会返回 `MODEL_OUTPUT_INVALID_FORMAT`
+
+
+## 数量设置
+
+- 预设：100 / 200 / 300
+- 自定义：1 ~ 500

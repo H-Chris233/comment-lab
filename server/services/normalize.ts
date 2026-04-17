@@ -7,6 +7,8 @@ export interface NormalizeResult {
   removedInvalid: number
 }
 
+type NormalizeOptions = { dedupe?: boolean; cleanEmpty?: boolean }
+
 function removePrefix(line: string) {
   return line.replace(/^(\d+[\.、\-\)]\s*)/, '')
 }
@@ -30,17 +32,16 @@ function isInvalidLength(line: string) {
   return line.length < 2 || line.length > 60
 }
 
-export function normalizeComments(raw: string, options?: { dedupe?: boolean; cleanEmpty?: boolean }): NormalizeResult {
+function normalizeFromLines(originalLines: string[], options?: NormalizeOptions): NormalizeResult {
   const dedupe = options?.dedupe ?? true
   const cleanEmpty = options?.cleanEmpty ?? true
 
-  const originalLines = raw.split(/\r?\n/)
   let removedEmpty = 0
   let removedInvalid = 0
   let removedDuplicate = 0
 
   const normalized = originalLines
-    .map((line) => removePrefix(line.trim()))
+    .map((line) => removePrefix(String(line).trim()))
     .map(normalizeSpaces)
     .filter((line) => {
       if (!cleanEmpty) return true
@@ -75,5 +76,28 @@ export function normalizeComments(raw: string, options?: { dedupe?: boolean; cle
     removedEmpty,
     removedDuplicate,
     removedInvalid
+  }
+}
+
+export function normalizeComments(raw: string, options?: NormalizeOptions): NormalizeResult {
+  return normalizeFromLines(raw.split(/\r?\n/), options)
+}
+
+export function normalizeCommentItems(items: string[], options?: NormalizeOptions): NormalizeResult {
+  return normalizeFromLines(items, options)
+}
+
+export function parseJsonComments(raw: string): string[] | null {
+  try {
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return null
+
+    const items = parsed
+      .filter((item) => typeof item === 'string' || typeof item === 'number')
+      .map((item) => String(item))
+
+    return items.length ? items : null
+  } catch {
+    return null
   }
 }

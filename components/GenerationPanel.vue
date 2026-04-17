@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { computed, ref, watch } from 'vue'
+
 const props = defineProps<{
   count: number
   outputFormat: 'text' | 'json'
@@ -15,7 +17,37 @@ const emit = defineEmits<{
   generate: []
 }>()
 
-const countOptions = [100, 200, 300, 500]
+const countOptions = [100, 200, 300]
+const isCustomCount = ref(!countOptions.includes(props.count))
+const customCount = ref(isCustomCount.value ? props.count : 100)
+
+watch(
+  () => props.count,
+  (value) => {
+    isCustomCount.value = !countOptions.includes(value)
+    if (isCustomCount.value) customCount.value = value
+  }
+)
+
+const countHint = computed(() => `${props.count} 条评论`)
+
+function onPresetCount(option: number) {
+  isCustomCount.value = false
+  emit('update:count', option)
+}
+
+function onCustomCountInput(value: string) {
+  const n = Number(value)
+  if (!Number.isFinite(n)) return
+  const next = Math.max(1, Math.min(500, Math.floor(n)))
+  customCount.value = next
+  emit('update:count', next)
+}
+
+function enableCustomCount() {
+  isCustomCount.value = true
+  emit('update:count', customCount.value)
+}
 </script>
 
 <template>
@@ -29,11 +61,25 @@ const countOptions = [100, 200, 300, 500]
           <button
             v-for="option in countOptions"
             :key="option"
-            :class="{ active: props.count === option }"
-            @click="emit('update:count', option)"
+            :class="{ active: !isCustomCount && props.count === option }"
+            @click="onPresetCount(option)"
           >
             {{ option }}
           </button>
+          <button :class="{ active: isCustomCount }" @click="enableCustomCount">
+            自定义
+          </button>
+        </div>
+
+        <div v-if="isCustomCount" class="custom-count-row">
+          <input
+            type="number"
+            min="1"
+            max="500"
+            :value="customCount"
+            @input="onCustomCountInput(($event.target as HTMLInputElement).value)"
+          >
+          <span>允许范围 1 ~ 500</span>
         </div>
       </div>
 
@@ -112,7 +158,7 @@ const countOptions = [100, 200, 300, 500]
           <path d="M21 3v9h-9" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
         <span>{{ props.loading ? '生成中...' : '开始生成' }}</span>
-        <span v-if="!props.loading" class="btn-hint">{{ props.count }} 条评论</span>
+        <span v-if="!props.loading" class="btn-hint">{{ countHint }}</span>
       </button>
 
       <p class="privacy-note">
@@ -205,6 +251,24 @@ const countOptions = [100, 200, 300, 500]
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
 }
 
+.custom-count-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #64748B;
+  font-size: 12px;
+}
+
+.custom-count-row input {
+  width: 100px;
+  border: 1px solid #CBD5E1;
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 14px;
+  color: #164E63;
+  background: white;
+}
+
 .format-toggle {
   display: flex;
   gap: 8px;
@@ -281,8 +345,7 @@ const countOptions = [100, 200, 300, 500]
   height: 14px;
   color: white;
   opacity: 0;
-  transform: scale(0.5);
-  transition: all 200ms ease;
+  transition: opacity 200ms ease;
 }
 
 .checkbox-wrapper input:checked + .checkbox-custom {
@@ -292,19 +355,12 @@ const countOptions = [100, 200, 300, 500]
 
 .checkbox-wrapper input:checked + .checkbox-custom svg {
   opacity: 1;
-  transform: scale(1);
-}
-
-.checkbox-label {
-  color: #475569;
-  font-weight: 500;
 }
 
 .action-section {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 16px;
+  gap: 12px;
 }
 
 .btn-generate {
@@ -313,23 +369,38 @@ const countOptions = [100, 200, 300, 500]
   justify-content: center;
   gap: 10px;
   width: 100%;
-  max-width: 400px;
-  padding: 16px 32px;
-  background: linear-gradient(135deg, #22C55E 0%, #16A34A 100%);
+  padding: 14px 24px;
+  background: linear-gradient(135deg, #0891B2 0%, #2563EB 100%);
   color: white;
+  border: none;
+  border-radius: 12px;
   font-family: 'Poppins', sans-serif;
   font-size: 16px;
   font-weight: 600;
-  border: none;
-  border-radius: 12px;
   cursor: pointer;
   transition: all 200ms ease;
-  box-shadow: 0 4px 14px rgba(34, 197, 94, 0.3);
+  position: relative;
+  overflow: hidden;
+}
+
+.btn-generate::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+  transition: left 500ms ease;
+}
+
+.btn-generate:hover:not(:disabled)::before {
+  left: 100%;
 }
 
 .btn-generate:hover:not(:disabled) {
   transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(34, 197, 94, 0.4);
+  box-shadow: 0 8px 20px rgba(37, 99, 235, 0.3);
 }
 
 .btn-generate:active:not(:disabled) {
@@ -337,7 +408,7 @@ const countOptions = [100, 200, 300, 500]
 }
 
 .btn-generate:disabled {
-  opacity: 0.7;
+  opacity: 0.6;
   cursor: not-allowed;
 }
 
@@ -350,16 +421,11 @@ const countOptions = [100, 200, 300, 500]
   animation: spin 1s linear infinite;
 }
 
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
-
 .btn-hint {
-  margin-left: auto;
-  padding: 4px 8px;
+  margin-left: 8px;
+  padding: 2px 8px;
   background: rgba(255, 255, 255, 0.2);
-  border-radius: 6px;
+  border-radius: 12px;
   font-size: 12px;
   font-weight: 500;
 }
@@ -369,10 +435,10 @@ const countOptions = [100, 200, 300, 500]
   align-items: center;
   justify-content: center;
   gap: 6px;
-  margin: 0;
   font-family: 'Open Sans', sans-serif;
   font-size: 12px;
   color: #94A3B8;
+  margin: 0;
 }
 
 .privacy-note svg {
@@ -380,28 +446,12 @@ const countOptions = [100, 200, 300, 500]
   height: 14px;
 }
 
-@media (max-width: 640px) {
-  .glass-card {
-    padding: 20px;
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
   }
-
-  .card-title {
-    font-size: 16px;
-  }
-
-  .segmented-control button {
-    padding: 6px 12px;
-    font-size: 13px;
-  }
-
-  .format-toggle button {
-    flex: 1;
-    justify-content: center;
-  }
-
-  .btn-generate {
-    font-size: 15px;
-    padding: 14px 24px;
+  to {
+    transform: rotate(360deg);
   }
 }
 </style>

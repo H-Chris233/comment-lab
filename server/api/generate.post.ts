@@ -2,7 +2,7 @@ import { DEFAULT_MODEL } from '../../types/prompt'
 import { generateFromVideoBase64, generateFromVideoUrl } from '../services/ai'
 import { parseDouyinLink, verifyVideoUrlReachable } from '../services/douyin'
 import { ALLOWED_VIDEO_MIME_TYPES, fileToBase64DataUrl, getMaxVideoBytes, readMultipart } from '../services/file'
-import { normalizeComments } from '../services/normalize'
+import { normalizeCommentItems, normalizeComments, parseJsonComments } from '../services/normalize'
 import { buildPrompt } from '../services/prompt'
 import { createAppError, isAppError, toApiError } from '../utils/errors'
 import { createRequestId, failure, success } from '../utils/response'
@@ -20,8 +20,10 @@ export default defineEventHandler(async (event) => {
     const mode = validateMode(field('mode'))
     const count = validateCount(field('count'))
     const outputFormat = (field('outputFormat') || 'text') as 'text' | 'json'
-    const dedupe = parseBoolean(field('dedupe'))
-    const cleanEmpty = parseBoolean(field('cleanEmpty'))
+    const dedupeRaw = field('dedupe')
+    const cleanEmptyRaw = field('cleanEmpty')
+    const dedupe = dedupeRaw == null ? true : parseBoolean(dedupeRaw)
+    const cleanEmpty = cleanEmptyRaw == null ? true : parseBoolean(cleanEmptyRaw)
     const promptData = validatePromptLength(field('basePrompt'), field('extraPrompt'))
 
     const model = field('model')?.trim() || useRuntimeConfig().aliyunModel || DEFAULT_MODEL
@@ -65,7 +67,19 @@ export default defineEventHandler(async (event) => {
     }
 
     // 6) 清洗评论
-    const normalized = normalizeComments(aiResult.rawText, { dedupe, cleanEmpty })
+    const normalized = outputFormat === 'json'
+      ? (() => {
+          const parsedItems = parseJsonComments(aiResult.rawText)
+          if (!parsedItems) {
+            throw createAppError({
+              code: 'MODEL_OUTPUT_INVALID_FORMAT',
+              message: '模型输出不是有效 JSON 数组，请切换文本模式或重试',
+              statusCode: 502
+            })
+          }
+          return normalizeCommentItems(parsedItems, { dedupe, cleanEmpty })
+        })()
+      : normalizeComments(aiResult.rawText, { dedupe, cleanEmpty })
 
     if (!normalized.comments.length) {
       throw createAppError({

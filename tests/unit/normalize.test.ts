@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { normalizeComments } from '../../server/services/normalize'
+import { normalizeCommentItems, normalizeComments, parseJsonComments } from '../../server/services/normalize'
 
 describe('normalizeComments', () => {
   it('应清洗无效行并统计', () => {
@@ -12,5 +12,16 @@ describe('normalizeComments', () => {
     expect(result.removedEmpty).toBeGreaterThanOrEqual(1)
     expect(result.removedDuplicate).toBeGreaterThanOrEqual(1)
     expect(result.removedInvalid).toBeGreaterThanOrEqual(1)
+  })
+
+  it('json 数组模式可以独立清洗', () => {
+    const result = normalizeCommentItems(['  1. 真的好看  ', '评论如下', '真的好看', '哈哈'], { dedupe: true, cleanEmpty: true })
+    expect(result.comments).toEqual(['真的好看', '哈哈'])
+  })
+
+  it('parseJsonComments 仅接受 JSON 数组', () => {
+    expect(parseJsonComments('["a","b"]')).toEqual(['a', 'b'])
+    expect(parseJsonComments('{"a":1}')).toBeNull()
+    expect(parseJsonComments('not json')).toBeNull()
   })
 })
