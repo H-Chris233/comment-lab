@@ -9,7 +9,7 @@ import { useGenerate } from '~/composables/useGenerate'
 import { DEFAULT_EXTRA_PROMPT, DEFAULT_PROMPT } from '~/types/prompt'
 import { shouldShowDebugRaw } from '~/utils/env'
 
-const mode = ref<'link' | 'upload'>('upload')
+const mode = ref<'link' | 'upload'>('link')
 const url = ref('')
 const file = ref<File | null>(null)
 const basePrompt = ref(DEFAULT_PROMPT)

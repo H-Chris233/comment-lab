@@ -9,6 +9,7 @@ export default defineNuxtConfig({
     aliyunModel: process.env.ALIYUN_MODEL,
     douyinApiBase: process.env.DOUYIN_API_BASE,
     maxVideoSizeMb: Number(process.env.MAX_VIDEO_SIZE_MB || 100),
+    tempVideoDir: process.env.TEMP_VIDEO_DIR,
     public: {
       appName: 'Comment Lab',
       debugRawEnabled: parseBooleanEnv(process.env.DEBUG_RAW_ENABLED)

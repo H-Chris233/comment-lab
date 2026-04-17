@@ -64,3 +64,11 @@ E2E_BASE_URL=http://localhost:3000 E2E_VIDEO_FILE=./your-video.mp4 npm run e2e:a
 
 - 预设：100 / 200 / 300
 - 自定义：1 ~ 500
+
+
+## 抖音链接默认链路（已切换）
+
+- 默认链接模式使用 `ytdlp-nodejs` + `yt-dlp` 在服务端拉取视频
+- 下载到私有临时目录（`TEMP_VIDEO_DIR`）后转 Base64 Data URL 送模型
+- 不要求无水印，仅保证可拉取并进入生成链路
+- 生产环境建议在镜像中预装 `yt-dlp` / `ffmpeg`

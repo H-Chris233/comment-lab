@@ -1,8 +1,8 @@
 import { DEFAULT_MODEL } from '../../types/prompt'
-import { generateFromVideoBase64, generateFromVideoUrl } from '../services/ai'
-import { parseDouyinLink, verifyVideoUrlReachable } from '../services/douyin'
+import { generateFromVideoBase64 } from '../services/ai'
 import { ALLOWED_VIDEO_MIME_TYPES, fileToBase64DataUrl, getMaxVideoBytes, readMultipart } from '../services/file'
 import { normalizeCommentItems, normalizeComments, parseJsonComments } from '../services/normalize'
+import { downloadDouyinVideoAsDataUrl } from '../services/douyin-download'
 import { buildPrompt } from '../services/prompt'
 import { createAppError, isAppError, toApiError } from '../utils/errors'
 import { createRequestId, failure, success } from '../utils/response'
@@ -42,16 +42,18 @@ export default defineEventHandler(async (event) => {
     // 5) 调用 ai.ts
     if (mode === 'link') {
       const sourceUrl = validateUrl(field('url'))
-      const parsed = await parseDouyinLink(sourceUrl, requestId)
-      await verifyVideoUrlReachable(parsed.videoUrl!, requestId)
-
-      aiResult = await generateFromVideoUrl({
-        model,
-        prompt,
-        videoUrl: parsed.videoUrl!,
-        requestId,
-        fps: 1
-      })
+      const downloaded = await downloadDouyinVideoAsDataUrl(sourceUrl, requestId)
+      try {
+        aiResult = await generateFromVideoBase64({
+          model,
+          prompt,
+          dataUrl: downloaded.dataUrl,
+          requestId,
+          fps: 1
+        })
+      } finally {
+        await downloaded.cleanup()
+      }
     } else {
       const maxBytes = getMaxVideoBytes()
       const file = validateVideoFile(form.find((f) => f.name === 'video'), maxBytes, ALLOWED_VIDEO_MIME_TYPES)

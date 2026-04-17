@@ -14,13 +14,14 @@
   },
   "dependencies": {
     "nuxt": "^3.20.0",
-    "openai": "^4.104.0"
+    "openai": "^4.104.0",
+    "ytdlp-nodejs": "^3.4.4"
   },
   "devDependencies": {
-    "typescript": "^5.9.2",
-    "vue-tsc": "^2.2.12",
-    "vitest": "^2.1.9",
+    "@types/supertest": "^6.0.3",
     "supertest": "^7.1.1",
-    "@types/supertest": "^6.0.3"
+    "typescript": "^5.9.2",
+    "vitest": "^2.1.9",
+    "vue-tsc": "^2.2.12"
   }
 }

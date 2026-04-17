@@ -8,12 +8,12 @@ vi.mock('../../server/services/ai', () => ({
   generateFromVideoUrl: vi.fn()
 }))
 
-vi.mock('../../server/services/douyin', () => ({
-  parseDouyinLink: vi.fn(),
-  verifyVideoUrlReachable: vi.fn()
+vi.mock('../../server/services/douyin-download', () => ({
+  downloadDouyinVideoAsDataUrl: vi.fn()
 }))
 
 import { generateFromVideoBase64 } from '../../server/services/ai'
+import { downloadDouyinVideoAsDataUrl } from '../../server/services/douyin-download'
 import generateHandler from '../../server/api/generate.post'
 
 describe('POST /api/generate', () => {
@@ -94,6 +94,37 @@ describe('POST /api/generate', () => {
     expect(res.status).toBe(502)
     expect(res.body.ok).toBe(false)
     expect(res.body.code).toBe('MODEL_OUTPUT_INVALID_FORMAT')
+  })
+
+
+  it('link 模式默认走 ytdlp 下载后以 base64 调模型', async () => {
+    vi.mocked(downloadDouyinVideoAsDataUrl).mockResolvedValueOnce({
+      dataUrl: 'data:video/mp4;base64,AAAA',
+      sourcePath: '/tmp/a.mp4',
+      cleanup: async () => {}
+    } as any)
+
+    vi.mocked(generateFromVideoBase64).mockResolvedValueOnce({
+      rawText: '第一条\n第二条',
+      model: 'qwen3.5-omni-plus',
+      streamChunkCount: 2,
+      durationMs: 10
+    } as any)
+
+    const app = createApp()
+    app.use('/api/generate', generateHandler)
+
+    const res = await request(toNodeListener(app))
+      .post('/api/generate')
+      .field('mode', 'link')
+      .field('url', 'https://v.douyin.com/abcde/')
+      .field('count', '2')
+      .field('basePrompt', 'base')
+
+    expect(res.status).toBe(200)
+    expect(res.body.ok).toBe(true)
+    expect(downloadDouyinVideoAsDataUrl).toHaveBeenCalledTimes(1)
+    expect(generateFromVideoBase64).toHaveBeenCalledTimes(1)
   })
 
   it('模型返回空文本时返回 MODEL_OUTPUT_EMPTY', async () => {
