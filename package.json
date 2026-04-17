@@ -1,0 +1,26 @@
+{
+  "name": "comment-lab",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "nuxt dev",
+    "build": "nuxt build",
+    "preview": "nuxt preview",
+    "postinstall": "nuxt prepare",
+    "typecheck": "nuxt typecheck",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "e2e:aliyun": "node scripts/e2e-aliyun-generate.mjs"
+  },
+  "dependencies": {
+    "nuxt": "^3.20.0",
+    "openai": "^4.104.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.2",
+    "vue-tsc": "^2.2.12",
+    "vitest": "^2.1.9",
+    "supertest": "^7.1.1",
+    "@types/supertest": "^6.0.3"
+  }
+}
