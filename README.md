@@ -72,3 +72,9 @@ E2E_BASE_URL=http://localhost:3000 E2E_VIDEO_FILE=./your-video.mp4 npm run e2e:a
 - 下载到私有临时目录（`TEMP_VIDEO_DIR`）后转 Base64 Data URL 送模型
 - 不要求无水印，仅保证可拉取并进入生成链路
 - 生产环境建议预装 Chromium 运行依赖（如 libnss3、fonts 等），保证 Puppeteer 可用
+
+
+## 默认提示词文件
+
+- 默认提示词放在 `public/default-prompt.txt`
+- 页面加载时会自动读取该文件作为基础提示词初始值

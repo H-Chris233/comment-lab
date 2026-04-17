@@ -61,6 +61,21 @@ const generationState = computed(() => {
   return 'results'
 })
 
+
+onMounted(async () => {
+  try {
+    const res = await fetch('/default-prompt.txt')
+    if (!res.ok) return
+
+    const text = (await res.text()).trim()
+    if (text) {
+      basePrompt.value = text
+    }
+  } catch {
+    // ignore and keep fallback DEFAULT_PROMPT
+  }
+})
+
 async function handleParseLink() {
   parseStatus.value = ''
   const res = await parseLink(url.value)
