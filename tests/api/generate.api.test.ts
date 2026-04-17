@@ -98,6 +98,43 @@ describe('POST /api/generate', () => {
 
 
 
+
+  it('请求数量超过60时会分批调用模型直到补足', async () => {
+    vi.mocked(generateFromVideoBase64)
+      .mockResolvedValueOnce({
+        rawText: Array.from({ length: 60 }, (_, i) => `第一批-${i + 1}`).join('\n'),
+        model: 'qwen3.5-omni-plus',
+        streamChunkCount: 5,
+        durationMs: 10
+      } as any)
+      .mockResolvedValueOnce({
+        rawText: Array.from({ length: 40 }, (_, i) => `第二批-${i + 1}`).join('\n'),
+        model: 'qwen3.5-omni-plus',
+        streamChunkCount: 4,
+        durationMs: 8
+      } as any)
+
+    const app = createApp()
+    app.use('/api/generate', generateHandler)
+
+    const res = await request(toNodeListener(app))
+      .post('/api/generate')
+      .field('mode', 'upload')
+      .field('count', '100')
+      .field('basePrompt', 'base')
+      .attach('video', Buffer.from('1234'), { filename: 'ok.mp4', contentType: 'video/mp4' })
+
+    expect(res.status).toBe(200)
+    expect(res.body.ok).toBe(true)
+    expect(res.body.data.finalCount).toBe(100)
+    expect(vi.mocked(generateFromVideoBase64)).toHaveBeenCalledTimes(2)
+
+    const firstCallArgs = vi.mocked(generateFromVideoBase64).mock.calls[0]?.[0] as any
+    const secondCallArgs = vi.mocked(generateFromVideoBase64).mock.calls[1]?.[0] as any
+    expect(firstCallArgs.stopAfterItems).toBe(60)
+    expect(secondCallArgs.stopAfterItems).toBe(60)
+  })
+
   it('link 下载失败时返回 VIDEO_FETCH_FAILED', async () => {
     vi.mocked(downloadDouyinVideoAsDataUrl).mockRejectedValueOnce(
       createAppError({ code: 'VIDEO_FETCH_FAILED', message: '链接视频下载失败，请稍后重试或改为上传视频', statusCode: 422 })

@@ -8,6 +8,7 @@ type GenerateBaseParams = {
   prompt: string
   requestId: string
   fps?: number
+  stopAfterItems?: number
 }
 
 export interface GenerateAiResult {
@@ -50,6 +51,24 @@ function buildMessages(prompt: string, videoUrlOrDataUrl: string, fps = DEFAULT_
   ]
 }
 
+function countItemsByLines(raw: string) {
+  return raw
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean).length
+}
+
+function takeFirstItems(raw: string, maxItems?: number) {
+  if (!maxItems || maxItems <= 0) return raw.trim()
+
+  const lines = raw
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+
+  return lines.slice(0, maxItems).join('\n').trim()
+}
+
 async function generateStreamed(params: GenerateBaseParams & { inputKind: 'url' | 'base64'; videoSource: string }): Promise<GenerateAiResult> {
   const start = Date.now()
   const fps = params.fps ?? DEFAULT_FPS
@@ -58,7 +77,7 @@ async function generateStreamed(params: GenerateBaseParams & { inputKind: 'url' 
   let streamChunkCount = 0
   let usage: unknown
   let finishReason: string | null = null
-  const chunks: string[] = []
+  let rawAccumulated = ''
 
   try {
     const stream = await client.chat.completions.create({
@@ -79,11 +98,16 @@ async function generateStreamed(params: GenerateBaseParams & { inputKind: 'url' 
 
       const content = choice?.delta?.content
       if (typeof content === 'string') {
-        chunks.push(content)
+        rawAccumulated += content
       } else if (Array.isArray(content)) {
         for (const part of content) {
-          if (typeof part?.text === 'string') chunks.push(part.text)
+          if (typeof part?.text === 'string') rawAccumulated += part.text
         }
+      }
+
+      if (params.stopAfterItems && countItemsByLines(rawAccumulated) >= params.stopAfterItems) {
+        finishReason = 'limit_reached'
+        break
       }
     }
   } catch (error) {
@@ -94,7 +118,7 @@ async function generateStreamed(params: GenerateBaseParams & { inputKind: 'url' 
     })
   }
 
-  const rawText = chunks.join('').trim()
+  const rawText = takeFirstItems(rawAccumulated, params.stopAfterItems)
   const durationMs = Date.now() - start
 
   console.info('[ai.generate]', {
@@ -103,9 +127,11 @@ async function generateStreamed(params: GenerateBaseParams & { inputKind: 'url' 
     mode: 'chat.completions',
     inputKind: params.inputKind,
     fps,
+    stopAfterItems: params.stopAfterItems,
     streamChunkCount,
     rawTextLength: rawText.length,
-    durationMs
+    durationMs,
+    finishReason
   })
 
   if (!rawText) {
@@ -128,6 +154,7 @@ export async function generateFromVideoUrl(params: {
   videoUrl: string
   requestId: string
   fps?: number
+  stopAfterItems?: number
 }) {
   return generateStreamed({
     model: params.model,
@@ -135,7 +162,8 @@ export async function generateFromVideoUrl(params: {
     videoSource: params.videoUrl,
     requestId: params.requestId,
     fps: params.fps,
-    inputKind: 'url'
+    inputKind: 'url',
+    stopAfterItems: params.stopAfterItems
   })
 }
 
@@ -145,6 +173,7 @@ export async function generateFromVideoBase64(params: {
   dataUrl: string
   requestId: string
   fps?: number
+  stopAfterItems?: number
 }) {
   return generateStreamed({
     model: params.model,
@@ -152,6 +181,7 @@ export async function generateFromVideoBase64(params: {
     videoSource: params.dataUrl,
     requestId: params.requestId,
     fps: params.fps,
-    inputKind: 'base64'
+    inputKind: 'base64',
+    stopAfterItems: params.stopAfterItems
   })
 }

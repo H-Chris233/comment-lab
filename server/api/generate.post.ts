@@ -8,6 +8,8 @@ import { createAppError, isAppError, toApiError } from '../utils/errors'
 import { createRequestId, failure, success } from '../utils/response'
 import { parseBoolean, validateCount, validateMode, validatePromptLength, validateUrl, validateVideoFile } from '../utils/validators'
 
+const MAX_ITEMS_PER_MODEL_CALL = 60
+
 export default defineEventHandler(async (event) => {
   const requestId = createRequestId()
 
@@ -29,61 +31,98 @@ export default defineEventHandler(async (event) => {
     const model = field('model')?.trim() || useRuntimeConfig().aliyunModel || DEFAULT_MODEL
 
     // 3) 获取视频输入源
-    let aiResult
+    let dataUrl = ''
+    let cleanupVideoSource: (() => Promise<void>) | null = null
 
-    // 4) 构造 prompt
-    const prompt = buildPrompt({
-      basePrompt: promptData.basePrompt,
-      extraPrompt: promptData.extraPrompt,
-      count,
-      outputFormat
-    })
-
-    // 5) 调用 ai.ts
     if (mode === 'link') {
       const sourceUrl = validateUrl(field('url'))
       const downloaded = await downloadDouyinVideoAsDataUrl(sourceUrl, requestId)
-      try {
-        aiResult = await generateFromVideoBase64({
-          model,
-          prompt,
-          dataUrl: downloaded.dataUrl,
-          requestId,
-          fps: 1
-        })
-      } finally {
-        await downloaded.cleanup()
-      }
+      dataUrl = downloaded.dataUrl
+      cleanupVideoSource = downloaded.cleanup
     } else {
       const maxBytes = getMaxVideoBytes()
       const file = validateVideoFile(form.find((f) => f.name === 'video'), maxBytes, ALLOWED_VIDEO_MIME_TYPES)
-      const dataUrl = fileToBase64DataUrl(file.data!, file.type!)
-
-      aiResult = await generateFromVideoBase64({
-        model,
-        prompt,
-        dataUrl,
-        requestId,
-        fps: 1
-      })
+      dataUrl = fileToBase64DataUrl(file.data!, file.type!)
     }
 
-    // 6) 清洗评论
-    const normalized = outputFormat === 'json'
-      ? (() => {
-          const parsedItems = parseJsonComments(aiResult.rawText)
-          if (!parsedItems) {
-            throw createAppError({
-              code: 'MODEL_OUTPUT_INVALID_FORMAT',
-              message: '模型输出不是有效 JSON 数组，请切换文本模式或重试',
-              statusCode: 502
-            })
-          }
-          return normalizeCommentItems(parsedItems, { dedupe, cleanEmpty })
-        })()
-      : normalizeComments(aiResult.rawText, { dedupe, cleanEmpty })
+    // 4)~7) 分批调用模型（每次最多 60 条），直到补足需求
+    const finalComments: string[] = []
+    let rawTextCombined = ''
+    let beforeNormalizeCount = 0
+    let afterNormalizeCount = 0
 
-    if (!normalized.comments.length) {
+    const maxRounds = Math.max(2, Math.ceil(count / MAX_ITEMS_PER_MODEL_CALL) + 2)
+
+    try {
+      for (let round = 1; round <= maxRounds; round += 1) {
+        if (finalComments.length >= count) break
+
+        const remaining = count - finalComments.length
+        const roundTarget = Math.min(remaining, MAX_ITEMS_PER_MODEL_CALL)
+
+        const prompt = buildPrompt({
+          basePrompt: promptData.basePrompt,
+          extraPrompt: [
+            promptData.extraPrompt,
+            `这是第 ${round} 轮生成，本轮最多输出 ${MAX_ITEMS_PER_MODEL_CALL} 条，达到后立即停止。`,
+            finalComments.length ? '避免与前文重复评论。' : ''
+          ].filter(Boolean).join('\n'),
+          count: roundTarget,
+          outputFormat
+        })
+
+        const aiResult = await generateFromVideoBase64({
+          model,
+          prompt,
+          dataUrl,
+          requestId,
+          fps: 1,
+          stopAfterItems: MAX_ITEMS_PER_MODEL_CALL
+        })
+
+        const normalized = outputFormat === 'json'
+          ? (() => {
+              const parsedItems = parseJsonComments(aiResult.rawText)
+              if (!parsedItems) {
+                throw createAppError({
+                  code: 'MODEL_OUTPUT_INVALID_FORMAT',
+                  message: '模型输出不是有效 JSON 数组，请切换文本模式或重试',
+                  statusCode: 502
+                })
+              }
+              return normalizeCommentItems(parsedItems, { dedupe, cleanEmpty })
+            })()
+          : normalizeComments(aiResult.rawText, { dedupe, cleanEmpty })
+
+        const roundComments = normalized.comments.slice(0, MAX_ITEMS_PER_MODEL_CALL)
+
+        beforeNormalizeCount += normalized.beforeCount
+        afterNormalizeCount += roundComments.length
+        rawTextCombined = rawTextCombined ? `${rawTextCombined}\n${aiResult.rawText}` : aiResult.rawText
+
+        const beforeLen = finalComments.length
+        if (dedupe) {
+          const seen = new Set(finalComments)
+          for (const c of roundComments) {
+            if (!seen.has(c)) {
+              seen.add(c)
+              finalComments.push(c)
+            }
+          }
+        } else {
+          finalComments.push(...roundComments)
+        }
+
+        // 本轮没有新增，避免无意义重试
+        if (finalComments.length === beforeLen) break
+      }
+    } finally {
+      if (cleanupVideoSource) await cleanupVideoSource()
+    }
+
+    const trimmedComments = finalComments.slice(0, count)
+
+    if (!trimmedComments.length) {
       throw createAppError({
         code: 'MODEL_OUTPUT_EMPTY',
         message: '结果格式异常，请重新生成',
@@ -91,32 +130,31 @@ export default defineEventHandler(async (event) => {
       })
     }
 
-    if (normalized.comments.length < Math.ceil(count * 0.6)) {
+    if (trimmedComments.length < Math.ceil(count * 0.6)) {
       setResponseStatus(event, 422)
       return failure({
         code: 'MODEL_OUTPUT_INSUFFICIENT',
         message: '模型输出条数不足，请重试或调整提示词',
         requestId,
         data: {
-          rawText: aiResult.rawText,
+          rawText: rawTextCombined,
           requestedCount: count,
-          finalCount: normalized.comments.length,
-          beforeNormalizeCount: normalized.beforeCount,
-          afterNormalizeCount: normalized.afterCount,
-          model: aiResult.model
+          finalCount: trimmedComments.length,
+          beforeNormalizeCount,
+          afterNormalizeCount: trimmedComments.length,
+          model
         }
       })
     }
 
-    // 7) 返回结构化结果
     return success({
-      comments: normalized.comments,
-      rawText: aiResult.rawText,
+      comments: trimmedComments,
+      rawText: rawTextCombined,
       requestedCount: count,
-      finalCount: normalized.comments.length,
-      beforeNormalizeCount: normalized.beforeCount,
-      afterNormalizeCount: normalized.afterCount,
-      model: aiResult.model
+      finalCount: trimmedComments.length,
+      beforeNormalizeCount,
+      afterNormalizeCount: trimmedComments.length,
+      model
     }, requestId)
   } catch (error) {
     const mapped = toApiError(error, requestId, {
@@ -125,7 +163,6 @@ export default defineEventHandler(async (event) => {
       statusCode: 502
     })
 
-    // 错误码细分覆盖
     if (isAppError(error) && error.code === 'INVALID_INPUT') setResponseStatus(event, 400)
     else setResponseStatus(event, mapped.statusCode || 500)
 
