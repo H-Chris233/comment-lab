@@ -7,6 +7,7 @@ import { createAppError } from '../utils/errors'
 import { validateUrl } from '../utils/validators'
 
 const ALLOWED_DOUYIN_HOSTS = new Set(['douyin.com', 'www.douyin.com', 'v.douyin.com'])
+const VIDEO_EXTS = new Set(['.mp4', '.webm', '.mov', '.m4v'])
 
 function isAllowedDouyinHost(hostname: string) {
   if (ALLOWED_DOUYIN_HOSTS.has(hostname)) return true
@@ -35,10 +36,10 @@ function getDydlBin() {
   return path.join(process.cwd(), 'node_modules', '.bin', process.platform === 'win32' ? 'dydl.cmd' : 'dydl')
 }
 
-function runDydlDownload(url: string, outputDir: string, filename: string) {
+function runDydlDownload(url: string, outputDir: string) {
   return new Promise<void>((resolve, reject) => {
     const bin = getDydlBin()
-    const args = ['video', '-d', outputDir, '-f', filename, url]
+    const args = ['video', '-d', outputDir, url]
 
     const child = spawn(bin, args, {
       stdio: ['ignore', 'pipe', 'pipe']
@@ -60,44 +61,92 @@ function runDydlDownload(url: string, outputDir: string, filename: string) {
   })
 }
 
+async function collectFiles(dir: string): Promise<string[]> {
+  const entries = await fs.readdir(dir, { withFileTypes: true })
+  const files: string[] = []
+
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name)
+    if (entry.isDirectory()) {
+      files.push(...await collectFiles(full))
+    } else {
+      files.push(full)
+    }
+  }
+
+  return files
+}
+
+function guessMimeByExt(filePath: string) {
+  const ext = path.extname(filePath).toLowerCase()
+  if (ext === '.webm') return 'video/webm'
+  if (ext === '.mov') return 'video/quicktime'
+  return 'video/mp4'
+}
+
+async function pickDownloadedVideoFile(workDir: string) {
+  const files = await collectFiles(workDir)
+  const candidates = files.filter((f) => VIDEO_EXTS.has(path.extname(f).toLowerCase()))
+
+  if (!candidates.length) return null
+
+  const withStat = await Promise.all(
+    candidates.map(async (f) => ({ file: f, mtime: (await fs.stat(f)).mtimeMs }))
+  )
+
+  withStat.sort((a, b) => b.mtime - a.mtime)
+  return withStat[0]?.file || null
+}
+
 export async function downloadDouyinVideoAsDataUrl(url: string, requestId: string) {
   const safeUrl = assertDouyinUrl(url)
-  const dir = getTempDownloadDir()
-  await fs.mkdir(dir, { recursive: true })
 
-  const filename = `${Date.now()}-${randomUUID()}.mp4`
-  const filePath = path.join(dir, filename)
+  const rootDir = getTempDownloadDir()
+  const workDir = path.join(rootDir, `${Date.now()}-${randomUUID()}`)
+  await fs.mkdir(workDir, { recursive: true })
+
+  let chosenFile = ''
 
   try {
-    await runDydlDownload(safeUrl, dir, filename)
+    await runDydlDownload(safeUrl, workDir)
 
-    const buffer = await fs.readFile(filePath)
-    const dataUrl = fileToBase64DataUrl(buffer, 'video/mp4')
+    const found = await pickDownloadedVideoFile(workDir)
+    if (!found) {
+      throw new Error('download finished but no video file found')
+    }
+
+    chosenFile = found
+
+    const buffer = await fs.readFile(chosenFile)
+    const dataUrl = fileToBase64DataUrl(buffer, guessMimeByExt(chosenFile))
 
     console.info('[douyin.download]', {
       requestId,
       sourceHost: new URL(safeUrl).hostname,
-      outputFile: filename,
+      outputFile: path.basename(chosenFile),
       sizeBytes: buffer.byteLength,
       engine: 'douyin-downloader'
     })
 
     return {
       dataUrl,
-      sourcePath: filePath,
+      sourcePath: chosenFile,
       cleanup: async () => {
         try {
-          await fs.unlink(filePath)
+          await fs.rm(workDir, { recursive: true, force: true })
         } catch {
           // ignore
         }
       }
     }
   } catch (error) {
+    await fs.rm(workDir, { recursive: true, force: true }).catch(() => {})
+
     console.error('[douyin.download] failed', {
       requestId,
       sourceHost: new URL(safeUrl).hostname,
       message: error instanceof Error ? error.message : 'unknown',
+      outputFile: chosenFile ? path.basename(chosenFile) : undefined,
       engine: 'douyin-downloader'
     })
 

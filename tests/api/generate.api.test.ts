@@ -97,7 +97,28 @@ describe('POST /api/generate', () => {
   })
 
 
-  it('link 模式默认走 ytdlp 下载后以 base64 调模型', async () => {
+
+  it('link 下载失败时返回 VIDEO_FETCH_FAILED', async () => {
+    vi.mocked(downloadDouyinVideoAsDataUrl).mockRejectedValueOnce(
+      createAppError({ code: 'VIDEO_FETCH_FAILED', message: '链接视频下载失败，请稍后重试或改为上传视频', statusCode: 422 })
+    )
+
+    const app = createApp()
+    app.use('/api/generate', generateHandler)
+
+    const res = await request(toNodeListener(app))
+      .post('/api/generate')
+      .field('mode', 'link')
+      .field('url', 'https://v.douyin.com/abcde/')
+      .field('count', '2')
+      .field('basePrompt', 'base')
+
+    expect(res.status).toBe(422)
+    expect(res.body.ok).toBe(false)
+    expect(res.body.code).toBe('VIDEO_FETCH_FAILED')
+  })
+
+  it('link 模式默认走 douyin-downloader 下载后以 base64 调模型', async () => {
     vi.mocked(downloadDouyinVideoAsDataUrl).mockResolvedValueOnce({
       dataUrl: 'data:video/mp4;base64,AAAA',
       sourcePath: '/tmp/a.mp4',
