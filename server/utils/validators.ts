@@ -52,15 +52,25 @@ export function validatePromptLength(basePrompt?: string, extraPrompt?: string) 
   }
 }
 
+function extractFirstHttpUrl(input: string) {
+  const match = input.match(/https?:\/\/[^\s]+/i)
+  if (!match) return null
+
+  // 去掉常见中文标点与括号尾巴
+  return match[0].replace(/[)\]}>」』】）。，！？、;；]+$/g, '')
+}
+
 export function validateUrl(url?: string): string {
   const value = url?.trim()
   if (!value) {
     throw createAppError({ code: 'INVALID_INPUT', message: '链接不能为空', statusCode: 400 })
   }
 
+  const candidate = extractFirstHttpUrl(value) || value
+
   let parsed: URL
   try {
-    parsed = new URL(value)
+    parsed = new URL(candidate)
   } catch {
     throw createAppError({ code: 'INVALID_INPUT', message: '链接格式不正确', statusCode: 400 })
   }
@@ -69,7 +79,7 @@ export function validateUrl(url?: string): string {
     throw createAppError({ code: 'INVALID_INPUT', message: '仅支持 http/https 链接', statusCode: 400 })
   }
 
-  return value
+  return parsed.toString()
 }
 
 export function isHttpUrl(value?: string) {
