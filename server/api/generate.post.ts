@@ -3,6 +3,7 @@ import { generateFromVideoBase64 } from '../services/ai'
 import { ALLOWED_VIDEO_MIME_TYPES, fileToBase64DataUrl, getMaxVideoBytes, readMultipart } from '../services/file'
 import { normalizeCommentItems, normalizeComments, parseJsonComments } from '../services/normalize'
 import { downloadDouyinVideoAsDataUrl } from '../services/douyin-download'
+import { parseDouyinLink } from '../services/douyin'
 import { buildPrompt } from '../services/prompt'
 import { createAppError, isAppError, toApiError } from '../utils/errors'
 import { createRequestId, failure, success } from '../utils/response'
@@ -36,7 +37,8 @@ export default defineEventHandler(async (event) => {
 
     if (mode === 'link') {
       const sourceUrl = validateUrl(field('url'))
-      const downloaded = await downloadDouyinVideoAsDataUrl(sourceUrl, requestId)
+      const parsed = await parseDouyinLink(sourceUrl, requestId)
+      const downloaded = await downloadDouyinVideoAsDataUrl(parsed.videoUrl!, requestId)
       dataUrl = downloaded.dataUrl
       cleanupVideoSource = downloaded.cleanup
     } else {

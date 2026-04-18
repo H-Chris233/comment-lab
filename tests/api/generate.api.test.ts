@@ -1,6 +1,6 @@
 import { createApp, toNodeListener } from 'h3'
 import request from 'supertest'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createAppError } from '../../server/utils/errors'
 
 vi.mock('../../server/services/ai', () => ({
@@ -12,9 +12,19 @@ vi.mock('../../server/services/douyin-download', () => ({
   downloadDouyinVideoAsDataUrl: vi.fn()
 }))
 
+vi.mock('../../server/services/douyin', () => ({
+  parseDouyinLink: vi.fn().mockResolvedValue({ ok: true, videoUrl: 'https://www.douyin.com/video/7626738541439099121' })
+}))
+
 import { generateFromVideoBase64 } from '../../server/services/ai'
 import { downloadDouyinVideoAsDataUrl } from '../../server/services/douyin-download'
+import { parseDouyinLink } from '../../server/services/douyin'
 import generateHandler from '../../server/api/generate.post'
+
+
+beforeEach(() => {
+  vi.mocked(parseDouyinLink).mockResolvedValue({ ok: true, videoUrl: 'https://www.douyin.com/video/7626738541439099121' } as any)
+})
 
 describe('POST /api/generate', () => {
   it('参数缺失时返回 INVALID_INPUT', async () => {
