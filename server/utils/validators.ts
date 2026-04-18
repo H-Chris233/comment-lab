@@ -52,12 +52,9 @@ export function validatePromptLength(basePrompt?: string, extraPrompt?: string) 
   }
 }
 
-function extractFirstHttpUrl(input: string) {
-  const match = input.match(/https?:\/\/[^\s]+/i)
-  if (!match) return null
-
-  // 去掉常见中文标点与括号尾巴
-  return match[0].replace(/[)\]}>」』】）。，！？、;；]+$/g, '')
+function extractHttpUrls(input: string) {
+  const matches = input.match(/https?:\/\/[^\s]+/gi) || []
+  return matches.map((raw) => raw.replace(/[)\]}>」』】）。，！？、;；]+$/g, ''))
 }
 
 export function validateUrl(url?: string): string {
@@ -66,7 +63,13 @@ export function validateUrl(url?: string): string {
     throw createAppError({ code: 'INVALID_INPUT', message: '链接不能为空', statusCode: 400 })
   }
 
-  const candidate = extractFirstHttpUrl(value) || value
+  const urls = extractHttpUrls(value)
+
+  if (urls.length > 1) {
+    throw createAppError({ code: 'INVALID_INPUT', message: '一次仅支持粘贴一个链接', statusCode: 400 })
+  }
+
+  const candidate = urls[0] || value
 
   let parsed: URL
   try {

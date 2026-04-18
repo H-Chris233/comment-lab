@@ -22,6 +22,9 @@ describe('validators', () => {
     const sharedText = '复制打开抖音，看看【道法自然的作品】看似是个小小的水坑 https://v.douyin.com/8_1r_vNADwM/ 05/14 m@D.ho LJV:/'
     expect(validateUrl(sharedText)).toBe('https://v.douyin.com/8_1r_vNADwM/')
 
+    const twoLinks = 'https://v.douyin.com/aaa/ 以及 https://v.douyin.com/bbb/'
+    expect(() => validateUrl(twoLinks)).toThrowError(/一次仅支持粘贴一个链接/)
+
     expect(() => validateUrl('ftp://example.com')).toThrowError(/http\/https/)
   })
 
