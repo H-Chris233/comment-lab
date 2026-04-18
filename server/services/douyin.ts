@@ -26,38 +26,14 @@ export function toCanonicalDouyinVideoUrl(videoId: string) {
   return `https://www.douyin.com/video/${videoId}`
 }
 
-async function resolveShortDouyinUrl(url: string) {
-  let current = url
-
-  for (let i = 0; i < 5; i += 1) {
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 8_000)
-
-    try {
-      const res = await fetch(current, {
-        method: 'GET',
-        redirect: 'manual',
-        signal: controller.signal,
-        headers: {
-          'user-agent': 'Mozilla/5.0 (compatible; CommentLab/1.0)'
-        }
-      })
-
-      const location = res.headers.get('location')
-      if (!location || res.status < 300 || res.status >= 400) {
-        return current
-      }
-
-      current = new URL(location, current).toString()
-    } finally {
-      clearTimeout(timer)
-    }
-  }
-
-  return current
+function getTikHubConfig() {
+  const config = useRuntimeConfig()
+  const baseUrl = (config.tikhubBaseUrl || 'https://api.tikhub.io').toString().replace(/\/+$/, '')
+  const apiKey = (config.tikhubApiKey || '').toString().trim()
+  return { baseUrl, apiKey }
 }
 
-export async function normalizeDouyinVideoUrl(inputUrl: string, requestId?: string) {
+function ensureDouyinHost(inputUrl: string) {
   const validated = validateUrl(inputUrl)
   const parsed = new URL(validated)
 
@@ -69,25 +45,153 @@ export async function normalizeDouyinVideoUrl(inputUrl: string, requestId?: stri
     })
   }
 
-  const directId = extractDouyinVideoId(validated)
-  if (directId) {
-    return toCanonicalDouyinVideoUrl(directId)
+  return validated
+}
+
+function isHttpUrl(value?: unknown) {
+  if (typeof value !== 'string') return false
+  try {
+    const parsed = new URL(value)
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
+function pickFirstUrl(value: unknown): string | undefined {
+  if (typeof value === 'string') return isHttpUrl(value) ? value : undefined
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const url = pickFirstUrl(item)
+      if (url) return url
+    }
+  }
+  return undefined
+}
+
+function getByPath(obj: any, path: string): unknown {
+  return path.split('.').reduce((cur, key) => {
+    if (cur == null) return undefined
+    if (key.endsWith(']')) {
+      const m = key.match(/^([^\[]+)\[(\d+)\]$/)
+      if (!m) return undefined
+      const arr = cur[m[1]]
+      return Array.isArray(arr) ? arr[Number(m[2])] : undefined
+    }
+    return cur[key]
+  }, obj)
+}
+
+function extractVideoUrlFromTikHub(payload: any) {
+  const candidates = [
+    'data.video_url',
+    'data.nwm_video_url',
+    'data.aweme_detail.video.play_addr.url_list[0]',
+    'data.aweme_detail.video.bit_rate[0].play_addr.url_list[0]',
+    'data.aweme_detail.video.play_addr_h264.url_list[0]',
+    'video_url',
+    'nwm_video_url'
+  ]
+
+  for (const path of candidates) {
+    const url = pickFirstUrl(getByPath(payload, path))
+    if (url) return url
   }
 
-  try {
-    const resolved = await resolveShortDouyinUrl(validated)
-    const resolvedId = extractDouyinVideoId(resolved)
+  const serialized = JSON.stringify(payload)
+  const match = serialized.match(/https?:\/\/[^"'\s\\]+(?:\.mp4|video\/tos[^"'\s\\]*)/i)
+  if (match?.[0] && isHttpUrl(match[0])) return match[0]
 
-    if (resolvedId) {
-      return toCanonicalDouyinVideoUrl(resolvedId)
-    }
-  } catch (error) {
-    console.warn('[douyin.normalize] resolve failed', {
-      requestId,
-      host: parsed.hostname,
-      message: error instanceof Error ? error.message : 'unknown'
+  return undefined
+}
+
+function extractTitleFromTikHub(payload: any) {
+  const title = getByPath(payload, 'data.aweme_detail.desc')
+    ?? getByPath(payload, 'data.desc')
+    ?? getByPath(payload, 'data.title')
+  return typeof title === 'string' ? title : undefined
+}
+
+function extractCoverFromTikHub(payload: any) {
+  return pickFirstUrl(
+    getByPath(payload, 'data.aweme_detail.video.cover.url_list')
+    ?? getByPath(payload, 'data.aweme_detail.video.origin_cover.url_list')
+    ?? getByPath(payload, 'data.cover')
+  )
+}
+
+async function callTikHubForDouyinVideo(shareUrl: string, requestId?: string) {
+  const { baseUrl, apiKey } = getTikHubConfig()
+  if (!apiKey) {
+    throw createAppError({
+      code: 'PARSE_LINK_FAILED',
+      message: '链接解析服务未配置，请先配置 TikHub API Key',
+      statusCode: 422
     })
   }
+
+  const endpointTries = [
+    '/api/v1/douyin/web/fetch_one_video_by_share_url',
+    '/api/v1/douyin/app/v3/fetch_one_video_by_share_url',
+    '/api/v1/douyin/app/v2/fetch_one_video_by_share_url'
+  ]
+  const queryKeys = ['url', 'share_url']
+  let lastError = ''
+
+  for (const endpoint of endpointTries) {
+    for (const queryKey of queryKeys) {
+      const apiUrl = new URL(`${baseUrl}${endpoint}`)
+      apiUrl.searchParams.set(queryKey, shareUrl)
+
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), 15_000)
+
+      try {
+        const res = await fetch(apiUrl.toString(), {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            Accept: 'application/json'
+          },
+          signal: controller.signal
+        })
+
+        if (!res.ok) {
+          lastError = `status=${res.status}`
+          continue
+        }
+
+        const json = await res.json().catch(() => null)
+        if (!json || typeof json !== 'object') {
+          lastError = 'invalid_json'
+          continue
+        }
+
+        const videoUrl = extractVideoUrlFromTikHub(json)
+        if (!videoUrl) {
+          lastError = 'video_url_not_found'
+          continue
+        }
+
+        return {
+          videoUrl,
+          title: extractTitleFromTikHub(json),
+          cover: extractCoverFromTikHub(json),
+          raw: json
+        }
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : 'request_error'
+      } finally {
+        clearTimeout(timer)
+      }
+    }
+  }
+
+  console.warn('[douyin.tikhub] fetch failed', {
+    requestId,
+    host: new URL(shareUrl).hostname,
+    lastError
+  })
 
   throw createAppError({
     code: 'PARSE_LINK_FAILED',
@@ -96,21 +200,33 @@ export async function normalizeDouyinVideoUrl(inputUrl: string, requestId?: stri
   })
 }
 
+export async function normalizeDouyinVideoUrl(inputUrl: string) {
+  const validated = ensureDouyinHost(inputUrl)
+  const directId = extractDouyinVideoId(validated)
+  if (directId) return toCanonicalDouyinVideoUrl(directId)
+  return validated
+}
+
+export async function resolveDouyinVideoByTikHub(inputUrl: string, requestId?: string) {
+  const normalized = await normalizeDouyinVideoUrl(inputUrl)
+  return callTikHubForDouyinVideo(normalized, requestId)
+}
+
 export async function parseDouyinLink(url: string, requestId?: string): Promise<ParsedVideoResult> {
-  const canonical = await normalizeDouyinVideoUrl(url, requestId)
+  const resolved = await resolveDouyinVideoByTikHub(url, requestId)
 
   console.info('[douyin.parse]', {
     requestId,
-    host: new URL(canonical).hostname,
-    engine: 'douyin-link-normalizer'
+    host: new URL(resolved.videoUrl).hostname,
+    engine: 'tikhub-douyin-api'
   })
 
   return {
     ok: true,
-    videoUrl: canonical,
-    title: undefined,
-    cover: undefined,
-    raw: undefined
+    videoUrl: resolved.videoUrl,
+    title: resolved.title,
+    cover: resolved.cover,
+    raw: resolved.raw
   }
 }
 

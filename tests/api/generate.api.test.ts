@@ -8,16 +8,11 @@ vi.mock('../../server/services/ai', () => ({
   generateFromVideoUrl: vi.fn()
 }))
 
-vi.mock('../../server/services/douyin-download', () => ({
-  downloadDouyinVideoAsDataUrl: vi.fn()
-}))
-
 vi.mock('../../server/services/douyin', () => ({
   parseDouyinLink: vi.fn().mockResolvedValue({ ok: true, videoUrl: 'https://www.douyin.com/video/7626738541439099121' })
 }))
 
-import { generateFromVideoBase64 } from '../../server/services/ai'
-import { downloadDouyinVideoAsDataUrl } from '../../server/services/douyin-download'
+import { generateFromVideoBase64, generateFromVideoUrl } from '../../server/services/ai'
 import { parseDouyinLink } from '../../server/services/douyin'
 import generateHandler from '../../server/api/generate.post'
 
@@ -145,9 +140,9 @@ describe('POST /api/generate', () => {
     expect(secondCallArgs.stopAfterItems).toBe(60)
   })
 
-  it('link 下载失败时返回 VIDEO_FETCH_FAILED', async () => {
-    vi.mocked(downloadDouyinVideoAsDataUrl).mockRejectedValueOnce(
-      createAppError({ code: 'VIDEO_FETCH_FAILED', message: '链接视频下载失败，请稍后重试或改为上传视频', statusCode: 422 })
+  it('link 解析失败时返回 PARSE_LINK_FAILED', async () => {
+    vi.mocked(parseDouyinLink).mockRejectedValueOnce(
+      createAppError({ code: 'PARSE_LINK_FAILED', message: '链接解析失败，请改为上传视频', statusCode: 422 })
     )
 
     const app = createApp()
@@ -162,17 +157,11 @@ describe('POST /api/generate', () => {
 
     expect(res.status).toBe(422)
     expect(res.body.ok).toBe(false)
-    expect(res.body.code).toBe('VIDEO_FETCH_FAILED')
+    expect(res.body.code).toBe('PARSE_LINK_FAILED')
   })
 
-  it('link 模式默认走 douyin-downloader 下载后以 base64 调模型', async () => {
-    vi.mocked(downloadDouyinVideoAsDataUrl).mockResolvedValueOnce({
-      dataUrl: 'data:video/mp4;base64,AAAA',
-      sourcePath: '/tmp/a.mp4',
-      cleanup: async () => {}
-    } as any)
-
-    vi.mocked(generateFromVideoBase64).mockResolvedValueOnce({
+  it('link 模式直接传视频 URL 调模型', async () => {
+    vi.mocked(generateFromVideoUrl).mockResolvedValueOnce({
       rawText: '第一条\n第二条',
       model: 'qwen3.5-omni-plus',
       streamChunkCount: 2,
@@ -191,8 +180,8 @@ describe('POST /api/generate', () => {
 
     expect(res.status).toBe(200)
     expect(res.body.ok).toBe(true)
-    expect(downloadDouyinVideoAsDataUrl).toHaveBeenCalledTimes(1)
-    expect(generateFromVideoBase64).toHaveBeenCalledTimes(1)
+    expect(generateFromVideoUrl).toHaveBeenCalledTimes(1)
+    expect(generateFromVideoBase64).toHaveBeenCalledTimes(0)
   })
 
   it('模型返回空文本时返回 MODEL_OUTPUT_EMPTY', async () => {

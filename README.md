@@ -22,7 +22,8 @@ npm run dev
 - `ALIYUN_API_KEY`: 阿里云百炼 API Key（仅服务端）
 - `ALIYUN_BASE_URL`: OpenAI 兼容接口地址（需与账号地域一致）
 - `ALIYUN_MODEL`: 默认模型名（建议 `qwen3.5-omni-plus`）
-- `DOUYIN_API_BASE`: 第三方抖音解析服务地址
+- `TIKHUB_API_KEY`: TikHub API Key（抖音解析）
+- `TIKHUB_BASE_URL`: TikHub API 地址（默认 `https://api.tikhub.io`）
 - `MAX_VIDEO_SIZE_MB`: 前端/服务端上传大小限制（默认 100）
 
 ## 限制说明
@@ -66,12 +67,10 @@ E2E_BASE_URL=http://localhost:3000 E2E_VIDEO_FILE=./your-video.mp4 npm run e2e:a
 - 自定义：1 ~ 500
 
 
-## 抖音链接默认链路（已切换）
+## 抖音链接链路
 
-- 默认链接模式使用 `douyin-downloader`（Puppeteer）在服务端拉取视频
-- 下载到私有临时目录（`TEMP_VIDEO_DIR`）后转 Base64 Data URL 送模型
-- 不要求无水印，仅保证可拉取并进入生成链路
-- 生产环境建议预装 Chromium 运行依赖（如 libnss3、fonts 等），保证 Puppeteer 可用
+- 当前链接模式已接入 TikHub（仅抖音 API）
+- 服务端通过 TikHub 解析分享链接并提取视频直链，再直接调用模型
 
 
 ## 默认提示词文件
