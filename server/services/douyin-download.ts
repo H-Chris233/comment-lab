@@ -37,15 +37,19 @@ function getDydlBin() {
 }
 
 function runDydlDownload(url: string, outputDir: string) {
-  return new Promise<void>((resolve, reject) => {
+  return new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
     const bin = getDydlBin()
-    const args = ['video', '-d', outputDir, url]
+    const args = ['video', '-d', outputDir, '--no-subfolders', url]
 
     const child = spawn(bin, args, {
       stdio: ['ignore', 'pipe', 'pipe']
     })
 
+    let stdout = ''
     let stderr = ''
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk.toString()
+    })
     child.stderr.on('data', (chunk) => {
       stderr += chunk.toString()
     })
@@ -55,8 +59,8 @@ function runDydlDownload(url: string, outputDir: string) {
     })
 
     child.on('close', (code) => {
-      if (code === 0) return resolve()
-      reject(new Error(stderr || `dydl exited with ${code}`))
+      if (code === 0) return resolve({ stdout, stderr })
+      reject(new Error(stderr || stdout || `dydl exited with ${code}`))
     })
   })
 }
@@ -108,11 +112,12 @@ export async function downloadDouyinVideoAsDataUrl(url: string, requestId: strin
   let chosenFile = ''
 
   try {
-    await runDydlDownload(safeUrl, workDir)
+    const runResult = await runDydlDownload(safeUrl, workDir)
 
     const found = await pickDownloadedVideoFile(workDir)
     if (!found) {
-      throw new Error('download finished but no video file found')
+      const outputHint = runResult.stdout || runResult.stderr || ''
+      throw new Error(`download finished but no video file found; output=${outputHint.slice(0, 280)}`)
     }
 
     chosenFile = found
