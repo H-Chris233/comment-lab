@@ -1,4 +1,6 @@
-<script setup lang="ts">const props = defineProps<{
+<script setup lang="ts">import { ref } from 'vue'
+
+const props = defineProps<{
   basePrompt: string
   extraPrompt: string
 }>()
@@ -7,6 +9,8 @@ const emit = defineEmits<{
   'update:basePrompt': [string]
   'update:extraPrompt': [string]
 }>()
+
+const showBasePrompt = ref(false)
 </script>
 
 <template>
@@ -17,7 +21,7 @@ const emit = defineEmits<{
     </div>
 
     <div class="form-group">
-      <label class="label">
+      <button class="collapse-btn" @click="showBasePrompt = !showBasePrompt">
         <svg class="label-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke-linecap="round" stroke-linejoin="round"/>
           <polyline points="14 2 14 8 20 8" stroke-linecap="round" stroke-linejoin="round"/>
@@ -25,15 +29,22 @@ const emit = defineEmits<{
           <line x1="16" y1="17" x2="8" y2="17" stroke-linecap="round" stroke-linejoin="round"/>
           <polyline points="10 9 9 9 8 9" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
-        基础提示词模板
-      </label>
-      <textarea
-        :value="props.basePrompt"
-        rows="5"
-        placeholder="输入用于指导 AI 生成评论的基础提示词..."
-        @input="emit('update:basePrompt', ($event.target as HTMLTextAreaElement).value)"
-      />
-      <p class="hint">定义评论生成的基础风格和要求</p>
+        <span>基础提示词模板</span>
+        <svg class="chevron" :class="{ 'rotated': showBasePrompt }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="6 9 12 15 18 9" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
+      <Transition name="collapse">
+        <div v-show="showBasePrompt" class="collapse-content">
+          <textarea
+            :value="props.basePrompt"
+            rows="5"
+            placeholder="输入用于指导 AI 生成评论的基础提示词..."
+            @input="emit('update:basePrompt', ($event.target as HTMLTextAreaElement).value)"
+          />
+          <p class="hint">定义评论生成的基础风格和要求</p>
+        </div>
+      </Transition>
     </div>
 
     <div class="form-group">
@@ -97,6 +108,58 @@ const emit = defineEmits<{
   margin-bottom: 0;
 }
 
+.collapse-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 12px 0;
+  background: transparent;
+  border: none;
+  font-family: 'Open Sans', sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  color: #374151;
+  cursor: pointer;
+  text-align: left;
+}
+
+.collapse-btn:hover {
+  color: #0891B2;
+}
+
+.collapse-btn .chevron {
+  width: 18px;
+  height: 18px;
+  margin-left: auto;
+  transition: transform 200ms ease;
+}
+
+.collapse-btn .chevron.rotated {
+  transform: rotate(180deg);
+}
+
+.collapse-content {
+  overflow: hidden;
+}
+
+.collapse-enter-active,
+.collapse-leave-active {
+  transition: all 200ms ease;
+}
+
+.collapse-enter-from,
+.collapse-leave-to {
+  opacity: 0;
+  max-height: 0;
+}
+
+.collapse-enter-to,
+.collapse-leave-from {
+  opacity: 1;
+  max-height: 500px;
+}
+
 .label {
   display: flex;
   align-items: center;
@@ -135,12 +198,6 @@ textarea::placeholder {
 
 textarea:hover {
   border-color: #94A3B8;
-}
-
-textarea:focus {
-  outline: none;
-  border-color: #0891B2;
-  box-shadow: 0 0 0 3px rgba(8, 145, 178, 0.1);
 }
 
 textarea:focus {
