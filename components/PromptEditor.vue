@@ -11,6 +11,7 @@ const emit = defineEmits<{
 }>()
 
 const showBasePrompt = ref(false)
+const showExtraPrompt = ref(false)
 </script>
 
 <template>
@@ -48,19 +49,26 @@ const showBasePrompt = ref(false)
     </div>
 
     <div class="form-group">
-      <label class="label">
+      <button class="collapse-btn" @click="showExtraPrompt = !showExtraPrompt">
         <svg class="label-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm0 7a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm0 7a1 1 0 1 1 0-2 1 1 0 0 1 0 2z" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
-        附加要求
-      </label>
-      <textarea
-        :value="props.extraPrompt"
-        rows="3"
-        placeholder="添加额外的定制化要求，如特定话题、关键词、语气风格等..."
-        @input="emit('update:extraPrompt', ($event.target as HTMLTextAreaElement).value)"
-      />
-      <p class="hint">针对当前视频的特定要求</p>
+        <span>附加要求</span>
+        <svg class="chevron" :class="{ 'rotated': showExtraPrompt }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="6 9 12 15 18 9" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
+      <Transition name="collapse">
+        <div v-show="showExtraPrompt" class="collapse-content">
+          <textarea
+            :value="props.extraPrompt"
+            rows="3"
+            placeholder="添加额外的定制化要求，如特定话题、关键词、语气风格等..."
+            @input="emit('update:extraPrompt', ($event.target as HTMLTextAreaElement).value)"
+          />
+          <p class="hint">针对当前视频的特定要求</p>
+        </div>
+      </Transition>
     </div>
   </section>
 </template>
@@ -158,17 +166,6 @@ const showBasePrompt = ref(false)
 .collapse-leave-from {
   opacity: 1;
   max-height: 500px;
-}
-
-.label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-family: 'Open Sans', sans-serif;
-  font-size: 14px;
-  font-weight: 600;
-  color: #374151;
-  margin-bottom: 8px;
 }
 
 .label-icon {
