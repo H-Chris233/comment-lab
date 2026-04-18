@@ -73,11 +73,20 @@ async function generateStreamed(params: GenerateBaseParams & { inputKind: 'url' 
   const start = Date.now()
   const fps = params.fps ?? DEFAULT_FPS
   const client = createAliyunClient()
+  console.info('[ai.generate] start', {
+    requestId: params.requestId,
+    model: params.model,
+    inputKind: params.inputKind,
+    fps,
+    stopAfterItems: params.stopAfterItems,
+    promptLength: params.prompt.length
+  })
 
   let streamChunkCount = 0
   let usage: unknown
   let finishReason: string | null = null
   let rawAccumulated = ''
+  let firstChunkLogged = false
 
   try {
     const stream = await client.chat.completions.create({
@@ -105,8 +114,31 @@ async function generateStreamed(params: GenerateBaseParams & { inputKind: 'url' 
         }
       }
 
+      if (!firstChunkLogged) {
+        firstChunkLogged = true
+        console.info('[ai.generate] step:first-chunk', {
+          requestId: params.requestId,
+          streamChunkCount
+        })
+      }
+
+      if (streamChunkCount % 50 === 0) {
+        console.info('[ai.generate] step:stream-progress', {
+          requestId: params.requestId,
+          streamChunkCount,
+          currentTextLength: rawAccumulated.length,
+          currentLineCount: countItemsByLines(rawAccumulated)
+        })
+      }
+
       if (params.stopAfterItems && countItemsByLines(rawAccumulated) >= params.stopAfterItems) {
         finishReason = 'limit_reached'
+        console.info('[ai.generate] step:stop-after-items', {
+          requestId: params.requestId,
+          streamChunkCount,
+          currentLineCount: countItemsByLines(rawAccumulated),
+          stopAfterItems: params.stopAfterItems
+        })
         break
       }
     }
