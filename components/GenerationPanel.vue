@@ -325,6 +325,11 @@ function enableCustomCount() {
   color: #374151;
 }
 
+.segmented-control button,
+.format-toggle button {
+  cursor: pointer;
+}
+
 .checkbox-wrapper input {
   display: none;
 }
@@ -399,12 +404,11 @@ function enableCustomCount() {
 }
 
 .btn-generate:hover:not(:disabled) {
-  transform: translateY(-2px);
   box-shadow: 0 8px 20px rgba(37, 99, 235, 0.3);
 }
 
 .btn-generate:active:not(:disabled) {
-  transform: translateY(0);
+  opacity: 0.9;
 }
 
 .btn-generate:disabled {

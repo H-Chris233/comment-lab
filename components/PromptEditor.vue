@@ -130,11 +130,17 @@ textarea {
 }
 
 textarea::placeholder {
-  color: #94A3B8;
+  color: #64748B;
 }
 
 textarea:hover {
-  border-color: #CBD5E1;
+  border-color: #94A3B8;
+}
+
+textarea:focus {
+  outline: none;
+  border-color: #0891B2;
+  box-shadow: 0 0 0 3px rgba(8, 145, 178, 0.1);
 }
 
 textarea:focus {

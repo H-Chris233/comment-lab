@@ -185,7 +185,7 @@ function onFileChange(event: Event) {
   background: transparent;
   border: none;
   cursor: pointer;
-  transition: all 200ms ease;
+  transition: color 200ms ease, background-color 200ms ease, box-shadow 200ms ease;
 }
 
 .tab-btn:hover {
@@ -237,7 +237,7 @@ input[type="text"] {
 }
 
 input[type="text"]::placeholder {
-  color: #94A3B8;
+  color: #64748B;
 }
 
 input[type="text"]:hover {
@@ -272,12 +272,11 @@ input[type="text"]:focus {
 }
 
 .btn-primary:hover:not(:disabled) {
-  transform: translateY(-1px);
   box-shadow: 0 4px 12px rgba(8, 145, 178, 0.3);
 }
 
 .btn-primary:active:not(:disabled) {
-  transform: translateY(0);
+  opacity: 0.9;
 }
 
 .btn:disabled {

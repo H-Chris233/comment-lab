@@ -376,7 +376,8 @@ body {
 button:focus-visible,
 input:focus-visible,
 textarea:focus-visible {
-  outline: none;
+  outline: 2px solid #0891B2;
+  outline-offset: 2px;
 }
 
 /* Reduced Motion */

@@ -318,7 +318,7 @@ const loadingText = computed(() => {
 
 .toast {
   position: fixed;
-  top: 20px;
+  bottom: 20px;
   left: 50%;
   transform: translateX(-50%);
   display: flex;
@@ -371,7 +371,7 @@ const loadingText = computed(() => {
 .meta-label {
   font-family: 'Open Sans', sans-serif;
   font-size: 12px;
-  color: #94A3B8;
+  color: #64748B;
 }
 
 .meta-value {
@@ -407,6 +407,10 @@ const loadingText = computed(() => {
   display: flex;
   align-items: center;
   gap: 10px;
+  cursor: pointer;
+}
+
+.action-btn {
   cursor: pointer;
 }
 
@@ -529,9 +533,9 @@ const loadingText = computed(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 6px;
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
   border: none;
   background: transparent;
   color: #94A3B8;
