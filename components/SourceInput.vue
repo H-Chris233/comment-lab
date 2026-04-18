@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { ref } from 'vue'
+
 const props = defineProps<{
   mode: 'link' | 'upload'
   url: string
@@ -19,6 +21,7 @@ const emit = defineEmits<{
 }>()
 
 const allowedTypes = ['video/mp4', 'video/quicktime', 'video/webm']
+const fileInputRef = ref<HTMLInputElement | null>(null)
 
 function onFileChange(event: Event) {
   const input = event.target as HTMLInputElement
@@ -45,6 +48,12 @@ function onFileChange(event: Event) {
 
   emit('file-error', '')
   emit('update:file', file)
+}
+
+function clearSelectedFile() {
+  emit('update:file', null)
+  emit('file-error', '')
+  if (fileInputRef.value) fileInputRef.value.value = ''
 }
 </script>
 
@@ -108,6 +117,7 @@ function onFileChange(event: Event) {
     <div v-else class="input-group">
       <div class="file-upload" :class="{ 'has-file': props.fileName }">
         <input
+          ref="fileInputRef"
           type="file"
           accept="video/mp4,video/quicktime,video/webm"
           @change="onFileChange"
@@ -133,7 +143,7 @@ function onFileChange(event: Event) {
             <p class="file-specs">{{ props.fileSize }} · {{ props.fileType }}</p>
           </div>
         </div>
-        <button class="btn-icon" @click="emit('update:file', null)">
+        <button class="btn-icon" @click="clearSelectedFile">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <line x1="18" y1="6" x2="6" y2="18" stroke-linecap="round" stroke-linejoin="round"/>
             <line x1="6" y1="6" x2="18" y2="18" stroke-linecap="round" stroke-linejoin="round"/>

@@ -1,7 +1,8 @@
 import type { ApiError, ApiSuccess } from '../../types/api'
+import { randomUUID } from 'node:crypto'
 
 export function createRequestId() {
-  return `req_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
+  return `req_${Date.now()}_${randomUUID().slice(0, 8)}`
 }
 
 export function success<T>(data: T, requestId: string): ApiSuccess<T> {

@@ -169,7 +169,14 @@ export async function downloadVideoUrlAsDataUrl(params: {
   await fs.mkdir(workDir, { recursive: true })
 
   const filePath = path.join(workDir, `video.${guessExtByMime(fetched.mime)}`)
-  const base64 = fetched.dataUrl.split(',')[1] || ''
+  const base64 = fetched.dataUrl.split(',')[1]
+  if (!base64) {
+    throw createAppError({
+      code: 'VIDEO_FETCH_FAILED',
+      message: '视频内容格式异常，请稍后重试',
+      statusCode: 422
+    })
+  }
   const buffer = Buffer.from(base64, 'base64')
   await fs.writeFile(filePath, buffer)
 

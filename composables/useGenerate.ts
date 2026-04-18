@@ -1,5 +1,46 @@
 import type { ApiError, GenerateRequestPayload, GenerateResponse, ParseLinkResponse } from '~/types/api'
 
+type StreamEvent = {
+  event: string
+  data: any
+}
+
+function parseSseEvents(chunk: string): StreamEvent[] {
+  const events: StreamEvent[] = []
+  const blocks = chunk.replace(/\r/g, '').split('\n\n').filter(Boolean)
+
+  for (const block of blocks) {
+    const lines = block.split('\n')
+    let event = 'message'
+    const dataLines: string[] = []
+
+    for (const line of lines) {
+      if (line.startsWith('event:')) {
+        event = line.slice(6).trim()
+      } else if (line.startsWith('data:')) {
+        dataLines.push(line.slice(5).trim())
+      }
+    }
+
+    if (!dataLines.length) continue
+    const raw = dataLines.join('\n')
+
+    try {
+      events.push({ event, data: JSON.parse(raw) })
+    } catch (error) {
+      if (import.meta.dev) {
+        console.warn('[useGenerate] failed to parse SSE event payload', {
+          event,
+          rawPreview: raw.slice(0, 200),
+          message: error instanceof Error ? error.message : 'unknown'
+        })
+      }
+    }
+  }
+
+  return events
+}
+
 export function useGenerate() {
   const parsing = ref(false)
   const generating = ref(false)
@@ -14,6 +55,7 @@ export function useGenerate() {
   const beforeNormalizeCount = ref(0)
   const afterNormalizeCount = ref(0)
   const model = ref('')
+  const abortController = ref<AbortController | null>(null)
 
   const lastPayload = ref<GenerateRequestPayload & { file?: File | null } | null>(null)
 
@@ -107,8 +149,15 @@ export function useGenerate() {
     generating.value = true
     error.value = ''
     errorCode.value = ''
+    comments.value = []
+    rawText.value = ''
+    requestedCount.value = payload.count
+    beforeNormalizeCount.value = 0
+    afterNormalizeCount.value = 0
+    finalCount.value = 0
 
     try {
+      abortController.value = new AbortController()
       const form = new FormData()
       form.append('mode', payload.mode)
       if (payload.url) form.append('url', payload.url)
@@ -119,31 +168,112 @@ export function useGenerate() {
       form.append('dedupe', String(payload.dedupe ?? true))
       form.append('cleanEmpty', String(payload.cleanEmpty ?? true))
 
-      const res = await $fetch<GenerateResponse>('/api/generate', {
+      const response = await fetch('/api/generate?stream=1', {
         method: 'POST',
-        body: form
+        headers: {
+          Accept: 'text/event-stream'
+        },
+        body: form,
+        signal: abortController.value.signal
       })
 
-      requestId.value = res.requestId
-
-      if (!res.ok) {
-        error.value = res.message
-        errorCode.value = res.code
-        if (res.data?.rawText && typeof res.data.rawText === 'string') rawText.value = res.data.rawText
-        return res
+      if (!response.ok && !response.body) {
+        throw new Error(`HTTP ${response.status}`)
       }
 
-      comments.value = res.data.comments
-      rawText.value = res.data.rawText
-      requestedCount.value = res.data.requestedCount
-      finalCount.value = res.data.finalCount
-      beforeNormalizeCount.value = res.data.beforeNormalizeCount
-      afterNormalizeCount.value = res.data.afterNormalizeCount
-      model.value = res.data.model
+      if (!response.body) {
+        throw new Error('stream body is empty')
+      }
+
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let doneResponse: GenerateResponse | null = null
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+
+        const boundary = buffer.lastIndexOf('\n\n')
+        if (boundary === -1) continue
+
+        const completed = buffer.slice(0, boundary)
+        buffer = buffer.slice(boundary + 2)
+
+        const events = parseSseEvents(completed)
+
+        for (const evt of events) {
+          if (evt.event === 'meta') {
+            requestId.value = evt.data?.requestId || requestId.value
+            requestedCount.value = Number(evt.data?.requestedCount || 0)
+            model.value = evt.data?.model || model.value
+          }
+
+          if (evt.event === 'partial') {
+            if (Array.isArray(evt.data?.comments)) comments.value = evt.data.comments
+            if (typeof evt.data?.rawText === 'string') rawText.value = evt.data.rawText
+            beforeNormalizeCount.value = Number(evt.data?.beforeNormalizeCount || 0)
+            afterNormalizeCount.value = Number(evt.data?.afterNormalizeCount || comments.value.length)
+            finalCount.value = Number(evt.data?.finalCount || comments.value.length)
+          }
+
+          if (evt.event === 'done') {
+            doneResponse = evt.data as GenerateResponse
+          }
+
+          if (evt.event === 'error') {
+            doneResponse = evt.data as ApiError
+          }
+        }
+      }
+
+      // flush trailing fragment
+      if (buffer.trim()) {
+        const events = parseSseEvents(buffer)
+        for (const evt of events) {
+          if (evt.event === 'done' || evt.event === 'error') {
+            doneResponse = evt.data as GenerateResponse
+          }
+        }
+      }
+
+      if (!doneResponse) {
+        throw new Error('流式响应未返回完成事件')
+      }
+
+      requestId.value = doneResponse.requestId || requestId.value
+
+      if (!doneResponse.ok) {
+        error.value = doneResponse.message
+        errorCode.value = doneResponse.code
+        if (doneResponse.data?.rawText && typeof doneResponse.data.rawText === 'string') rawText.value = doneResponse.data.rawText
+        return doneResponse
+      }
+
+      comments.value = doneResponse.data.comments
+      rawText.value = doneResponse.data.rawText
+      requestedCount.value = doneResponse.data.requestedCount
+      finalCount.value = doneResponse.data.finalCount
+      beforeNormalizeCount.value = doneResponse.data.beforeNormalizeCount
+      afterNormalizeCount.value = doneResponse.data.afterNormalizeCount
+      model.value = doneResponse.data.model
       lastPayload.value = payload
 
-      return res
+      return doneResponse
     } catch (e) {
+      if ((e as any)?.name === 'AbortError') {
+        error.value = '已取消本次生成'
+        errorCode.value = 'REQUEST_ABORTED'
+        return {
+          ok: false,
+          code: errorCode.value,
+          message: error.value,
+          requestId: requestId.value
+        }
+      }
+
       const mapped = toApiErrorLike(e)
       error.value = mapped.message
       errorCode.value = mapped.code
@@ -156,8 +286,14 @@ export function useGenerate() {
         requestId: mapped.requestId || requestId.value
       }
     } finally {
+      abortController.value = null
       generating.value = false
     }
+  }
+
+  function cancelGenerate() {
+    if (!abortController.value) return
+    abortController.value.abort()
   }
 
   async function regenerate() {
@@ -188,6 +324,7 @@ export function useGenerate() {
     model,
     parseLink,
     generate,
-    regenerate
+    regenerate,
+    cancelGenerate
   }
 }

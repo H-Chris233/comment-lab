@@ -32,6 +32,7 @@ const {
   parseLink,
   generate,
   regenerate,
+  cancelGenerate,
   requestedCount,
   finalCount,
   beforeNormalizeCount,
@@ -111,6 +112,10 @@ async function handleGenerate() {
 
 async function handleRegenerate() {
   await regenerate()
+}
+
+function handleCancelGenerate() {
+  cancelGenerate()
 }
 
 async function handleCopyAll() {
@@ -193,6 +198,8 @@ function handleFileError(msg: string) {
           :loading="isLoading"
           :generating="generating"
           :parsing="parsing"
+          :requested-count="requestedCount"
+          :final-count="finalCount"
           :before-count="beforeNormalizeCount"
           :after-count="afterNormalizeCount"
           :model="model"
@@ -206,6 +213,7 @@ function handleFileError(msg: string) {
           @export-txt="exportTxt(comments)"
           @export-csv="exportCsv(comments)"
           @regenerate="handleRegenerate"
+          @cancel="handleCancelGenerate"
         />
       </div>
     </main>

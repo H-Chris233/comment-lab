@@ -1,3 +1,5 @@
+import type { ApiError, GenerateResultData } from '../../types/api'
+import { getQuery, getRequestHeader, setResponseHeaders } from 'h3'
 import { DEFAULT_MODEL } from '../../types/prompt'
 import { generateFromVideoBase64 } from '../services/ai'
 import { ALLOWED_VIDEO_MIME_TYPES, downloadVideoUrlAsDataUrl, fileToBase64DataUrl, getMaxVideoBytes, readMultipart } from '../services/file'
@@ -10,11 +12,97 @@ import { parseBoolean, validateCount, validateMode, validatePromptLength, valida
 
 const MAX_ITEMS_PER_MODEL_CALL = 60
 
+type RunOutcome =
+  | { ok: true; data: GenerateResultData }
+  | { ok: false; code: string; message: string; statusCode: number; data?: Record<string, unknown> }
+
+type SseWriter = {
+  send: (eventName: string, payload: unknown) => void
+  close: () => void
+}
+
+function ensureParsedVideoUrl(parsed: { videoUrl?: string }) {
+  if (!parsed.videoUrl) {
+    throw createAppError({
+      code: 'PARSE_LINK_FAILED',
+      message: '链接解析失败，请改为上传视频',
+      statusCode: 422
+    })
+  }
+  return parsed.videoUrl
+}
+
+function isSseRequest(event: any) {
+  const accept = getRequestHeader(event, 'accept') || ''
+  const query = getQuery(event)
+  const streamQuery = String(query.stream || '')
+  return accept.includes('text/event-stream') || streamQuery === '1' || streamQuery.toLowerCase() === 'true'
+}
+
+function createSseWriter(event: any): SseWriter {
+  setResponseStatus(event, 200)
+  setResponseHeaders(event, {
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no'
+  })
+
+  const res = event.node.res
+  res.flushHeaders?.()
+
+  return {
+    send(eventName, payload) {
+      if (res.writableEnded || res.destroyed) return
+      res.write(`event: ${eventName}\n`)
+      res.write(`data: ${JSON.stringify(payload)}\n\n`)
+    },
+    close() {
+      if (res.writableEnded || res.destroyed) return
+      res.end()
+    }
+  }
+}
+
 export default defineEventHandler(async (event) => {
   const requestId = createRequestId()
+  const streamMode = isSseRequest(event)
+  const sse = streamMode ? createSseWriter(event) : null
+  const abortController = new AbortController()
+  let clientDisconnected = false
 
-  try {
-    console.info('[api.generate] start', { requestId })
+  event.node.req.on('aborted', () => {
+    clientDisconnected = true
+    abortController.abort()
+    console.warn('[api.generate] client aborted', { requestId })
+  })
+
+  event.node.res.on('close', () => {
+    if (clientDisconnected || event.node.res.writableEnded) return
+    clientDisconnected = true
+    abortController.abort()
+    console.warn('[api.generate] response closed before completion', { requestId })
+  })
+
+  const emitProgress = (eventName: string, payload: unknown) => {
+    if (!sse || clientDisconnected) return
+    sse.send(eventName, payload)
+  }
+
+  const ensureClientConnected = (step: string) => {
+    if (!clientDisconnected) return
+    console.warn('[api.generate] stop:client-disconnected', { requestId, step })
+    throw createAppError({
+      code: 'CLIENT_ABORTED',
+      message: '客户端已断开连接',
+      statusCode: 499,
+      expose: false
+    })
+  }
+
+  const executeGenerate = async (): Promise<RunOutcome> => {
+    console.info('[api.generate] start', { requestId, streamMode })
+    ensureClientConnected('start')
 
     // 1) 解析 form-data
     const form = await readMultipart(event)
@@ -45,6 +133,14 @@ export default defineEventHandler(async (event) => {
       model
     })
 
+    emitProgress('meta', {
+      requestId,
+      mode,
+      requestedCount: count,
+      model
+    })
+    ensureClientConnected('after-meta')
+
     // 3) 获取视频输入源
     let dataUrl = ''
     let cleanupVideoSource: null | (() => Promise<void>) = null
@@ -57,8 +153,9 @@ export default defineEventHandler(async (event) => {
       })
       let parsed = await parseDouyinLink(sourceUrl, requestId)
       try {
+        const parsedVideoUrl = ensureParsedVideoUrl(parsed)
         const downloaded = await downloadVideoUrlAsDataUrl({
-          videoUrl: parsed.videoUrl!,
+          videoUrl: parsedVideoUrl,
           requestId,
           maxBytes: getMaxVideoBytes()
         })
@@ -66,7 +163,7 @@ export default defineEventHandler(async (event) => {
         cleanupVideoSource = downloaded.cleanup
         console.info('[api.generate] step:link-parse:ok', {
           requestId,
-          parsedHost: new URL(parsed.videoUrl!).hostname,
+          parsedHost: new URL(parsedVideoUrl).hostname,
           hasTitle: Boolean(parsed.title),
           hasCover: Boolean(parsed.cover),
           downloadedBytes: downloaded.bytes
@@ -80,8 +177,9 @@ export default defineEventHandler(async (event) => {
         })
 
         parsed = await parseDouyinLink(sourceUrl, requestId)
+        const parsedVideoUrl = ensureParsedVideoUrl(parsed)
         const downloaded = await downloadVideoUrlAsDataUrl({
-          videoUrl: parsed.videoUrl!,
+          videoUrl: parsedVideoUrl,
           requestId,
           maxBytes: getMaxVideoBytes()
         })
@@ -89,7 +187,7 @@ export default defineEventHandler(async (event) => {
         cleanupVideoSource = downloaded.cleanup
         console.info('[api.generate] step:link-download-retry-ok', {
           requestId,
-          parsedHost: new URL(parsed.videoUrl!).hostname,
+          parsedHost: new URL(parsedVideoUrl).hostname,
           downloadedBytes: downloaded.bytes
         })
       }
@@ -115,30 +213,40 @@ export default defineEventHandler(async (event) => {
 
     try {
       for (let round = 1; round <= maxRounds; round += 1) {
+        ensureClientConnected(`round-${round}-start`)
         if (finalComments.length >= count) break
 
-      const remaining = count - finalComments.length
-      const roundTarget = Math.min(remaining, MAX_ITEMS_PER_MODEL_CALL)
-      const promptTarget = MAX_ITEMS_PER_MODEL_CALL
-      console.info('[api.generate] step:round:start', {
-        requestId,
-        round,
-        maxRounds,
-        currentCount: finalComments.length,
-        remaining,
-        roundTarget,
-        promptTarget
-      })
+        const remaining = count - finalComments.length
+        const roundTarget = Math.min(remaining, MAX_ITEMS_PER_MODEL_CALL)
+        const promptTarget = MAX_ITEMS_PER_MODEL_CALL
+        console.info('[api.generate] step:round:start', {
+          requestId,
+          round,
+          maxRounds,
+          currentCount: finalComments.length,
+          remaining,
+          roundTarget,
+          promptTarget
+        })
+
+        emitProgress('round', {
+          requestId,
+          round,
+          maxRounds,
+          currentCount: finalComments.length,
+          remaining,
+          roundTarget,
+          promptTarget
+        })
 
         const prompt = buildPrompt({
-        basePrompt: promptData.basePrompt,
-        extraPrompt: [
-          promptData.extraPrompt,
-          `这是第 ${round} 轮生成，本轮最多输出 ${MAX_ITEMS_PER_MODEL_CALL} 条，达到后立即停止。`,
-          finalComments.length ? '避免与前文重复评论。' : ''
-        ].filter(Boolean).join('\n'),
-        count: promptTarget
-      })
+          basePrompt: promptData.basePrompt,
+          extraPrompt: [
+            promptData.extraPrompt,
+            `这是第 ${round} 轮生成，本轮最多输出 ${MAX_ITEMS_PER_MODEL_CALL} 条，达到后立即停止。`,
+            finalComments.length ? '避免与前文重复评论。' : ''
+          ].filter(Boolean).join('\n')
+        })
 
         const aiResult = await generateFromVideoBase64({
           model,
@@ -146,8 +254,10 @@ export default defineEventHandler(async (event) => {
           dataUrl,
           requestId,
           fps: 1,
-          stopAfterItems: MAX_ITEMS_PER_MODEL_CALL
+          stopAfterItems: MAX_ITEMS_PER_MODEL_CALL,
+          signal: abortController.signal
         })
+        ensureClientConnected(`round-${round}-after-ai`)
 
         console.info('[api.generate] step:round:ai-ok', {
           requestId,
@@ -194,6 +304,17 @@ export default defineEventHandler(async (event) => {
           totalCount: finalComments.length
         })
 
+        emitProgress('partial', {
+          requestId,
+          round,
+          comments: finalComments.slice(0, count),
+          finalCount: finalComments.length,
+          beforeNormalizeCount,
+          afterNormalizeCount: Math.min(finalComments.length, count),
+          rawText: rawTextCombined
+        })
+        ensureClientConnected(`round-${round}-after-partial`)
+
         // 本轮没有新增，避免无意义重试
         if (finalComments.length === beforeLen) {
           console.warn('[api.generate] step:round:stopped-no-growth', {
@@ -209,6 +330,7 @@ export default defineEventHandler(async (event) => {
     }
 
     const trimmedComments = finalComments.slice(0, count)
+    ensureClientConnected('post-process')
     console.info('[api.generate] step:post-process', {
       requestId,
       requestedCount: count,
@@ -232,11 +354,12 @@ export default defineEventHandler(async (event) => {
         finalCount: trimmedComments.length,
         threshold: Math.ceil(count * 0.6)
       })
-      setResponseStatus(event, 422)
-      return failure({
+
+      return {
+        ok: false,
         code: 'MODEL_OUTPUT_INSUFFICIENT',
         message: '模型输出条数不足，请重试或调整提示词',
-        requestId,
+        statusCode: 422,
         data: {
           rawText: rawTextCombined,
           requestedCount: count,
@@ -245,7 +368,7 @@ export default defineEventHandler(async (event) => {
           afterNormalizeCount: trimmedComments.length,
           model
         }
-      })
+      }
     }
 
     console.info('[api.generate] success', {
@@ -255,15 +378,50 @@ export default defineEventHandler(async (event) => {
       model
     })
 
-    return success({
-      comments: trimmedComments,
-      rawText: rawTextCombined,
-      requestedCount: count,
-      finalCount: trimmedComments.length,
-      beforeNormalizeCount,
-      afterNormalizeCount: trimmedComments.length,
-      model
-    }, requestId)
+    return {
+      ok: true,
+      data: {
+        comments: trimmedComments,
+        rawText: rawTextCombined,
+        requestedCount: count,
+        finalCount: trimmedComments.length,
+        beforeNormalizeCount,
+        afterNormalizeCount: trimmedComments.length,
+        model
+      }
+    }
+  }
+
+  try {
+    const outcome = await executeGenerate()
+
+    if (streamMode && sse) {
+      if (clientDisconnected) return
+      if (outcome.ok) {
+        sse.send('done', success(outcome.data, requestId))
+      } else {
+        sse.send('error', failure({
+          code: outcome.code,
+          message: outcome.message,
+          requestId,
+          data: outcome.data
+        }))
+      }
+      sse.close()
+      return
+    }
+
+    if (!outcome.ok) {
+      setResponseStatus(event, outcome.statusCode)
+      return failure({
+        code: outcome.code,
+        message: outcome.message,
+        requestId,
+        data: outcome.data
+      })
+    }
+
+    return success(outcome.data, requestId)
   } catch (error) {
     console.error('[api.generate] failed', {
       requestId,
@@ -277,6 +435,17 @@ export default defineEventHandler(async (event) => {
       message: '模型调用失败，请稍后重试',
       statusCode: 502
     })
+
+    if (streamMode && sse) {
+      if (clientDisconnected || (error as any)?.code === 'CLIENT_ABORTED') return
+      sse.send('error', failure({
+        code: mapped.code,
+        message: mapped.message,
+        requestId: mapped.requestId
+      }))
+      sse.close()
+      return
+    }
 
     if (isAppError(error) && error.code === 'INVALID_INPUT') setResponseStatus(event, 400)
     else setResponseStatus(event, mapped.statusCode || 500)

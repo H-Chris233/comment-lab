@@ -9,6 +9,7 @@ type GenerateBaseParams = {
   requestId: string
   fps?: number
   stopAfterItems?: number
+  signal?: AbortSignal
 }
 
 export interface GenerateAiResult {
@@ -94,7 +95,8 @@ async function generateStreamed(params: GenerateBaseParams & { inputKind: 'url' 
       stream: true,
       modalities: ['text'],
       stream_options: { include_usage: true },
-      messages: buildMessages(params.prompt, params.videoSource, fps)
+      messages: buildMessages(params.prompt, params.videoSource, fps),
+      signal: params.signal
     } as any)
 
     for await (const chunk of stream as any) {
@@ -143,6 +145,15 @@ async function generateStreamed(params: GenerateBaseParams & { inputKind: 'url' 
       }
     }
   } catch (error) {
+    if ((error as any)?.name === 'AbortError') {
+      throw createAppError({
+        code: 'CLIENT_ABORTED',
+        message: '客户端已取消本次生成',
+        statusCode: 499,
+        expose: false
+      })
+    }
+
     throw createAppError({
       code: 'MODEL_CALL_FAILED',
       message: error instanceof Error ? error.message : '模型调用失败',
@@ -187,6 +198,7 @@ export async function generateFromVideoUrl(params: {
   requestId: string
   fps?: number
   stopAfterItems?: number
+  signal?: AbortSignal
 }) {
   return generateStreamed({
     model: params.model,
@@ -195,7 +207,8 @@ export async function generateFromVideoUrl(params: {
     requestId: params.requestId,
     fps: params.fps,
     inputKind: 'url',
-    stopAfterItems: params.stopAfterItems
+    stopAfterItems: params.stopAfterItems,
+    signal: params.signal
   })
 }
 
@@ -206,6 +219,7 @@ export async function generateFromVideoBase64(params: {
   requestId: string
   fps?: number
   stopAfterItems?: number
+  signal?: AbortSignal
 }) {
   return generateStreamed({
     model: params.model,
@@ -214,6 +228,7 @@ export async function generateFromVideoBase64(params: {
     requestId: params.requestId,
     fps: params.fps,
     inputKind: 'base64',
-    stopAfterItems: params.stopAfterItems
+    stopAfterItems: params.stopAfterItems,
+    signal: params.signal
   })
 }

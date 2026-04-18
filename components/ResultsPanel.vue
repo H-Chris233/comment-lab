@@ -6,6 +6,8 @@ const props = defineProps<{
   loading: boolean
   generating: boolean
   parsing: boolean
+  requestedCount: number
+  finalCount: number
   beforeCount: number
   afterCount: number
   model: string
@@ -24,6 +26,7 @@ const emit = defineEmits<{
   exportTxt: []
   exportCsv: []
   regenerate: []
+  cancel: []
 }>()
 
 function formatNumber(n: number): string {
@@ -31,9 +34,26 @@ function formatNumber(n: number): string {
 }
 
 const hasComments = computed(() => props.comments.length > 0)
+const keyedComments = computed(() => {
+  const seen = new Map<string, number>()
+
+  return props.comments.map((text) => {
+    const next = (seen.get(text) || 0) + 1
+    seen.set(text, next)
+    return {
+      text,
+      key: `${props.requestId || 'no-req'}::${text}::${next}`
+    }
+  })
+})
+const progressRatio = computed(() => {
+  if (!props.requestedCount) return 0
+  return Math.max(0, Math.min(1, props.finalCount / props.requestedCount))
+})
+const progressPercent = computed(() => Math.round(progressRatio.value * 100))
 const loadingText = computed(() => {
   if (props.parsing) return '正在解析视频链接...'
-  if (props.generating) return 'AI 正在生成评论...'
+  if (props.generating) return `AI 正在生成评论... ${progressPercent.value}%`
   return ''
 })
 </script>
@@ -88,6 +108,16 @@ const loadingText = computed(() => {
           <span v-if="!generating">重新生成</span>
           <span v-else>生成中...</span>
         </button>
+        <button
+          v-if="generating"
+          class="action-btn action-btn-danger"
+          @click="emit('cancel')"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="6" y="6" width="12" height="12" rx="2" ry="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span>中断生成</span>
+        </button>
       </div>
     </div>
 
@@ -97,6 +127,12 @@ const loadingText = computed(() => {
         <div v-for="i in 3" :key="i" class="loading-dot" :style="{ animationDelay: `${(i - 1) * 0.15}s` }" />
       </div>
       <p class="loading-text">{{ loadingText }}</p>
+      <div v-if="generating && requestedCount > 0" class="progress-wrap">
+        <div class="progress-track">
+          <div class="progress-fill" :style="{ width: `${progressPercent}%` }" />
+        </div>
+        <p class="progress-text">{{ finalCount }} / {{ requestedCount }}</p>
+      </div>
     </div>
 
     <!-- Success Toast -->
@@ -119,6 +155,11 @@ const loadingText = computed(() => {
       <div class="meta-item">
         <span class="meta-label">清洗后</span>
         <span class="meta-value">{{ formatNumber(afterCount) }}</span>
+      </div>
+      <div class="meta-divider" />
+      <div class="meta-item">
+        <span class="meta-label">进度</span>
+        <span class="meta-value">{{ finalCount }}/{{ requestedCount || comments.length }}</span>
       </div>
       <div v-if="model" class="meta-divider" />
       <div v-if="model" class="meta-item">
@@ -144,16 +185,16 @@ const loadingText = computed(() => {
     <pre v-if="showRawDebug" class="raw-output"><code>{{ rawText }}</code></pre>
 
     <!-- Comments List -->
-    <TransitionGroup v-if="!loading" name="list" tag="ul" class="comments-list">
+    <TransitionGroup v-if="hasComments" name="list" tag="ul" class="comments-list">
       <li
-        v-for="(comment, index) in comments"
-        :key="`${index}-${comment}`"
+        v-for="(item, index) in keyedComments"
+        :key="item.key"
         class="comment-item"
       >
         <span class="comment-number">{{ index + 1 }}</span>
-        <p class="comment-text">{{ comment }}</p>
+        <p class="comment-text">{{ item.text }}</p>
         <div class="item-actions">
-          <button class="item-btn" @click="emit('copyOne', comment)" title="复制">
+          <button class="item-btn" @click="emit('copyOne', item.text)" title="复制">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <rect x="9" y="9" width="13" height="13" rx="2" ry="2" stroke-linecap="round" stroke-linejoin="round"/>
               <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" stroke-linecap="round" stroke-linejoin="round"/>
@@ -276,6 +317,16 @@ const loadingText = computed(() => {
   background: #E2E8F0;
 }
 
+.action-btn-danger {
+  background: #FEE2E2;
+  border-color: #FECACA;
+  color: #B91C1C;
+}
+
+.action-btn-danger:hover:not(:disabled) {
+  background: #FECACA;
+}
+
 .loading-state {
   display: flex;
   flex-direction: column;
@@ -314,6 +365,33 @@ const loadingText = computed(() => {
   font-size: 15px;
   color: #64748B;
   margin: 0;
+}
+
+.progress-wrap {
+  width: min(420px, 100%);
+  margin-top: 14px;
+}
+
+.progress-track {
+  width: 100%;
+  height: 8px;
+  border-radius: 999px;
+  background: #E2E8F0;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #06B6D4, #0EA5E9);
+  transition: width 220ms ease;
+}
+
+.progress-text {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #64748B;
+  text-align: center;
 }
 
 .toast {
