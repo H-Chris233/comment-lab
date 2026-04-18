@@ -82,22 +82,3 @@ function normalizeFromLines(originalLines: string[], options?: NormalizeOptions)
 export function normalizeComments(raw: string, options?: NormalizeOptions): NormalizeResult {
   return normalizeFromLines(raw.split(/\r?\n/), options)
 }
-
-export function normalizeCommentItems(items: string[], options?: NormalizeOptions): NormalizeResult {
-  return normalizeFromLines(items, options)
-}
-
-export function parseJsonComments(raw: string): string[] | null {
-  try {
-    const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return null
-
-    const items = parsed
-      .filter((item) => typeof item === 'string' || typeof item === 'number')
-      .map((item) => String(item))
-
-    return items.length ? items : null
-  } catch {
-    return null
-  }
-}

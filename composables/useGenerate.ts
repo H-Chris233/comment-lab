@@ -17,6 +17,63 @@ export function useGenerate() {
 
   const lastPayload = ref<GenerateRequestPayload & { file?: File | null } | null>(null)
 
+  function toApiErrorLike(error: unknown): ApiError {
+    const fallback: ApiError = {
+      ok: false,
+      code: 'NETWORK_ERROR',
+      message: '请求失败，请检查网络后重试',
+      requestId: requestId.value
+    }
+
+    if (!error || typeof error !== 'object') return fallback
+
+    const e = error as {
+      data?: Partial<ApiError>
+      response?: { _data?: Partial<ApiError> }
+      status?: number
+      statusCode?: number
+      message?: string
+    }
+
+    const payload = e.data || e.response?._data
+    if (payload?.ok === false && payload.code && payload.message) {
+      return {
+        ok: false,
+        code: payload.code,
+        message: payload.message,
+        requestId: payload.requestId || requestId.value,
+        data: payload.data
+      }
+    }
+
+    const status = e.statusCode || e.status
+    if (status === 504 || status === 524) {
+      return {
+        ok: false,
+        code: 'REQUEST_TIMEOUT',
+        message: '请求超时（后端可能仍在处理中），请稍后重试并减少生成数量',
+        requestId: requestId.value
+      }
+    }
+
+    const msg = e.message || ''
+    if (/aborted|timeout|timed out|fetch failed|network/i.test(msg)) {
+      return {
+        ok: false,
+        code: 'REQUEST_TIMEOUT',
+        message: '请求超时或网络中断，请重试',
+        requestId: requestId.value
+      }
+    }
+
+    return {
+      ok: false,
+      code: fallback.code,
+      message: fallback.message,
+      requestId: requestId.value
+    }
+  }
+
   async function parseLink(url: string): Promise<ParseLinkResponse> {
     parsing.value = true
     try {
@@ -25,11 +82,12 @@ export function useGenerate() {
         body: { url }
       })
     } catch (e) {
+      const mapped = toApiErrorLike(e)
       return {
         ok: false,
-        code: 'PARSE_LINK_FAILED',
-        message: e instanceof Error ? e.message : '链接解析失败，请改为上传视频',
-        requestId: ''
+        code: mapped.code || 'PARSE_LINK_FAILED',
+        message: mapped.message || '链接解析失败，请稍后重试',
+        requestId: mapped.requestId || ''
       }
     } finally {
       parsing.value = false
@@ -58,7 +116,6 @@ export function useGenerate() {
       form.append('count', String(payload.count))
       form.append('basePrompt', payload.basePrompt)
       form.append('extraPrompt', payload.extraPrompt || '')
-      form.append('outputFormat', payload.outputFormat || 'text')
       form.append('dedupe', String(payload.dedupe ?? true))
       form.append('cleanEmpty', String(payload.cleanEmpty ?? true))
 
@@ -87,16 +144,16 @@ export function useGenerate() {
 
       return res
     } catch (e) {
-      const message = e instanceof Error ? e.message : '生成失败'
-      error.value = message
-      errorCode.value = 'MODEL_CALL_FAILED'
+      const mapped = toApiErrorLike(e)
+      error.value = mapped.message
+      errorCode.value = mapped.code
       comments.value = []
       rawText.value = ''
       return {
         ok: false,
         code: errorCode.value,
-        message,
-        requestId: requestId.value
+        message: error.value,
+        requestId: mapped.requestId || requestId.value
       }
     } finally {
       generating.value = false

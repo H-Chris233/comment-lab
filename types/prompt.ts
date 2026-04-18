@@ -8,5 +8,4 @@ export interface BuildPromptParams {
   basePrompt: string
   extraPrompt?: string
   count: number
-  outputFormat?: 'text' | 'json'
 }

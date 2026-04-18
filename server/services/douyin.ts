@@ -122,6 +122,13 @@ function extractCoverFromTikHub(payload: any) {
 
 async function callTikHubForDouyinVideo(shareUrl: string, requestId?: string) {
   const { baseUrl, apiKey } = getTikHubConfig()
+  console.info('[douyin.tikhub] start', {
+    requestId,
+    baseUrl,
+    shareHost: new URL(shareUrl).hostname,
+    hasApiKey: Boolean(apiKey)
+  })
+
   if (!apiKey) {
     throw createAppError({
       code: 'PARSE_LINK_FAILED',
@@ -135,13 +142,18 @@ async function callTikHubForDouyinVideo(shareUrl: string, requestId?: string) {
     '/api/v1/douyin/app/v3/fetch_one_video_by_share_url',
     '/api/v1/douyin/app/v2/fetch_one_video_by_share_url'
   ]
-  const queryKeys = ['url', 'share_url']
+  const queryKeys = ['share_url', 'url']
   let lastError = ''
 
   for (const endpoint of endpointTries) {
     for (const queryKey of queryKeys) {
       const apiUrl = new URL(`${baseUrl}${endpoint}`)
       apiUrl.searchParams.set(queryKey, shareUrl)
+      console.info('[douyin.tikhub] step:request', {
+        requestId,
+        endpoint,
+        queryKey
+      })
 
       const controller = new AbortController()
       const timer = setTimeout(() => controller.abort(), 15_000)
@@ -158,20 +170,45 @@ async function callTikHubForDouyinVideo(shareUrl: string, requestId?: string) {
 
         if (!res.ok) {
           lastError = `status=${res.status}`
+          console.warn('[douyin.tikhub] step:non-200', {
+            requestId,
+            endpoint,
+            queryKey,
+            status: res.status
+          })
           continue
         }
 
         const json = await res.json().catch(() => null)
         if (!json || typeof json !== 'object') {
           lastError = 'invalid_json'
+          console.warn('[douyin.tikhub] step:invalid-json', {
+            requestId,
+            endpoint,
+            queryKey
+          })
           continue
         }
 
         const videoUrl = extractVideoUrlFromTikHub(json)
         if (!videoUrl) {
           lastError = 'video_url_not_found'
+          console.warn('[douyin.tikhub] step:no-video-url', {
+            requestId,
+            endpoint,
+            queryKey
+          })
           continue
         }
+
+        console.info('[douyin.tikhub] step:resolved', {
+          requestId,
+          endpoint,
+          queryKey,
+          videoHost: new URL(videoUrl).hostname,
+          hasTitle: Boolean(extractTitleFromTikHub(json)),
+          hasCover: Boolean(extractCoverFromTikHub(json))
+        })
 
         return {
           videoUrl,
@@ -181,6 +218,12 @@ async function callTikHubForDouyinVideo(shareUrl: string, requestId?: string) {
         }
       } catch (error) {
         lastError = error instanceof Error ? error.message : 'request_error'
+        console.warn('[douyin.tikhub] step:request-error', {
+          requestId,
+          endpoint,
+          queryKey,
+          message: lastError
+        })
       } finally {
         clearTimeout(timer)
       }
@@ -213,6 +256,7 @@ export async function resolveDouyinVideoByTikHub(inputUrl: string, requestId?: s
 }
 
 export async function parseDouyinLink(url: string, requestId?: string): Promise<ParsedVideoResult> {
+  console.info('[douyin.parse] start', { requestId })
   const resolved = await resolveDouyinVideoByTikHub(url, requestId)
 
   console.info('[douyin.parse]', {

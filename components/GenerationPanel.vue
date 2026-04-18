@@ -3,7 +3,6 @@ import { computed, ref, watch } from 'vue'
 
 const props = defineProps<{
   count: number
-  outputFormat: 'text' | 'json'
   dedupe: boolean
   cleanEmpty: boolean
   loading: boolean
@@ -11,15 +10,14 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'update:count': [number]
-  'update:outputFormat': ['text' | 'json']
   'update:dedupe': [boolean]
   'update:cleanEmpty': [boolean]
   generate: []
 }>()
 
-const countOptions = [100, 200, 300]
+const countOptions = [60, 120, 180, 240]
 const isCustomCount = ref(!countOptions.includes(props.count))
-const customCount = ref(isCustomCount.value ? props.count : 100)
+const customCount = ref(isCustomCount.value ? props.count : 60)
 
 watch(
   () => props.count,
@@ -83,35 +81,6 @@ function enableCustomCount() {
         </div>
       </div>
 
-      <div class="setting-group">
-        <label class="setting-label">输出格式</label>
-        <div class="format-toggle">
-          <button
-            :class="{ active: props.outputFormat === 'text' }"
-            @click="emit('update:outputFormat', 'text')"
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke-linecap="round" stroke-linejoin="round"/>
-              <polyline points="14 2 14 8 20 8" stroke-linecap="round" stroke-linejoin="round"/>
-              <line x1="16" y1="13" x2="8" y2="13" stroke-linecap="round" stroke-linejoin="round"/>
-              <line x1="16" y1="17" x2="8" y2="17" stroke-linecap="round" stroke-linejoin="round"/>
-              <polyline points="10 9 9 9 8 9" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-            <span>纯文本</span>
-          </button>
-          <button
-            :class="{ active: props.outputFormat === 'json' }"
-            @click="emit('update:outputFormat', 'json')"
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="4 9 7 12 4 15" stroke-linecap="round" stroke-linejoin="round"/>
-              <polyline points="20 9 17 12 20 15" stroke-linecap="round" stroke-linejoin="round"/>
-              <line x1="9" y1="12" x2="15" y2="12" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-            <span>JSON</span>
-          </button>
-        </div>
-      </div>
     </div>
 
     <div class="options-row">

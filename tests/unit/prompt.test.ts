@@ -6,8 +6,7 @@ describe('buildPrompt', () => {
     const result = buildPrompt({
       basePrompt: '请偏口语化',
       extraPrompt: '多用反问句',
-      count: 100,
-      outputFormat: 'text'
+      count: 100
     })
 
     expect(result).toContain('只输出评论正文')
@@ -15,5 +14,7 @@ describe('buildPrompt', () => {
     expect(result).toContain('若中途生成不足指定数量')
     expect(result).toContain('默认提示词模板')
     expect(result).toContain('附加要求')
+    expect(result).toContain('长度硬性要求（必须遵守）')
+    expect(result).toContain('输出顺序必须按「长→中→短」循环重复')
   })
 })

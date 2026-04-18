@@ -4,15 +4,23 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createAppError } from '../../server/utils/errors'
 
 vi.mock('../../server/services/ai', () => ({
-  generateFromVideoBase64: vi.fn(),
-  generateFromVideoUrl: vi.fn()
+  generateFromVideoBase64: vi.fn()
 }))
+
+vi.mock('../../server/services/file', async () => {
+  const actual = await vi.importActual<typeof import('../../server/services/file')>('../../server/services/file')
+  return {
+    ...actual,
+    downloadVideoUrlAsDataUrl: vi.fn()
+  }
+})
 
 vi.mock('../../server/services/douyin', () => ({
   parseDouyinLink: vi.fn().mockResolvedValue({ ok: true, videoUrl: 'https://www.douyin.com/video/7626738541439099121' })
 }))
 
-import { generateFromVideoBase64, generateFromVideoUrl } from '../../server/services/ai'
+import { generateFromVideoBase64 } from '../../server/services/ai'
+import { downloadVideoUrlAsDataUrl } from '../../server/services/file'
 import { parseDouyinLink } from '../../server/services/douyin'
 import generateHandler from '../../server/api/generate.post'
 
@@ -51,58 +59,6 @@ describe('POST /api/generate', () => {
     expect(res.body.ok).toBe(false)
     expect(res.body.code).toBe('FILE_TOO_LARGE')
   }, 30_000)
-
-
-  it('json 输出格式会按 JSON 数组解析', async () => {
-    vi.mocked(generateFromVideoBase64).mockResolvedValueOnce({
-      rawText: JSON.stringify(['第一条评论', '第二条评论', '第二条评论']),
-      model: 'qwen3.5-omni-plus',
-      streamChunkCount: 3,
-      durationMs: 20
-    } as any)
-
-    const app = createApp()
-    app.use('/api/generate', generateHandler)
-
-    const res = await request(toNodeListener(app))
-      .post('/api/generate')
-      .field('mode', 'upload')
-      .field('count', '2')
-      .field('outputFormat', 'json')
-      .field('basePrompt', 'base')
-      .attach('video', Buffer.from('1234'), { filename: 'ok.mp4', contentType: 'video/mp4' })
-
-    expect(res.status).toBe(200)
-    expect(res.body.ok).toBe(true)
-    expect(res.body.data.comments).toEqual(['第一条评论', '第二条评论'])
-  })
-
-  it('json 输出格式非法时返回 MODEL_OUTPUT_INVALID_FORMAT', async () => {
-    vi.mocked(generateFromVideoBase64).mockResolvedValueOnce({
-      rawText: '不是合法json数组',
-      model: 'qwen3.5-omni-plus',
-      streamChunkCount: 2,
-      durationMs: 10
-    } as any)
-
-    const app = createApp()
-    app.use('/api/generate', generateHandler)
-
-    const res = await request(toNodeListener(app))
-      .post('/api/generate')
-      .field('mode', 'upload')
-      .field('count', '100')
-      .field('outputFormat', 'json')
-      .field('basePrompt', 'base')
-      .attach('video', Buffer.from('1234'), { filename: 'ok.mp4', contentType: 'video/mp4' })
-
-    expect(res.status).toBe(502)
-    expect(res.body.ok).toBe(false)
-    expect(res.body.code).toBe('MODEL_OUTPUT_INVALID_FORMAT')
-  })
-
-
-
 
   it('请求数量超过60时会分批调用模型直到补足', async () => {
     vi.mocked(generateFromVideoBase64)
@@ -160,8 +116,16 @@ describe('POST /api/generate', () => {
     expect(res.body.code).toBe('PARSE_LINK_FAILED')
   })
 
-  it('link 模式直接传视频 URL 调模型', async () => {
-    vi.mocked(generateFromVideoUrl).mockResolvedValueOnce({
+  it('link 模式先下载视频再以 base64 调模型', async () => {
+    vi.mocked(downloadVideoUrlAsDataUrl).mockResolvedValueOnce({
+      dataUrl: 'data:video/mp4;base64,AAAA',
+      bytes: 4,
+      mime: 'video/mp4',
+      sourcePath: '/tmp/mock.mp4',
+      cleanup: async () => {}
+    } as any)
+
+    vi.mocked(generateFromVideoBase64).mockResolvedValueOnce({
       rawText: '第一条\n第二条',
       model: 'qwen3.5-omni-plus',
       streamChunkCount: 2,
@@ -180,8 +144,8 @@ describe('POST /api/generate', () => {
 
     expect(res.status).toBe(200)
     expect(res.body.ok).toBe(true)
-    expect(generateFromVideoUrl).toHaveBeenCalledTimes(1)
-    expect(generateFromVideoBase64).toHaveBeenCalledTimes(0)
+    expect(downloadVideoUrlAsDataUrl).toHaveBeenCalledTimes(1)
+    expect(generateFromVideoBase64).toHaveBeenCalledTimes(1)
   })
 
   it('模型返回空文本时返回 MODEL_OUTPUT_EMPTY', async () => {

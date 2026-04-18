@@ -18,7 +18,6 @@ export interface GenerateRequestPayload {
   count: number
   basePrompt: string
   extraPrompt?: string
-  outputFormat?: 'text' | 'json'
   dedupe?: boolean
   cleanEmpty?: boolean
 }

@@ -14,8 +14,7 @@ const url = ref('')
 const file = ref<File | null>(null)
 const basePrompt = ref(DEFAULT_PROMPT)
 const extraPrompt = ref(DEFAULT_EXTRA_PROMPT)
-const count = ref(100)
-const outputFormat = ref<'text' | 'json'>('text')
+const count = ref(60)
 const dedupe = ref(true)
 const cleanEmpty = ref(true)
 const parseStatus = ref('')
@@ -80,8 +79,7 @@ async function handleParseLink() {
   parseStatus.value = ''
   const res = await parseLink(url.value)
   if (!res.ok) {
-    parseStatus.value = res.message || '链接解析失败，请改为上传视频'
-    mode.value = 'upload'
+    parseStatus.value = res.message || '链接解析失败，请稍后重试'
     return
   }
   parseStatus.value = '解析成功，可直接生成'
@@ -106,7 +104,6 @@ async function handleGenerate() {
     count: count.value,
     basePrompt: basePrompt.value,
     extraPrompt: extraPrompt.value,
-    outputFormat: outputFormat.value,
     dedupe: dedupe.value,
     cleanEmpty: cleanEmpty.value
   })
@@ -181,7 +178,6 @@ function handleFileError(msg: string) {
 
           <GenerationPanel
             v-model:count="count"
-            v-model:output-format="outputFormat"
             v-model:dedupe="dedupe"
             v-model:clean-empty="cleanEmpty"
             :loading="isLoading"

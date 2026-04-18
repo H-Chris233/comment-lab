@@ -27,7 +27,6 @@ async function run() {
   form.append('count', '100')
   form.append('basePrompt', '生成口语化、自然、短句为主的中文评论')
   form.append('extraPrompt', '避免重复，语气轻松')
-  form.append('outputFormat', 'text')
   form.append('dedupe', 'true')
   form.append('cleanEmpty', 'true')
 

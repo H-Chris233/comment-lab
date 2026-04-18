@@ -3,7 +3,8 @@ import { validateCount, validatePromptLength, validateUrl, validateVideoFile } f
 
 describe('validators', () => {
   it('validateCount 支持预设和自定义范围', () => {
-    expect(validateCount('100')).toBe(100)
+    expect(validateCount('60')).toBe(60)
+    expect(validateCount('120')).toBe(120)
     expect(validateCount('37')).toBe(37)
     expect(() => validateCount('0')).toThrowError(/自定义数量范围为 1~500/)
     expect(() => validateCount('501')).toThrowError(/自定义数量范围为 1~500/)
