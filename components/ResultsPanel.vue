@@ -15,6 +15,7 @@ const props = defineProps<{
   copiedHint: string
   canShowRaw?: boolean
   rawText?: string
+  rawPromptTrace?: string[]
 }>()
 
 const showRawDebug = defineModel<boolean>('showRawDebug')
@@ -190,7 +191,20 @@ const loadingText = computed(() => {
     </div>
 
     <!-- Raw Debug Output -->
-    <pre v-if="showRawDebug" class="raw-output"><code>{{ rawText }}</code></pre>
+    <div v-if="showRawDebug" class="raw-debug-stack">
+      <div v-if="props.rawPromptTrace?.length" class="raw-debug-group">
+        <p class="raw-debug-title">每轮prompt原文</p>
+        <pre
+          v-for="(prompt, index) in props.rawPromptTrace"
+          :key="`${index}-${prompt.slice(0, 16)}`"
+          class="raw-output"
+        ><code>{{ prompt }}</code></pre>
+      </div>
+      <div v-if="rawText" class="raw-debug-group">
+        <p class="raw-debug-title">模型原始输出</p>
+        <pre class="raw-output"><code>{{ rawText }}</code></pre>
+      </div>
+    </div>
 
     <!-- Comments List -->
     <TransitionGroup v-if="hasComments" name="list" tag="ul" class="comments-list">
@@ -543,7 +557,7 @@ const loadingText = computed(() => {
   padding: 16px;
   background: #1E293B;
   border-radius: 10px;
-  font-family: 'Mono', monospace;
+  font-family: 'SFMono-Regular', 'Consolas', 'Liberation Mono', monospace;
   font-size: 12px;
   line-height: 1.5;
   color: #E2E8F0;
@@ -553,6 +567,29 @@ const loadingText = computed(() => {
   max-height: 300px;
   overflow-y: auto;
   margin: 0 0 16px 0;
+}
+
+.raw-debug-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.raw-debug-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.raw-debug-title {
+  margin: 0;
+  font-family: 'Open Sans', sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  color: #64748B;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 
 .comments-list {

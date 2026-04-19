@@ -29,6 +29,7 @@ const {
   errorCode,
   comments,
   rawText,
+  rawPromptTrace,
   parseLink,
   generate,
   regenerate,
@@ -50,7 +51,7 @@ const fileMeta = computed(() => {
   return { name: file.value.name, size, type: file.value.type || '-' }
 })
 
-const canShowRaw = computed(() => Boolean(runtimeConfig.public.debugRawEnabled))
+const canShowRaw = computed(() => shouldShowDebugRaw(Boolean(runtimeConfig.public.debugRawEnabled), rawText.value, rawPromptTrace.value))
 
 const isLoading = computed(() => parsing.value || generating.value)
 const hasComments = computed(() => comments.value.length > 0)
@@ -207,6 +208,7 @@ function handleFileError(msg: string) {
           :copied-hint="copiedHint"
           :can-show-raw="canShowRaw"
           :raw-text="rawText"
+          :raw-prompt-trace="rawPromptTrace"
           @copy-all="handleCopyAll"
           @copy-one="handleCopyOne"
           @delete-one="handleDeleteOne"

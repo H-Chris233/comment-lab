@@ -6,5 +6,6 @@ describe('shouldShowDebugRaw', () => {
     expect(shouldShowDebugRaw(true, 'abc')).toBe(true)
     expect(shouldShowDebugRaw(true, '   ')).toBe(false)
     expect(shouldShowDebugRaw(false, 'abc')).toBe(false)
+    expect(shouldShowDebugRaw(true, '', ['prompt a'])).toBe(true)
   })
 })

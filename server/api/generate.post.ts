@@ -206,6 +206,7 @@ export default defineEventHandler(async (event) => {
     // 4)~7) 分批调用模型（每次最多 60 条），直到补足需求
     const finalComments: string[] = []
     let rawTextCombined = ''
+    const promptTrace: string[] = []
     let beforeNormalizeCount = 0
     let afterNormalizeCount = 0
 
@@ -243,9 +244,15 @@ export default defineEventHandler(async (event) => {
           basePrompt: promptData.basePrompt,
           extraPrompt: [
             promptData.extraPrompt,
-            `这是第 ${round} 轮生成，本轮最多输出 ${MAX_ITEMS_PER_MODEL_CALL} 条，达到后立即停止。`,
             finalComments.length ? '避免与前文重复评论。' : ''
           ].filter(Boolean).join('\n')
+        })
+
+        promptTrace.push(prompt)
+        console.info('[api.generate] step:round:prompt', {
+          requestId,
+          round,
+          prompt
         })
 
         const aiResult = await generateFromVideoBase64({
@@ -311,7 +318,8 @@ export default defineEventHandler(async (event) => {
           finalCount: finalComments.length,
           beforeNormalizeCount,
           afterNormalizeCount: Math.min(finalComments.length, count),
-          rawText: rawTextCombined
+          rawText: rawTextCombined,
+          promptTrace
         })
         ensureClientConnected(`round-${round}-after-partial`)
 
@@ -355,18 +363,19 @@ export default defineEventHandler(async (event) => {
         threshold: Math.ceil(count * 0.6)
       })
 
-      return {
-        ok: false,
-        code: 'MODEL_OUTPUT_INSUFFICIENT',
-        message: '模型输出条数不足，请重试或调整提示词',
-        statusCode: 422,
-        data: {
-          rawText: rawTextCombined,
-          requestedCount: count,
-          finalCount: trimmedComments.length,
-          beforeNormalizeCount,
-          afterNormalizeCount: trimmedComments.length,
-          model
+        return {
+          ok: false,
+          code: 'MODEL_OUTPUT_INSUFFICIENT',
+          message: '模型输出条数不足，请重试或调整提示词',
+          statusCode: 422,
+          data: {
+            rawText: rawTextCombined,
+            promptTrace,
+            requestedCount: count,
+            finalCount: trimmedComments.length,
+            beforeNormalizeCount,
+            afterNormalizeCount: trimmedComments.length,
+            model
         }
       }
     }
@@ -383,6 +392,7 @@ export default defineEventHandler(async (event) => {
       data: {
         comments: trimmedComments,
         rawText: rawTextCombined,
+        promptTrace,
         requestedCount: count,
         finalCount: trimmedComments.length,
         beforeNormalizeCount,

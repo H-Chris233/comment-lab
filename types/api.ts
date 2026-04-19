@@ -25,6 +25,7 @@ export interface GenerateRequestPayload {
 export interface GenerateResultData {
   comments: string[]
   rawText: string
+  promptTrace: string[]
   requestedCount: number
   finalCount: number
   beforeNormalizeCount: number

@@ -5,6 +5,9 @@ export function parseBooleanEnv(value?: string | null) {
   return TRUE_SET.has(value.trim().toLowerCase())
 }
 
-export function shouldShowDebugRaw(debugEnabled: boolean, rawText?: string) {
-  return Boolean(debugEnabled && rawText && rawText.trim())
+export function shouldShowDebugRaw(debugEnabled: boolean, rawText?: string, rawPromptTrace?: string[]) {
+  return Boolean(
+    debugEnabled &&
+    ((rawText && rawText.trim()) || rawPromptTrace?.some((prompt) => prompt.trim()))
+  )
 }

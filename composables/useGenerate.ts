@@ -49,6 +49,7 @@ export function useGenerate() {
 
   const comments = ref<string[]>([])
   const rawText = ref('')
+  const rawPromptTrace = ref<string[]>([])
   const requestId = ref('')
   const requestedCount = ref(0)
   const finalCount = ref(0)
@@ -151,6 +152,7 @@ export function useGenerate() {
     errorCode.value = ''
     comments.value = []
     rawText.value = ''
+    rawPromptTrace.value = []
     requestedCount.value = payload.count
     beforeNormalizeCount.value = 0
     afterNormalizeCount.value = 0
@@ -214,6 +216,7 @@ export function useGenerate() {
           if (evt.event === 'partial') {
             if (Array.isArray(evt.data?.comments)) comments.value = evt.data.comments
             if (typeof evt.data?.rawText === 'string') rawText.value = evt.data.rawText
+            if (Array.isArray(evt.data?.promptTrace)) rawPromptTrace.value = evt.data.promptTrace
             beforeNormalizeCount.value = Number(evt.data?.beforeNormalizeCount || 0)
             afterNormalizeCount.value = Number(evt.data?.afterNormalizeCount || comments.value.length)
             finalCount.value = Number(evt.data?.finalCount || comments.value.length)
@@ -249,11 +252,13 @@ export function useGenerate() {
         error.value = doneResponse.message
         errorCode.value = doneResponse.code
         if (doneResponse.data?.rawText && typeof doneResponse.data.rawText === 'string') rawText.value = doneResponse.data.rawText
+        if (Array.isArray(doneResponse.data?.promptTrace)) rawPromptTrace.value = doneResponse.data.promptTrace
         return doneResponse
       }
 
       comments.value = doneResponse.data.comments
       rawText.value = doneResponse.data.rawText
+      rawPromptTrace.value = doneResponse.data.promptTrace
       requestedCount.value = doneResponse.data.requestedCount
       finalCount.value = doneResponse.data.finalCount
       beforeNormalizeCount.value = doneResponse.data.beforeNormalizeCount
@@ -279,6 +284,7 @@ export function useGenerate() {
       errorCode.value = mapped.code
       comments.value = []
       rawText.value = ''
+      rawPromptTrace.value = []
       return {
         ok: false,
         code: errorCode.value,
@@ -316,6 +322,7 @@ export function useGenerate() {
     errorCode,
     comments,
     rawText,
+    rawPromptTrace,
     requestId,
     requestedCount,
     finalCount,
