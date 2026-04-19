@@ -24,6 +24,7 @@ const emit = defineEmits<{
   copyOne: [string]
   deleteOne: [number]
   exportTxt: []
+  exportWord: []
   exportCsv: []
   regenerate: []
   cancel: []
@@ -89,7 +90,14 @@ const loadingText = computed(() => {
             <polyline points="7 10 12 15 17 10" stroke-linecap="round" stroke-linejoin="round"/>
             <line x1="12" y1="15" x2="12" y2="3" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
-          <span>导出 TXT</span>
+          <span>导出TXT</span>
+        </button>
+        <button class="action-btn" :disabled="!hasComments" @click="emit('exportWord')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M4 4h16v16H4z" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M7 9h10M7 13h10M7 17h6" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span>导出Word</span>
         </button>
         <button class="action-btn" :disabled="!hasComments" @click="emit('exportCsv')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -97,7 +105,7 @@ const loadingText = computed(() => {
             <polyline points="7 10 12 15 17 10" stroke-linecap="round" stroke-linejoin="round"/>
             <line x1="12" y1="15" x2="12" y2="3" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
-          <span>导出 CSV</span>
+          <span>导出CSV</span>
         </button>
         <button class="action-btn action-btn-secondary" :disabled="generating || parsing" @click="emit('regenerate')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

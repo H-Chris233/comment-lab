@@ -41,7 +41,7 @@ const {
   requestId
 } = useGenerate()
 
-const { copyAll, exportTxt, exportCsv } = useExport()
+const { copyAll, exportTxt, exportWord, exportCsv } = useExport()
 
 const fileMeta = computed(() => {
   if (!file.value) return { name: '', size: '', type: '' }
@@ -211,6 +211,7 @@ function handleFileError(msg: string) {
           @copy-one="handleCopyOne"
           @delete-one="handleDeleteOne"
           @export-txt="exportTxt(comments)"
+          @export-word="exportWord(comments)"
           @export-csv="exportCsv(comments)"
           @regenerate="handleRegenerate"
           @cancel="handleCancelGenerate"
