@@ -37,7 +37,6 @@ describe('POST /api/generate', () => {
     const res = await request(toNodeListener(app))
       .post('/api/generate')
       .field('mode', 'upload')
-      .field('count', '100')
 
     expect(res.status).toBe(400)
     expect(res.body.ok).toBe(false)

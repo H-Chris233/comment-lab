@@ -30,26 +30,14 @@ export function validateCount(raw?: string): number {
   return intCount
 }
 
-export function validatePromptLength(basePrompt?: string, extraPrompt?: string) {
+export function validatePromptLength(basePrompt?: string) {
   const base = basePrompt?.trim() || ''
-  const extra = extraPrompt?.trim() || ''
-
-  if (!base) {
-    throw createAppError({ code: 'INVALID_INPUT', message: '默认提示词不能为空', statusCode: 400 })
-  }
 
   if (base.length > 6000) {
-    throw createAppError({ code: 'INVALID_INPUT', message: '默认提示词不能超过 6000 字符', statusCode: 400 })
+    throw createAppError({ code: 'INVALID_INPUT', message: '全局补充提示词不能超过 6000 字符', statusCode: 400 })
   }
 
-  if (extra.length > 2000) {
-    throw createAppError({ code: 'INVALID_INPUT', message: '附加要求不能超过 2000 字符', statusCode: 400 })
-  }
-
-  return {
-    basePrompt: base,
-    extraPrompt: extra
-  }
+  return { basePrompt: base }
 }
 
 function extractHttpUrls(input: string) {

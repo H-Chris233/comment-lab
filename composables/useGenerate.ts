@@ -168,7 +168,6 @@ export function useGenerate() {
       if (payload.file) form.append('video', payload.file)
       form.append('count', String(payload.count))
       form.append('basePrompt', payload.basePrompt)
-      form.append('extraPrompt', payload.extraPrompt || '')
       form.append('dedupe', String(payload.dedupe ?? true))
       form.append('cleanEmpty', String(payload.cleanEmpty ?? true))
 

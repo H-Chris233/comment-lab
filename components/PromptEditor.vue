@@ -2,16 +2,13 @@
 
 const props = defineProps<{
   basePrompt: string
-  extraPrompt: string
 }>()
 
 const emit = defineEmits<{
   'update:basePrompt': [string]
-  'update:extraPrompt': [string]
 }>()
 
-const showBasePrompt = ref(false)
-const showExtraPrompt = ref(false)
+const showPrompt = ref(false)
 </script>
 
 <template>
@@ -22,7 +19,7 @@ const showExtraPrompt = ref(false)
     </div>
 
     <div class="form-group">
-      <button class="collapse-btn" @click="showBasePrompt = !showBasePrompt">
+      <button class="collapse-btn" @click="showPrompt = !showPrompt">
         <svg class="label-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke-linecap="round" stroke-linejoin="round"/>
           <polyline points="14 2 14 8 20 8" stroke-linecap="round" stroke-linejoin="round"/>
@@ -30,43 +27,20 @@ const showExtraPrompt = ref(false)
           <line x1="16" y1="17" x2="8" y2="17" stroke-linecap="round" stroke-linejoin="round"/>
           <polyline points="10 9 9 9 8 9" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
-        <span>基础提示词模板</span>
-        <svg class="chevron" :class="{ 'rotated': showBasePrompt }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <span>附加提示词</span>
+        <svg class="chevron" :class="{ 'rotated': showPrompt }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <polyline points="6 9 12 15 18 9" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
       </button>
       <Transition name="collapse">
-        <div v-show="showBasePrompt" class="collapse-content">
+        <div v-show="showPrompt" class="collapse-content">
           <textarea
             :value="props.basePrompt"
             rows="5"
-            placeholder="输入用于指导 AI 生成评论的基础提示词..."
+            placeholder="可选，补充到三种风格模板中的统一提示词..."
             @input="emit('update:basePrompt', ($event.target as HTMLTextAreaElement).value)"
           />
-          <p class="hint">定义评论生成的基础风格和要求</p>
-        </div>
-      </Transition>
-    </div>
-
-    <div class="form-group">
-      <button class="collapse-btn" @click="showExtraPrompt = !showExtraPrompt">
-        <svg class="label-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm0 7a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm0 7a1 1 0 1 1 0-2 1 1 0 0 1 0 2z" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-        <span>附加要求</span>
-        <svg class="chevron" :class="{ 'rotated': showExtraPrompt }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <polyline points="6 9 12 15 18 9" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </button>
-      <Transition name="collapse">
-        <div v-show="showExtraPrompt" class="collapse-content">
-          <textarea
-            :value="props.extraPrompt"
-            rows="3"
-            placeholder="添加额外的定制化要求，如特定话题、关键词、语气风格等..."
-            @input="emit('update:extraPrompt', ($event.target as HTMLTextAreaElement).value)"
-          />
-          <p class="hint">针对当前视频的特定要求</p>
+          <p class="hint">三份风格模板本身已包含默认规则，这里只放补充要求</p>
         </div>
       </Transition>
     </div>

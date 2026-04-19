@@ -23,12 +23,10 @@ async function loadTemplate(style: CommentStyle) {
 
 function renderTemplate(template: string, params: BuildPromptParams) {
   const basePrompt = params.basePrompt.trim()
-  const extraPrompt = params.extraPrompt?.trim() || ''
+  const promptSection = basePrompt ? `附加提示词：\n${basePrompt}` : ''
 
   return template
-    .replaceAll('{{BASE_PROMPT}}', basePrompt)
-    .replaceAll('{{EXTRA_PROMPT}}', extraPrompt)
-    .replaceAll('{{EXTRA_PROMPT_SECTION}}', extraPrompt ? `附加要求：\n${extraPrompt}` : '')
+    .replaceAll('{{PROMPT_SECTION}}', promptSection)
     .replaceAll('{{STYLE_TARGET}}', String(STYLE_TARGET_PER_CALL))
 }
 

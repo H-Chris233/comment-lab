@@ -121,7 +121,7 @@ export default defineEventHandler(async (event) => {
     const cleanEmptyRaw = field('cleanEmpty')
     const dedupe = dedupeRaw == null ? true : parseBoolean(dedupeRaw)
     const cleanEmpty = cleanEmptyRaw == null ? true : parseBoolean(cleanEmptyRaw)
-    const promptData = validatePromptLength(field('basePrompt'), field('extraPrompt'))
+    const promptData = validatePromptLength(field('basePrompt'))
 
     const model = field('model')?.trim() || useRuntimeConfig().aliyunModel || DEFAULT_MODEL
     console.info('[api.generate] step:validated', {
@@ -131,7 +131,6 @@ export default defineEventHandler(async (event) => {
       dedupe,
       cleanEmpty,
       basePromptLength: promptData.basePrompt.length,
-      extraPromptLength: promptData.extraPrompt?.length || 0,
       model
     })
 
@@ -244,11 +243,7 @@ export default defineEventHandler(async (event) => {
         })
 
         const promptSet = await buildStylePrompts({
-          basePrompt: promptData.basePrompt,
-          extraPrompt: [
-            promptData.extraPrompt,
-            finalComments.length ? '避免与前文重复评论。' : ''
-          ].filter(Boolean).join('\n')
+          basePrompt: promptData.basePrompt
         })
 
         const batchPrompts = STYLE_ORDER.map((style) => promptSet[style])

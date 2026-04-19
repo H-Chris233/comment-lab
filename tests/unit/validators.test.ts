@@ -11,10 +11,9 @@ describe('validators', () => {
   })
 
   it('validatePromptLength 限制长度', () => {
-    expect(validatePromptLength('abc', 'def')).toEqual({ basePrompt: 'abc', extraPrompt: 'def' })
-    expect(() => validatePromptLength(' ', '')).toThrowError(/默认提示词不能为空/)
-    expect(() => validatePromptLength('a'.repeat(6001), '')).toThrowError(/6000/)
-    expect(() => validatePromptLength('ok', 'b'.repeat(2001))).toThrowError(/2000/)
+    expect(validatePromptLength('')).toEqual({ basePrompt: '' })
+    expect(validatePromptLength('abc')).toEqual({ basePrompt: 'abc' })
+    expect(() => validatePromptLength('a'.repeat(6001))).toThrowError(/6000/)
   })
 
   it('validateUrl 仅允许 http/https，并支持从分享文案中提取链接', () => {

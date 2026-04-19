@@ -6,14 +6,13 @@ import GenerationPanel from '~/components/GenerationPanel.vue'
 import ResultsPanel from '~/components/ResultsPanel.vue'
 import { useExport } from '~/composables/useExport'
 import { useGenerate } from '~/composables/useGenerate'
-import { DEFAULT_EXTRA_PROMPT, DEFAULT_PROMPT } from '~/types/prompt'
+import { DEFAULT_PROMPT } from '~/types/prompt'
 import { shouldShowDebugRaw } from '~/utils/env'
 
 const mode = ref<'link' | 'upload'>('link')
 const url = ref('')
 const file = ref<File | null>(null)
 const basePrompt = ref(DEFAULT_PROMPT)
-const extraPrompt = ref(DEFAULT_EXTRA_PROMPT)
 const count = ref(180)
 const dedupe = ref(true)
 const cleanEmpty = ref(true)
@@ -63,20 +62,6 @@ const generationState = computed(() => {
 })
 
 
-onMounted(async () => {
-  try {
-    const res = await fetch('/default-prompt.txt')
-    if (!res.ok) return
-
-    const text = (await res.text()).trim()
-    if (text) {
-      basePrompt.value = text
-    }
-  } catch {
-    // ignore and keep fallback DEFAULT_PROMPT
-  }
-})
-
 async function handleParseLink() {
   parseStatus.value = ''
   const res = await parseLink(url.value)
@@ -105,7 +90,6 @@ async function handleGenerate() {
     file: file.value,
     count: count.value,
     basePrompt: basePrompt.value,
-    extraPrompt: extraPrompt.value,
     dedupe: dedupe.value,
     cleanEmpty: cleanEmpty.value
   })
@@ -179,7 +163,6 @@ function handleFileError(msg: string) {
 
           <PromptEditor
             v-model:base-prompt="basePrompt"
-            v-model:extra-prompt="extraPrompt"
           />
 
           <GenerationPanel

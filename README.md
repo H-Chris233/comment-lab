@@ -74,8 +74,8 @@ E2E_BASE_URL=http://localhost:3000 E2E_VIDEO_FILE=./your-video.mp4 npm run e2e:a
 - 服务端通过 TikHub 解析分享链接并提取视频直链，再直接调用模型
 
 
-## 默认提示词文件
+## 提示词文件
 
-- 默认提示词放在 `public/default-prompt.txt`
-- 页面加载时会自动读取该文件作为基础提示词初始值
 - 三路生成模板放在 `prompts/long.txt`、`prompts/medium.txt`、`prompts/short.txt`
+- 每个模板都内置了通用评论规则和各自的风格限制，三份文件可以独立编辑
+- 页面里的“附加提示词”是可选项，不填也能直接生成
