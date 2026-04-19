@@ -3,11 +3,11 @@ import { validateCount, validatePromptLength, validateUrl, validateVideoFile } f
 
 describe('validators', () => {
   it('validateCount 支持预设和自定义范围', () => {
-    expect(validateCount('60')).toBe(60)
-    expect(validateCount('120')).toBe(120)
+    expect(validateCount('180')).toBe(180)
+    expect(validateCount('360')).toBe(360)
     expect(validateCount('37')).toBe(37)
-    expect(() => validateCount('0')).toThrowError(/自定义数量范围为 1~500/)
-    expect(() => validateCount('501')).toThrowError(/自定义数量范围为 1~500/)
+    expect(() => validateCount('0')).toThrowError(/自定义数量范围为 1~1500/)
+    expect(() => validateCount('1501')).toThrowError(/自定义数量范围为 1~1500/)
   })
 
   it('validatePromptLength 限制长度', () => {

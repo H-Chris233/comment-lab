@@ -19,12 +19,12 @@ export function validateCount(raw?: string): number {
   }
 
   const intCount = Math.floor(count)
-  const preset = [60, 120, 180, 240]
+  const preset = [180, 360, 540, 720]
 
   if (preset.includes(intCount)) return intCount
 
-  if (intCount < 1 || intCount > 500) {
-    throw createAppError({ code: 'INVALID_INPUT', message: '自定义数量范围为 1~500', statusCode: 400 })
+  if (intCount < 1 || intCount > 1500) {
+    throw createAppError({ code: 'INVALID_INPUT', message: '自定义数量范围为 1~1500', statusCode: 400 })
   }
 
   return intCount

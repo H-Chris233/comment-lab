@@ -60,19 +60,25 @@ describe('POST /api/generate', () => {
     expect(res.body.code).toBe('FILE_TOO_LARGE')
   }, 30_000)
 
-  it('请求数量超过60时会分批调用模型直到补足', async () => {
+  it('单轮会并行调用三次模型并合并结果', async () => {
     vi.mocked(generateFromVideoBase64)
       .mockResolvedValueOnce({
-        rawText: Array.from({ length: 60 }, (_, i) => `第一批-${i + 1}`).join('\n'),
+        rawText: Array.from({ length: 60 }, (_, i) => `长-${i + 1}`).join('\n'),
         model: 'qwen3.5-omni-plus',
         streamChunkCount: 5,
         durationMs: 10
       } as any)
       .mockResolvedValueOnce({
-        rawText: Array.from({ length: 40 }, (_, i) => `第二批-${i + 1}`).join('\n'),
+        rawText: Array.from({ length: 60 }, (_, i) => `中-${i + 1}`).join('\n'),
         model: 'qwen3.5-omni-plus',
         streamChunkCount: 4,
         durationMs: 8
+      } as any)
+      .mockResolvedValueOnce({
+        rawText: Array.from({ length: 60 }, (_, i) => `短-${i + 1}`).join('\n'),
+        model: 'qwen3.5-omni-plus',
+        streamChunkCount: 3,
+        durationMs: 7
       } as any)
 
     const app = createApp()
@@ -88,12 +94,14 @@ describe('POST /api/generate', () => {
     expect(res.status).toBe(200)
     expect(res.body.ok).toBe(true)
     expect(res.body.data.finalCount).toBe(100)
-    expect(vi.mocked(generateFromVideoBase64)).toHaveBeenCalledTimes(2)
+    expect(vi.mocked(generateFromVideoBase64)).toHaveBeenCalledTimes(3)
 
     const firstCallArgs = vi.mocked(generateFromVideoBase64).mock.calls[0]?.[0] as any
     const secondCallArgs = vi.mocked(generateFromVideoBase64).mock.calls[1]?.[0] as any
+    const thirdCallArgs = vi.mocked(generateFromVideoBase64).mock.calls[2]?.[0] as any
     expect(firstCallArgs.stopAfterItems).toBe(60)
     expect(secondCallArgs.stopAfterItems).toBe(60)
+    expect(thirdCallArgs.stopAfterItems).toBe(60)
   })
 
   it('link 解析失败时返回 PARSE_LINK_FAILED', async () => {
@@ -131,6 +139,18 @@ describe('POST /api/generate', () => {
       streamChunkCount: 2,
       durationMs: 10
     } as any)
+      .mockResolvedValueOnce({
+        rawText: '第三条\n第四条',
+        model: 'qwen3.5-omni-plus',
+        streamChunkCount: 2,
+        durationMs: 9
+      } as any)
+      .mockResolvedValueOnce({
+        rawText: '第五条\n第六条',
+        model: 'qwen3.5-omni-plus',
+        streamChunkCount: 2,
+        durationMs: 8
+      } as any)
 
     const app = createApp()
     app.use('/api/generate', generateHandler)
@@ -145,11 +165,11 @@ describe('POST /api/generate', () => {
     expect(res.status).toBe(200)
     expect(res.body.ok).toBe(true)
     expect(downloadVideoUrlAsDataUrl).toHaveBeenCalledTimes(1)
-    expect(generateFromVideoBase64).toHaveBeenCalledTimes(1)
+    expect(generateFromVideoBase64).toHaveBeenCalledTimes(3)
   })
 
   it('模型返回空文本时返回 MODEL_OUTPUT_EMPTY', async () => {
-    vi.mocked(generateFromVideoBase64).mockRejectedValueOnce(
+    vi.mocked(generateFromVideoBase64).mockRejectedValue(
       createAppError({ code: 'MODEL_OUTPUT_EMPTY', message: '模型输出为空，请重试', statusCode: 502 })
     )
 

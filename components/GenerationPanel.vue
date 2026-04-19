@@ -15,9 +15,9 @@ const emit = defineEmits<{
   generate: []
 }>()
 
-const countOptions = [60, 120, 180, 240]
+const countOptions = [180, 360, 540, 720]
 const isCustomCount = ref(!countOptions.includes(props.count))
-const customCount = ref(isCustomCount.value ? props.count : 60)
+const customCount = ref(props.count)
 
 watch(
   () => props.count,
@@ -37,7 +37,7 @@ function onPresetCount(option: number) {
 function onCustomCountInput(value: string) {
   const n = Number(value)
   if (!Number.isFinite(n)) return
-  const next = Math.max(1, Math.min(500, Math.floor(n)))
+  const next = Math.max(1, Math.min(1500, Math.floor(n)))
   customCount.value = next
   emit('update:count', next)
 }
@@ -73,11 +73,11 @@ function enableCustomCount() {
           <input
             type="number"
             min="1"
-            max="500"
+            max="1500"
             :value="customCount"
             @input="onCustomCountInput(($event.target as HTMLInputElement).value)"
           >
-          <span>允许范围 1 ~ 500</span>
+          <span>允许范围 1 ~ 1500</span>
         </div>
       </div>
 

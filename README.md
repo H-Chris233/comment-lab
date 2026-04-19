@@ -63,8 +63,9 @@ E2E_BASE_URL=http://localhost:3000 E2E_VIDEO_FILE=./your-video.mp4 npm run e2e:a
 
 ## 数量设置
 
-- 预设：60 / 120 / 180 / 240
-- 自定义：1 ~ 500
+- 预设：180 / 360 / 540 / 720
+- 自定义：1 ~ 1500
+- 每次生成会并行发起长 / 中 / 短 3 路调用，每路 60 条
 
 
 ## 抖音链接链路
@@ -77,3 +78,4 @@ E2E_BASE_URL=http://localhost:3000 E2E_VIDEO_FILE=./your-video.mp4 npm run e2e:a
 
 - 默认提示词放在 `public/default-prompt.txt`
 - 页面加载时会自动读取该文件作为基础提示词初始值
+- 三路生成模板放在 `prompts/long.txt`、`prompts/medium.txt`、`prompts/short.txt`

@@ -5,12 +5,14 @@ import { generateFromVideoBase64 } from '../services/ai'
 import { ALLOWED_VIDEO_MIME_TYPES, downloadVideoUrlAsDataUrl, fileToBase64DataUrl, getMaxVideoBytes, readMultipart } from '../services/file'
 import { normalizeComments } from '../services/normalize'
 import { parseDouyinLink } from '../services/douyin'
-import { buildPrompt } from '../services/prompt'
+import { STYLE_TARGET_PER_CALL, buildStylePrompts } from '../services/prompt'
 import { createAppError, isAppError, toApiError } from '../utils/errors'
 import { createRequestId, failure, success } from '../utils/response'
 import { parseBoolean, validateCount, validateMode, validatePromptLength, validateUrl, validateVideoFile } from '../utils/validators'
 
-const MAX_ITEMS_PER_MODEL_CALL = 60
+const MAX_ITEMS_PER_MODEL_CALL = STYLE_TARGET_PER_CALL
+const STYLE_ORDER = ['long', 'medium', 'short'] as const
+const BATCH_TARGET = MAX_ITEMS_PER_MODEL_CALL * STYLE_ORDER.length
 
 type RunOutcome =
   | { ok: true; data: GenerateResultData }
@@ -203,14 +205,14 @@ export default defineEventHandler(async (event) => {
       })
     }
 
-    // 4)~7) 分批调用模型（每次最多 60 条），直到补足需求
+    // 4)~7) 分批并行调用模型（每批 3 个风格，各 60 条），直到补足需求
     const finalComments: string[] = []
     let rawTextCombined = ''
     const promptTrace: string[] = []
     let beforeNormalizeCount = 0
     let afterNormalizeCount = 0
 
-    const maxRounds = Math.max(2, Math.ceil(count / MAX_ITEMS_PER_MODEL_CALL) + 2)
+    const maxRounds = Math.max(2, Math.ceil(count / BATCH_TARGET) + 2)
 
     try {
       for (let round = 1; round <= maxRounds; round += 1) {
@@ -218,7 +220,7 @@ export default defineEventHandler(async (event) => {
         if (finalComments.length >= count) break
 
         const remaining = count - finalComments.length
-        const roundTarget = Math.min(remaining, MAX_ITEMS_PER_MODEL_CALL)
+        const roundTarget = Math.min(remaining, BATCH_TARGET)
         const promptTarget = MAX_ITEMS_PER_MODEL_CALL
         console.info('[api.generate] step:round:start', {
           requestId,
@@ -240,7 +242,7 @@ export default defineEventHandler(async (event) => {
           promptTarget
         })
 
-        const prompt = buildPrompt({
+        const promptSet = await buildStylePrompts({
           basePrompt: promptData.basePrompt,
           extraPrompt: [
             promptData.extraPrompt,
@@ -248,49 +250,58 @@ export default defineEventHandler(async (event) => {
           ].filter(Boolean).join('\n')
         })
 
-        promptTrace.push(prompt)
+        const batchPrompts = STYLE_ORDER.map((style) => promptSet[style])
+        promptTrace.push(...batchPrompts)
         console.info('[api.generate] step:round:prompt', {
           requestId,
           round,
-          prompt
+          prompts: STYLE_ORDER.reduce<Record<string, string>>((acc, style, index) => {
+            acc[style] = batchPrompts[index]
+            return acc
+          }, {})
         })
 
-        const aiResult = await generateFromVideoBase64({
-          model,
-          prompt,
-          dataUrl,
-          requestId,
-          fps: 1,
-          stopAfterItems: MAX_ITEMS_PER_MODEL_CALL,
-          signal: abortController.signal
-        })
+        const aiResults = await Promise.all(
+          STYLE_ORDER.map((_, index) => generateFromVideoBase64({
+            model,
+            prompt: batchPrompts[index],
+            dataUrl,
+            requestId,
+            fps: 1,
+            stopAfterItems: MAX_ITEMS_PER_MODEL_CALL,
+            signal: abortController.signal
+          }))
+        )
         ensureClientConnected(`round-${round}-after-ai`)
 
         console.info('[api.generate] step:round:ai-ok', {
           requestId,
           round,
-          rawTextLength: aiResult.rawText.length,
-          streamChunkCount: aiResult.streamChunkCount,
-          finishReason: aiResult.finishReason
+          rawTextLengths: aiResults.map((result) => result.rawText.length),
+          streamChunkCounts: aiResults.map((result) => result.streamChunkCount),
+          finishReasons: aiResults.map((result) => result.finishReason)
         })
 
-        const normalized = normalizeComments(aiResult.rawText, { dedupe, cleanEmpty })
+        const normalizedResults = aiResults.map((result) => ({
+          normalized: normalizeComments(result.rawText, { dedupe, cleanEmpty })
+        }))
 
-        const roundComments = normalized.comments.slice(0, MAX_ITEMS_PER_MODEL_CALL)
+        const roundComments = normalizedResults.flatMap(({ normalized }) => normalized.comments.slice(0, MAX_ITEMS_PER_MODEL_CALL))
         console.info('[api.generate] step:round:normalized', {
           requestId,
           round,
-          beforeCount: normalized.beforeCount,
-          afterCount: normalized.afterCount,
-          removedEmpty: normalized.removedEmpty,
-          removedDuplicate: normalized.removedDuplicate,
-          removedInvalid: normalized.removedInvalid,
+          beforeCount: normalizedResults.reduce((sum, item) => sum + item.normalized.beforeCount, 0),
+          afterCount: normalizedResults.reduce((sum, item) => sum + item.normalized.afterCount, 0),
+          removedEmpty: normalizedResults.reduce((sum, item) => sum + item.normalized.removedEmpty, 0),
+          removedDuplicate: normalizedResults.reduce((sum, item) => sum + item.normalized.removedDuplicate, 0),
+          removedInvalid: normalizedResults.reduce((sum, item) => sum + item.normalized.removedInvalid, 0),
           cappedRoundCount: roundComments.length
         })
 
-        beforeNormalizeCount += normalized.beforeCount
+        beforeNormalizeCount += normalizedResults.reduce((sum, item) => sum + item.normalized.beforeCount, 0)
         afterNormalizeCount += roundComments.length
-        rawTextCombined = rawTextCombined ? `${rawTextCombined}\n${aiResult.rawText}` : aiResult.rawText
+        const batchRawText = aiResults.map((result) => result.rawText).join('\n')
+        rawTextCombined = rawTextCombined ? `${rawTextCombined}\n${batchRawText}` : batchRawText
 
         const beforeLen = finalComments.length
         if (dedupe) {
