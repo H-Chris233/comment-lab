@@ -52,9 +52,16 @@ function buildMessages(prompt: string, videoUrlOrDataUrl: string, fps = DEFAULT_
   ]
 }
 
-function countItemsByLines(raw: string) {
-  return raw
-    .split(/\r?\n/)
+function getCompleteLines(raw: string) {
+  const lines = raw.split(/\r?\n/)
+  if (!/\r?\n$/.test(raw)) {
+    lines.pop()
+  }
+  return lines
+}
+
+export function countCompleteItemsByLines(raw: string) {
+  return getCompleteLines(raw)
     .map((line) => line.trim())
     .filter(Boolean).length
 }
@@ -129,16 +136,16 @@ async function generateStreamed(params: GenerateBaseParams & { inputKind: 'url' 
           requestId: params.requestId,
           streamChunkCount,
           currentTextLength: rawAccumulated.length,
-          currentLineCount: countItemsByLines(rawAccumulated)
+          currentCompleteLineCount: countCompleteItemsByLines(rawAccumulated)
         })
       }
 
-      if (params.stopAfterItems && countItemsByLines(rawAccumulated) >= params.stopAfterItems) {
+      if (params.stopAfterItems && countCompleteItemsByLines(rawAccumulated) >= params.stopAfterItems) {
         finishReason = 'limit_reached'
         console.info('[ai.generate] step:stop-after-items', {
           requestId: params.requestId,
           streamChunkCount,
-          currentLineCount: countItemsByLines(rawAccumulated),
+          currentCompleteLineCount: countCompleteItemsByLines(rawAccumulated),
           stopAfterItems: params.stopAfterItems
         })
         break
