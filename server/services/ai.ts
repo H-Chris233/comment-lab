@@ -10,6 +10,7 @@ type GenerateBaseParams = {
   fps?: number
   stopAfterItems?: number
   signal?: AbortSignal
+  onLine?: (line: string) => void
 }
 
 export interface GenerateAiResult {
@@ -66,6 +67,21 @@ export function countCompleteItemsByLines(raw: string) {
     .filter(Boolean).length
 }
 
+export function createCompleteLineCollector() {
+  let processedCompleteLineCount = 0
+
+  return {
+    collect(raw: string) {
+      const completeLines = getCompleteLines(raw)
+      const newLines = completeLines.slice(processedCompleteLineCount)
+      processedCompleteLineCount = completeLines.length
+      return newLines
+        .map((line) => line.trim())
+        .filter(Boolean)
+    }
+  }
+}
+
 function takeFirstItems(raw: string, maxItems?: number) {
   if (!maxItems || maxItems <= 0) return raw.trim()
 
@@ -95,6 +111,8 @@ async function generateStreamed(params: GenerateBaseParams & { inputKind: 'url' 
   let finishReason: string | null = null
   let rawAccumulated = ''
   let firstChunkLogged = false
+  const lineCollector = createCompleteLineCollector()
+  let emittedItemCount = 0
 
   try {
     const stream = await client.chat.completions.create({
@@ -131,6 +149,13 @@ async function generateStreamed(params: GenerateBaseParams & { inputKind: 'url' 
         })
       }
 
+      const newLines = lineCollector.collect(rawAccumulated)
+      for (const line of newLines) {
+        if (params.stopAfterItems && emittedItemCount >= params.stopAfterItems) break
+        params.onLine?.(line)
+        emittedItemCount += 1
+      }
+
       if (streamChunkCount % 50 === 0) {
         console.info('[ai.generate] step:stream-progress', {
           requestId: params.requestId,
@@ -140,12 +165,12 @@ async function generateStreamed(params: GenerateBaseParams & { inputKind: 'url' 
         })
       }
 
-      if (params.stopAfterItems && countCompleteItemsByLines(rawAccumulated) >= params.stopAfterItems) {
+      if (params.stopAfterItems && emittedItemCount >= params.stopAfterItems) {
         finishReason = 'limit_reached'
         console.info('[ai.generate] step:stop-after-items', {
           requestId: params.requestId,
           streamChunkCount,
-          currentCompleteLineCount: countCompleteItemsByLines(rawAccumulated),
+          currentCompleteLineCount: emittedItemCount,
           stopAfterItems: params.stopAfterItems
         })
         break
@@ -206,6 +231,7 @@ export async function generateFromVideoUrl(params: {
   fps?: number
   stopAfterItems?: number
   signal?: AbortSignal
+  onLine?: (line: string) => void
 }) {
   return generateStreamed({
     model: params.model,
@@ -215,6 +241,7 @@ export async function generateFromVideoUrl(params: {
     fps: params.fps,
     inputKind: 'url',
     stopAfterItems: params.stopAfterItems,
+    onLine: params.onLine,
     signal: params.signal
   })
 }
@@ -227,6 +254,7 @@ export async function generateFromVideoBase64(params: {
   fps?: number
   stopAfterItems?: number
   signal?: AbortSignal
+  onLine?: (line: string) => void
 }) {
   return generateStreamed({
     model: params.model,
@@ -236,6 +264,7 @@ export async function generateFromVideoBase64(params: {
     fps: params.fps,
     inputKind: 'base64',
     stopAfterItems: params.stopAfterItems,
+    onLine: params.onLine,
     signal: params.signal
   })
 }

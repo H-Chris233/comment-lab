@@ -104,6 +104,38 @@ describe('POST /api/generate', () => {
     expect(thirdCallArgs.stopAfterItems).toBe(60)
   })
 
+  it('流式模式会在每条评论完成时推送 item 事件', async () => {
+    vi.mocked(generateFromVideoBase64).mockImplementation(async (params: any) => {
+      params.onLine?.('即时-1-1')
+      params.onLine?.('即时-1-2')
+      params.onLine?.('即时-1-3')
+      return {
+        rawText: '第1条\n第2条\n第3条',
+        model: 'qwen3.5-omni-plus',
+        streamChunkCount: 1,
+        durationMs: 1
+      } as any
+    })
+
+    const app = createApp()
+    app.use('/api/generate', generateHandler)
+
+    const res = await request(toNodeListener(app))
+      .post('/api/generate?stream=1')
+      .set('Accept', 'text/event-stream')
+      .field('mode', 'upload')
+      .field('count', '2')
+      .field('basePrompt', 'base')
+      .attach('video', Buffer.from('1234'), { filename: 'ok.mp4', contentType: 'video/mp4' })
+
+    expect(res.status).toBe(200)
+    expect(res.headers['content-type']).toContain('text/event-stream')
+    expect((res.text.match(/event: item/g) || []).length).toBe(2)
+    expect(res.text).toContain('即时-1-1')
+    expect(res.text).toContain('即时-1-2')
+    expect(res.text).not.toContain('即时-1-3')
+  })
+
   it('link 解析失败时返回 PARSE_LINK_FAILED', async () => {
     vi.mocked(parseDouyinLink).mockRejectedValueOnce(
       createAppError({ code: 'PARSE_LINK_FAILED', message: '链接解析失败，请改为上传视频', statusCode: 422 })

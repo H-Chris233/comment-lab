@@ -211,6 +211,7 @@ export default defineEventHandler(async (event) => {
     const promptTrace: string[] = []
     let beforeNormalizeCount = 0
     let afterNormalizeCount = 0
+    let streamedItemCount = 0
 
     const maxRounds = Math.max(2, Math.ceil(count / BATCH_TARGET) + 2)
 
@@ -262,13 +263,23 @@ export default defineEventHandler(async (event) => {
         })
 
         const aiResults = await Promise.all(
-          STYLE_ORDER.map((_, index) => generateFromVideoBase64({
+          STYLE_ORDER.map((style, index) => generateFromVideoBase64({
             model,
             prompt: batchPrompts[index],
             dataUrl,
             requestId,
             fps: 1,
             stopAfterItems: MAX_ITEMS_PER_MODEL_CALL,
+            onLine: (comment) => {
+              if (streamedItemCount >= count) return
+              streamedItemCount += 1
+              emitProgress('item', {
+                requestId,
+                round,
+                style,
+                comment
+              })
+            },
             signal: abortController.signal
           }))
         )

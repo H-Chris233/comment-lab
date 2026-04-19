@@ -57,6 +57,7 @@ export function useGenerate() {
   const afterNormalizeCount = ref(0)
   const model = ref('')
   const abortController = ref<AbortController | null>(null)
+  let streamedCommentSet = new Set<string>()
 
   const lastPayload = ref<GenerateRequestPayload & { file?: File | null } | null>(null)
 
@@ -157,6 +158,7 @@ export function useGenerate() {
     beforeNormalizeCount.value = 0
     afterNormalizeCount.value = 0
     finalCount.value = 0
+    streamedCommentSet = new Set<string>()
 
     try {
       abortController.value = new AbortController()
@@ -213,8 +215,20 @@ export function useGenerate() {
             model.value = evt.data?.model || model.value
           }
 
+          if (evt.event === 'item') {
+            const comment = typeof evt.data?.comment === 'string' ? evt.data.comment.trim() : ''
+            if (comment && !streamedCommentSet.has(comment) && (!requestedCount.value || comments.value.length < requestedCount.value)) {
+              streamedCommentSet.add(comment)
+              comments.value.push(comment)
+              finalCount.value = comments.value.length
+            }
+          }
+
           if (evt.event === 'partial') {
-            if (Array.isArray(evt.data?.comments)) comments.value = evt.data.comments
+            if (!comments.value.length && Array.isArray(evt.data?.comments)) {
+              comments.value = evt.data.comments
+              streamedCommentSet = new Set(comments.value.map((comment) => comment.trim()).filter(Boolean))
+            }
             if (typeof evt.data?.rawText === 'string') rawText.value = evt.data.rawText
             if (Array.isArray(evt.data?.promptTrace)) rawPromptTrace.value = evt.data.promptTrace
             beforeNormalizeCount.value = Number(evt.data?.beforeNormalizeCount || 0)
@@ -257,6 +271,7 @@ export function useGenerate() {
       }
 
       comments.value = doneResponse.data.comments
+      streamedCommentSet = new Set(comments.value.map((comment) => comment.trim()).filter(Boolean))
       rawText.value = doneResponse.data.rawText
       rawPromptTrace.value = doneResponse.data.promptTrace
       requestedCount.value = doneResponse.data.requestedCount
