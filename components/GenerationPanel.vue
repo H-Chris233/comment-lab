@@ -15,7 +15,7 @@ const emit = defineEmits<{
   generate: []
 }>()
 
-const countOptions = [180, 360, 540, 720]
+const countOptions = [100, 200, 300]
 const isCustomCount = ref(!countOptions.includes(props.count))
 const customCount = ref(props.count)
 

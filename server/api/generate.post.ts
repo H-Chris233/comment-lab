@@ -5,14 +5,12 @@ import { generateFromVideoBase64 } from '../services/ai'
 import { ALLOWED_VIDEO_MIME_TYPES, downloadVideoUrlAsDataUrl, fileToBase64DataUrl, getMaxVideoBytes, readMultipart } from '../services/file'
 import { normalizeComments } from '../services/normalize'
 import { parseDouyinLink } from '../services/douyin'
-import { STYLE_TARGET_PER_CALL, buildStylePrompts } from '../services/prompt'
+import { STYLE_ORDER, buildStylePrompts, splitStyleTargets } from '../services/prompt'
 import { createAppError, isAppError, toApiError } from '../utils/errors'
 import { createRequestId, failure, success } from '../utils/response'
 import { parseBoolean, validateCount, validateMode, validatePromptLength, validateUrl, validateVideoFile } from '../utils/validators'
 
-const MAX_ITEMS_PER_MODEL_CALL = STYLE_TARGET_PER_CALL
-const STYLE_ORDER = ['long', 'medium', 'short'] as const
-const BATCH_TARGET = MAX_ITEMS_PER_MODEL_CALL * STYLE_ORDER.length
+const MAX_ROUNDS_BUFFER = 2
 
 type RunOutcome =
   | { ok: true; data: GenerateResultData }
@@ -204,7 +202,7 @@ export default defineEventHandler(async (event) => {
       })
     }
 
-    // 4)~7) 分批并行调用模型（每批 3 个风格，各 60 条），直到补足需求
+    // 4)~7) 分批并行调用模型（按短/中/长 40/40/20 拆分），直到补足需求
     const finalComments: string[] = []
     let rawTextCombined = ''
     const promptTrace: string[] = []
@@ -212,7 +210,7 @@ export default defineEventHandler(async (event) => {
     let afterNormalizeCount = 0
     let streamedItemCount = 0
 
-    const maxRounds = Math.max(2, Math.ceil(count / BATCH_TARGET) + 2)
+    const maxRounds = Math.max(2, Math.ceil(count / 50) + MAX_ROUNDS_BUFFER)
 
     try {
       for (let round = 1; round <= maxRounds; round += 1) {
@@ -220,16 +218,15 @@ export default defineEventHandler(async (event) => {
         if (finalComments.length >= count) break
 
         const remaining = count - finalComments.length
-        const roundTarget = Math.min(remaining, BATCH_TARGET)
-        const promptTarget = MAX_ITEMS_PER_MODEL_CALL
+        const roundStyleTargets = splitStyleTargets(remaining)
+        const roundStyles = STYLE_ORDER.filter((style) => roundStyleTargets[style] > 0)
         console.info('[api.generate] step:round:start', {
           requestId,
           round,
           maxRounds,
           currentCount: finalComments.length,
           remaining,
-          roundTarget,
-          promptTarget
+          targets: roundStyleTargets
         })
 
         emitProgress('round', {
@@ -238,33 +235,32 @@ export default defineEventHandler(async (event) => {
           maxRounds,
           currentCount: finalComments.length,
           remaining,
-          roundTarget,
-          promptTarget
+          targets: roundStyleTargets
         })
 
         const promptSet = await buildStylePrompts({
           basePrompt: promptData.basePrompt
-        })
+        }, roundStyleTargets)
 
-        const batchPrompts = STYLE_ORDER.map((style) => promptSet[style])
+        const batchPrompts = roundStyles.map((style) => promptSet[style])
         promptTrace.push(...batchPrompts)
         console.info('[api.generate] step:round:prompt', {
           requestId,
           round,
-          prompts: STYLE_ORDER.reduce<Record<string, string>>((acc, style, index) => {
-            acc[style] = batchPrompts[index]
+          prompts: roundStyles.reduce<Record<string, string>>((acc, style) => {
+            acc[style] = promptSet[style]
             return acc
           }, {})
         })
 
         const aiResults = await Promise.all(
-          STYLE_ORDER.map((style, index) => generateFromVideoBase64({
+          roundStyles.map((style) => generateFromVideoBase64({
             model,
-            prompt: batchPrompts[index],
+            prompt: promptSet[style],
             dataUrl,
             requestId,
             fps: 1,
-            stopAfterItems: MAX_ITEMS_PER_MODEL_CALL,
+            stopAfterItems: roundStyleTargets[style],
             onLine: (comment) => {
               if (streamedItemCount >= count) return
               streamedItemCount += 1
@@ -292,7 +288,11 @@ export default defineEventHandler(async (event) => {
           normalized: normalizeComments(result.rawText, { dedupe, cleanEmpty })
         }))
 
-        const roundComments = normalizedResults.flatMap(({ normalized }) => normalized.comments.slice(0, MAX_ITEMS_PER_MODEL_CALL))
+        const roundComments = normalizedResults.flatMap(({ normalized }, index) => {
+          const style = roundStyles[index]
+          const target = roundStyleTargets[style]
+          return normalized.comments.slice(0, target)
+        })
         console.info('[api.generate] step:round:normalized', {
           requestId,
           round,

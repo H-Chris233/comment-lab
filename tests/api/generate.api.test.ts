@@ -59,22 +59,22 @@ describe('POST /api/generate', () => {
     expect(res.body.code).toBe('FILE_TOO_LARGE')
   }, 30_000)
 
-  it('单轮会并行调用三次模型并合并结果', async () => {
+  it('单轮会按 40/40/20 并行调用三次模型并合并结果', async () => {
     vi.mocked(generateFromVideoBase64)
       .mockResolvedValueOnce({
-        rawText: Array.from({ length: 60 }, (_, i) => `长-${i + 1}`).join('\n'),
+        rawText: Array.from({ length: 40 }, (_, i) => `短-${i + 1}`).join('\n'),
         model: 'qwen3.5-omni-plus',
         streamChunkCount: 5,
         durationMs: 10
       } as any)
       .mockResolvedValueOnce({
-        rawText: Array.from({ length: 60 }, (_, i) => `中-${i + 1}`).join('\n'),
+        rawText: Array.from({ length: 40 }, (_, i) => `中-${i + 1}`).join('\n'),
         model: 'qwen3.5-omni-plus',
         streamChunkCount: 4,
         durationMs: 8
       } as any)
       .mockResolvedValueOnce({
-        rawText: Array.from({ length: 60 }, (_, i) => `短-${i + 1}`).join('\n'),
+        rawText: Array.from({ length: 20 }, (_, i) => `长-${i + 1}`).join('\n'),
         model: 'qwen3.5-omni-plus',
         streamChunkCount: 3,
         durationMs: 7
@@ -98,9 +98,9 @@ describe('POST /api/generate', () => {
     const firstCallArgs = vi.mocked(generateFromVideoBase64).mock.calls[0]?.[0] as any
     const secondCallArgs = vi.mocked(generateFromVideoBase64).mock.calls[1]?.[0] as any
     const thirdCallArgs = vi.mocked(generateFromVideoBase64).mock.calls[2]?.[0] as any
-    expect(firstCallArgs.stopAfterItems).toBe(60)
-    expect(secondCallArgs.stopAfterItems).toBe(60)
-    expect(thirdCallArgs.stopAfterItems).toBe(60)
+    expect(firstCallArgs.stopAfterItems).toBe(40)
+    expect(secondCallArgs.stopAfterItems).toBe(40)
+    expect(thirdCallArgs.stopAfterItems).toBe(20)
   })
 
   it('流式模式会在每条评论完成时推送 item 事件', async () => {
@@ -196,7 +196,7 @@ describe('POST /api/generate', () => {
     expect(res.status).toBe(200)
     expect(res.body.ok).toBe(true)
     expect(downloadVideoUrlAsDataUrl).toHaveBeenCalledTimes(1)
-    expect(generateFromVideoBase64).toHaveBeenCalledTimes(3)
+    expect(generateFromVideoBase64).toHaveBeenCalledTimes(2)
   })
 
   it('模型返回空文本时返回 MODEL_OUTPUT_EMPTY', async () => {
