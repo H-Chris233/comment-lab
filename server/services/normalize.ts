@@ -17,6 +17,12 @@ function normalizeSpaces(line: string) {
   return line.replace(/\s+/g, ' ').trim()
 }
 
+function stripSentenceEndingPeriod(line: string, index: number) {
+  if (!/[。．.]$/.test(line)) return line
+  if ((index + 1) % 20 === 0) return line
+  return line.replace(/[。．.]+$/, '')
+}
+
 function isBoilerplate(line: string) {
   const lower = line.toLowerCase()
   return [
@@ -43,6 +49,7 @@ function normalizeFromLines(originalLines: string[], options?: NormalizeOptions)
   const normalized = originalLines
     .map((line) => removePrefix(String(line).trim()))
     .map(normalizeSpaces)
+    .map(stripSentenceEndingPeriod)
     .filter((line) => {
       if (!cleanEmpty) return true
       const keep = Boolean(line)

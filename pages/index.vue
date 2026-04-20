@@ -10,6 +10,7 @@ import { DEFAULT_PROMPT } from '~/types/prompt'
 import { shouldShowDebugRaw } from '~/utils/env'
 
 const mode = ref<'link' | 'upload'>('link')
+const inputMode = ref<'file' | 'base64'>('file')
 const url = ref('')
 const file = ref<File | null>(null)
 const basePrompt = ref(DEFAULT_PROMPT)
@@ -86,6 +87,7 @@ async function handleGenerate() {
 
   await generate({
     mode: mode.value,
+    inputMode: mode.value === 'link' ? inputMode.value : 'file',
     url: url.value,
     file: file.value,
     count: count.value,
@@ -149,6 +151,7 @@ function handleFileError(msg: string) {
         <div class="sections-wrapper">
           <SourceInput
             v-model:mode="mode"
+            v-model:input-mode="inputMode"
             v-model:url="url"
             :loading="isLoading"
             :parse-status="parseStatus"

@@ -1,0 +1,96 @@
+import { promises as fs } from 'node:fs'
+import path from 'node:path'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+import { downloadVideoUrlToTempFile, saveVideoUploadToTempFile } from '../../server/services/file'
+
+const TEN_MINUTES = 10 * 60 * 1000
+
+describe('video temp retention', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.spyOn(fs, 'mkdir').mockResolvedValue(undefined as any)
+    vi.spyOn(fs, 'writeFile').mockResolvedValue(undefined as any)
+    vi.spyOn(fs, 'rm').mockResolvedValue(undefined as any)
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: {
+          get(name: string) {
+            if (name === 'content-type') return 'video/mp4'
+            if (name === 'content-length') return '3'
+            return null
+          }
+        },
+        arrayBuffer: async () => Uint8Array.from([1, 2, 3]).buffer
+      })
+    )
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('下载的视频会在 10 分钟后才清理', async () => {
+    const result = await downloadVideoUrlToTempFile({
+      videoUrl: 'https://example.com/video.mp4',
+      requestId: 'req_test'
+    })
+
+    await result.cleanup()
+    expect(fs.rm).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(TEN_MINUTES - 1)
+    expect(fs.rm).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(1)
+    expect(fs.rm).toHaveBeenCalledTimes(1)
+  })
+
+  it('上传的视频仍然会立即清理', async () => {
+    const result = await saveVideoUploadToTempFile(
+      {
+        type: 'video/mp4',
+        data: Buffer.from([1, 2, 3])
+      },
+      'req_test'
+    )
+
+    await result.cleanup()
+    expect(fs.rm).toHaveBeenCalledTimes(1)
+  })
+
+  it('下载视频保留时间可以通过 runtimeConfig 覆盖', async () => {
+    vi.stubGlobal('useRuntimeConfig', () => ({
+      tempVideoRetentionMinutes: 3
+    }))
+
+    const result = await downloadVideoUrlToTempFile({
+      videoUrl: 'https://example.com/video.mp4',
+      requestId: 'req_test'
+    })
+
+    await result.cleanup()
+    await vi.advanceTimersByTimeAsync(3 * 60 * 1000)
+    expect(fs.rm).toHaveBeenCalledTimes(1)
+  })
+
+  it('相对路径的视频缓存目录会按仓库根目录解析为绝对路径', async () => {
+    vi.stubGlobal('useRuntimeConfig', () => ({
+      tempVideoDir: '.tmp/douyin-downloads'
+    }))
+
+    const result = await downloadVideoUrlToTempFile({
+      videoUrl: 'https://example.com/video.mp4',
+      requestId: 'req_test'
+    })
+
+    expect(path.isAbsolute(result.sourcePath)).toBe(true)
+    expect(result.sourcePath).toContain(path.join(process.cwd(), '.tmp', 'douyin-downloads'))
+  })
+})

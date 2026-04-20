@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest'
-import { countCompleteItemsByLines, createCompleteLineCollector } from '../../server/services/ai'
+import { describe, expect, it, vi } from 'vitest'
+
+import { countCompleteItemsByLines, createCompleteLineCollector, generateFromVideoFile } from '../../server/services/ai'
 
 describe('countCompleteItemsByLines', () => {
   it('只统计完整行，不把最后一条未完成文本算进去', () => {
@@ -83,5 +84,43 @@ describe('createCompleteLineCollector', () => {
     expect(collector.collect('第一条\n第二')).toEqual(['第一条'])
     expect(collector.collect('第一条\n第二条\n第三')).toEqual(['第二条'])
     expect(collector.collect('第一条\n第二条\n第三条\n')).toEqual(['第三条'])
+  })
+})
+
+describe('generateFromVideoFile', () => {
+  it('会把本地视频以 file 路径传给 Python 侧车', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        rawText: '第一条\n第二条\n'
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock as any)
+    try {
+      const onLine = vi.fn()
+      const result = await generateFromVideoFile({
+        model: 'qwen3.6-plus',
+        prompt: 'base prompt',
+        videoPath: '/tmp/video.mp4',
+        requestId: 'req_test',
+        onLine
+      })
+
+      expect(result.rawText).toContain('第一条')
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+
+      const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+      expect(url).toContain('/generate')
+      expect(init.method).toBe('POST')
+      const body = JSON.parse(String(init.body)) as any
+      expect(body.model).toBe('qwen3.6-plus')
+      expect(body.input_mode).toBe('file')
+      expect(body.video_path).toBe('/tmp/video.mp4')
+      expect(onLine).toHaveBeenCalledWith('第一条')
+      expect(onLine).toHaveBeenCalledWith('第二条')
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 })

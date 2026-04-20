@@ -10,6 +10,8 @@ Object.assign(globalThis, {
     aliyunBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
     aliyunModel: 'qwen3.5-omni-plus',
     douyinApiBase: 'https://parser.example.com',
-    maxVideoSizeMb: 100
+    maxVideoSizeMb: 100,
+    tempVideoRetentionMinutes: 10,
+    pythonDashscopeServiceUrl: 'http://127.0.0.1:8001'
   })
 })

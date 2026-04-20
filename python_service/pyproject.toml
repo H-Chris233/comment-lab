@@ -1,0 +1,12 @@
+[project]
+name = "comment-lab-dashscope-sidecar"
+version = "0.1.0"
+description = "DashScope sidecar for Comment Lab"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+  "fastapi==0.115.8",
+  "uvicorn[standard]==0.34.0",
+  "dashscope==1.25.16",
+  "pydantic==2.10.6",
+  "python-dotenv==1.2.1",
+]

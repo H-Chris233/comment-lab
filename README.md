@@ -5,17 +5,38 @@
 ## 当前模型适配
 
 - 当前目标模型：`qwen3.5-omni-plus`
-- 当前调用方式：OpenAI 兼容接口
+- 当前调用方式：Python 侧车 + DashScope Python SDK
 - 当前输出模式：文本（`modalities: ["text"]`）
 - 当前请求模式：流式聚合后返回
 
 ## 启动
 
+### 一键启动
+
+```bash
+npm run dev:all
+```
+
+这会同时启动：
+- Nuxt 主服务
+- Python DashScope 侧车
+
+### 分开启动
+
 ```bash
 cp .env.example .env
 npm install
+uv sync --directory python_service --python 3.13
 npm run dev
 ```
+
+另起一个终端启动 Python 侧车：
+
+```bash
+npm run python:dev
+```
+
+`python:dev` 会通过 `uv` 自动创建/复用 Python 环境并启动侧车服务。
 
 ## 关键环境变量
 
@@ -25,6 +46,7 @@ npm run dev
 - `TIKHUB_API_KEY`: TikHub API Key（抖音解析）
 - `TIKHUB_BASE_URL`: TikHub API 地址（默认 `https://api.tikhub.io`）
 - `MAX_VIDEO_SIZE_MB`: 前端/服务端上传大小限制（默认 100）
+- `PYTHON_DASHSCOPE_SERVICE_URL`: Python 侧车地址（默认 `http://127.0.0.1:8001`）
 
 ## 限制说明
 

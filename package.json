@@ -10,11 +10,13 @@
     "typecheck": "nuxt typecheck",
     "test": "vitest run",
     "test:watch": "vitest",
+    "python:sync": "uv sync --directory python_service --python 3.13",
+    "python:dev": "uv run --directory python_service --python 3.13 uvicorn app:app --reload --port 8001",
+    "dev:all": "bash scripts/dev-all.sh",
     "e2e:aliyun": "node scripts/e2e-aliyun-generate.mjs"
   },
   "dependencies": {
-    "nuxt": "^3.20.0",
-    "openai": "^4.104.0"
+    "nuxt": "^3.20.0"
   },
   "devDependencies": {
     "@types/supertest": "^6.0.3",

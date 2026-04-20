@@ -1,4 +1,3 @@
-import OpenAI from 'openai'
 import { createAppError } from '../utils/errors'
 
 const DEFAULT_FPS = 1
@@ -22,35 +21,27 @@ export interface GenerateAiResult {
   durationMs: number
 }
 
-export function createAliyunClient() {
+function getPythonServiceBaseUrl() {
   const config = useRuntimeConfig()
-
-  return new OpenAI({
-    apiKey: config.aliyunApiKey,
-    baseURL: config.aliyunBaseUrl
-  })
+  return (config.pythonDashscopeServiceUrl || 'http://127.0.0.1:8001').replace(/\/+$/, '')
 }
 
-function buildMessages(prompt: string, videoUrlOrDataUrl: string, fps = DEFAULT_FPS) {
-  return [
-    {
-      role: 'system',
-      content: '你是一个中文短视频评论生成助手。只输出评论内容，不解释。'
-    },
-    {
-      role: 'user',
-      content: [
-        { type: 'text', text: prompt },
-        {
-          type: 'video_url',
-          video_url: {
-            url: videoUrlOrDataUrl,
-            fps
-          }
-        }
-      ]
-    }
-  ]
+function buildSidecarPayload(params: {
+  model: string
+  prompt: string
+  fps: number
+  inputMode: 'url' | 'file'
+  videoUrl?: string
+  videoPath?: string
+}) {
+  return {
+    model: params.model,
+    prompt: params.prompt,
+    fps: params.fps,
+    input_mode: params.inputMode,
+    video_url: params.videoUrl,
+    video_path: params.videoPath
+  }
 }
 
 function getCompleteLines(raw: string) {
@@ -72,9 +63,9 @@ export function createCompleteLineCollector() {
 
   return {
     collect(raw: string) {
-      const completeLines = getCompleteLines(raw)
-      const newLines = completeLines.slice(processedCompleteLineCount)
-      processedCompleteLineCount = completeLines.length
+      const lines = getCompleteLines(raw)
+      const newLines = lines.slice(processedCompleteLineCount)
+      processedCompleteLineCount = lines.length
       return newLines
         .map((line) => line.trim())
         .filter(Boolean)
@@ -93,89 +84,100 @@ function takeFirstItems(raw: string, maxItems?: number) {
   return lines.slice(0, maxItems).join('\n').trim()
 }
 
-async function generateStreamed(params: GenerateBaseParams & { inputKind: 'url' | 'base64'; videoSource: string }): Promise<GenerateAiResult> {
+async function callPythonSidecar(params: {
+  model: string
+  prompt: string
+  fps: number
+  inputMode: 'url' | 'file'
+  videoUrl?: string
+  videoPath?: string
+  requestId: string
+  signal?: AbortSignal
+}) {
+  const baseUrl = getPythonServiceBaseUrl()
+  const response = await fetch(`${baseUrl}/generate`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-request-id': params.requestId
+    },
+    body: JSON.stringify(buildSidecarPayload(params)),
+    signal: params.signal
+  })
+
+  const payload = await response.json().catch(() => null) as null | {
+    rawText?: unknown
+    model?: unknown
+    detail?: unknown
+    message?: unknown
+  }
+
+  if (!response.ok) {
+    const detail = typeof payload?.detail === 'string'
+      ? payload.detail
+      : typeof payload?.message === 'string'
+        ? payload.message
+        : `Python sidecar 请求失败（HTTP ${response.status}）`
+    throw createAppError({
+      code: 'MODEL_CALL_FAILED',
+      message: detail,
+      statusCode: 502
+    })
+  }
+
+  return {
+    rawText: typeof payload?.rawText === 'string' ? payload.rawText : '',
+    model: typeof payload?.model === 'string' ? payload.model : params.model
+  }
+}
+
+async function generateStreamed(params: GenerateBaseParams & {
+  inputMode: 'url' | 'file'
+  videoUrl?: string
+  videoPath?: string
+}): Promise<GenerateAiResult> {
   const start = Date.now()
   const fps = params.fps ?? DEFAULT_FPS
-  const client = createAliyunClient()
   console.info('[ai.generate] start', {
     requestId: params.requestId,
     model: params.model,
-    inputKind: params.inputKind,
     fps,
+    inputMode: params.inputMode,
     stopAfterItems: params.stopAfterItems,
     promptLength: params.prompt.length
   })
 
-  let streamChunkCount = 0
   let usage: unknown
-  let finishReason: string | null = null
+  let finishReason: string | null = 'stop'
   let rawAccumulated = ''
-  let firstChunkLogged = false
   const lineCollector = createCompleteLineCollector()
   let emittedItemCount = 0
 
   try {
-    const stream = await client.chat.completions.create({
+    const result = await callPythonSidecar({
       model: params.model,
-      stream: true,
-      modalities: ['text'],
-      stream_options: { include_usage: true },
-      messages: buildMessages(params.prompt, params.videoSource, fps),
+      prompt: params.prompt,
+      fps,
+      inputMode: params.inputMode,
+      videoUrl: params.videoUrl,
+      videoPath: params.videoPath,
+      requestId: params.requestId,
       signal: params.signal
-    } as any)
+    })
 
-    for await (const chunk of stream as any) {
-      streamChunkCount += 1
-
-      if (chunk?.usage) usage = chunk.usage
-
-      const choice = chunk?.choices?.[0]
-      if (choice?.finish_reason) finishReason = choice.finish_reason
-
-      const content = choice?.delta?.content
-      if (typeof content === 'string') {
-        rawAccumulated += content
-      } else if (Array.isArray(content)) {
-        for (const part of content) {
-          if (typeof part?.text === 'string') rawAccumulated += part.text
-        }
-      }
-
-      if (!firstChunkLogged) {
-        firstChunkLogged = true
-        console.info('[ai.generate] step:first-chunk', {
-          requestId: params.requestId,
-          streamChunkCount
-        })
-      }
-
-      const newLines = lineCollector.collect(rawAccumulated)
-      for (const line of newLines) {
-        if (params.stopAfterItems && emittedItemCount >= params.stopAfterItems) break
-        params.onLine?.(line)
-        emittedItemCount += 1
-      }
-
-      if (streamChunkCount % 50 === 0) {
-        console.info('[ai.generate] step:stream-progress', {
-          requestId: params.requestId,
-          streamChunkCount,
-          currentTextLength: rawAccumulated.length,
-          currentCompleteLineCount: countCompleteItemsByLines(rawAccumulated)
-        })
-      }
-
-      if (params.stopAfterItems && emittedItemCount >= params.stopAfterItems) {
-        finishReason = 'limit_reached'
-        console.info('[ai.generate] step:stop-after-items', {
-          requestId: params.requestId,
-          streamChunkCount,
-          currentCompleteLineCount: emittedItemCount,
-          stopAfterItems: params.stopAfterItems
-        })
-        break
-      }
+    rawAccumulated = result.rawText
+    const completeLines = lineCollector.collect(`${rawAccumulated}\n`)
+    for (const line of completeLines) {
+      if (params.stopAfterItems && emittedItemCount >= params.stopAfterItems) break
+      params.onLine?.(line)
+      emittedItemCount += 1
     }
+
+    console.info('[ai.generate] step:sidecar-ok', {
+      requestId: params.requestId,
+      completeLineCount: completeLines.length,
+      textLength: rawAccumulated.length
+    })
   } catch (error) {
     if ((error as any)?.name === 'AbortError') {
       throw createAppError({
@@ -199,26 +201,22 @@ async function generateStreamed(params: GenerateBaseParams & { inputKind: 'url' 
   console.info('[ai.generate]', {
     requestId: params.requestId,
     model: params.model,
-    mode: 'chat.completions',
-    inputKind: params.inputKind,
+    mode: 'python-sidecar',
     fps,
-    stopAfterItems: params.stopAfterItems,
-    streamChunkCount,
+    inputMode: params.inputMode,
     rawTextLength: rawText.length,
     durationMs,
+    emittedItemCount,
+    usage,
     finishReason
   })
-
-  if (!rawText) {
-    throw createAppError({ code: 'MODEL_OUTPUT_EMPTY', message: '模型输出为空，请重试', statusCode: 502 })
-  }
 
   return {
     rawText,
     model: params.model,
     usage,
     finishReason,
-    streamChunkCount,
+    streamChunkCount: Math.max(1, countCompleteItemsByLines(rawText)),
     durationMs
   }
 }
@@ -230,39 +228,39 @@ export async function generateFromVideoUrl(params: {
   requestId: string
   fps?: number
   stopAfterItems?: number
-  signal?: AbortSignal
   onLine?: (line: string) => void
+  signal?: AbortSignal
 }) {
   return generateStreamed({
     model: params.model,
     prompt: params.prompt,
-    videoSource: params.videoUrl,
+    videoUrl: params.videoUrl,
+    inputMode: 'url',
     requestId: params.requestId,
     fps: params.fps,
-    inputKind: 'url',
     stopAfterItems: params.stopAfterItems,
     onLine: params.onLine,
     signal: params.signal
   })
 }
 
-export async function generateFromVideoBase64(params: {
+export async function generateFromVideoFile(params: {
   model: string
   prompt: string
-  dataUrl: string
+  videoPath: string
   requestId: string
   fps?: number
   stopAfterItems?: number
-  signal?: AbortSignal
   onLine?: (line: string) => void
+  signal?: AbortSignal
 }) {
   return generateStreamed({
     model: params.model,
     prompt: params.prompt,
-    videoSource: params.dataUrl,
+    videoPath: params.videoPath,
+    inputMode: 'file',
     requestId: params.requestId,
     fps: params.fps,
-    inputKind: 'base64',
     stopAfterItems: params.stopAfterItems,
     onLine: params.onLine,
     signal: params.signal

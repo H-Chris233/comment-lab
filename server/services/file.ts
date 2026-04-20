@@ -1,10 +1,12 @@
 import type { H3Event } from 'h3'
+import { readMultipartFormData } from 'h3'
 import { createAppError } from '../utils/errors'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 
 export const ALLOWED_VIDEO_MIME_TYPES = ['video/mp4', 'video/quicktime', 'video/webm']
+const DEFAULT_DOWNLOADED_VIDEO_RETENTION_MINUTES = 10
 
 export type UploadVideo = { type?: string; data?: Buffer; filename?: string }
 
@@ -15,20 +17,7 @@ export function getMaxVideoBytes() {
   return Math.floor(mb * 1024 * 1024)
 }
 
-export function fileToBase64DataUrl(fileBuffer: Buffer, mimeType: string) {
-  const base64 = fileBuffer.toString('base64')
-  return `data:${mimeType};base64,${base64}`
-}
-
-export async function readMultipart(event: H3Event) {
-  const form = await readMultipartFormData(event)
-  if (!form?.length) {
-    return []
-  }
-  return form
-}
-
-export async function fetchVideoUrlAsDataUrl(params: {
+async function fetchVideoBuffer(params: {
   videoUrl: string
   requestId?: string
   timeoutMs?: number
@@ -92,7 +81,6 @@ export async function fetchVideoUrlAsDataUrl(params: {
         })
       }
 
-      const dataUrl = fileToBase64DataUrl(buffer, mime)
       console.info('[file.fetch-video] success', {
         requestId: params.requestId,
         mime,
@@ -101,9 +89,9 @@ export async function fetchVideoUrlAsDataUrl(params: {
       })
 
       return {
-        dataUrl,
         mime,
-        bytes: buffer.byteLength
+        bytes: buffer.byteLength,
+        buffer
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'unknown'
@@ -146,6 +134,14 @@ export async function fetchVideoUrlAsDataUrl(params: {
   })
 }
 
+export async function readMultipart(event: H3Event) {
+  const form = await readMultipartFormData(event)
+  if (!form?.length) {
+    return []
+  }
+  return form
+}
+
 function guessExtByMime(mime: string) {
   if (mime === 'video/webm') return 'webm'
   if (mime === 'video/quicktime') return 'mov'
@@ -154,49 +150,100 @@ function guessExtByMime(mime: string) {
 
 function getTempVideoDir() {
   const config = useRuntimeConfig()
-  return config.tempVideoDir || path.join(process.cwd(), '.tmp', 'video-cache')
+  const configured = config.tempVideoDir || path.join(process.cwd(), '.tmp', 'video-cache')
+  return path.isAbsolute(configured) ? configured : path.resolve(process.cwd(), configured)
 }
 
-export async function downloadVideoUrlAsDataUrl(params: {
-  videoUrl: string
-  requestId?: string
-  timeoutMs?: number
-  maxBytes?: number
-}) {
-  const fetched = await fetchVideoUrlAsDataUrl(params)
+function getDownloadedVideoRetentionMs() {
+  const config = useRuntimeConfig()
+  const fromConfig = Number(
+    config.tempVideoRetentionMinutes || process.env.TEMP_VIDEO_RETENTION_MINUTES || DEFAULT_DOWNLOADED_VIDEO_RETENTION_MINUTES
+  )
+  const minutes = Number.isFinite(fromConfig) && fromConfig > 0 ? fromConfig : DEFAULT_DOWNLOADED_VIDEO_RETENTION_MINUTES
+  return Math.floor(minutes * 60 * 1000)
+}
+
+async function writeVideoBufferToTempFile(
+  buffer: Buffer,
+  mime: string,
+  requestId?: string,
+  options?: { cleanupDelayMs?: number }
+) {
   const root = getTempVideoDir()
   const workDir = path.join(root, `${Date.now()}-${randomUUID()}`)
   await fs.mkdir(workDir, { recursive: true })
 
-  const filePath = path.join(workDir, `video.${guessExtByMime(fetched.mime)}`)
-  const base64 = fetched.dataUrl.split(',')[1]
-  if (!base64) {
-    throw createAppError({
-      code: 'VIDEO_FETCH_FAILED',
-      message: '视频内容格式异常，请稍后重试',
-      statusCode: 422
-    })
-  }
-  const buffer = Buffer.from(base64, 'base64')
+  const filePath = path.join(workDir, `video.${guessExtByMime(mime)}`)
   await fs.writeFile(filePath, buffer)
 
   console.info('[file.cache-video] saved', {
-    requestId: params.requestId,
+    requestId,
     filePath: path.basename(filePath),
     bytes: buffer.byteLength
   })
 
   return {
-    dataUrl: fetched.dataUrl,
-    bytes: fetched.bytes,
-    mime: fetched.mime,
     sourcePath: filePath,
     cleanup: async () => {
-      await fs.rm(workDir, { recursive: true, force: true }).catch(() => {})
-      console.info('[file.cache-video] cleaned', {
-        requestId: params.requestId,
-        workDir: path.basename(workDir)
+      const cleanupDelayMs = Math.max(0, options?.cleanupDelayMs ?? 0)
+
+      if (cleanupDelayMs === 0) {
+        await fs.rm(workDir, { recursive: true, force: true }).catch(() => {})
+        console.info('[file.cache-video] cleaned', {
+          requestId,
+          workDir: path.basename(workDir)
+        })
+        return
+      }
+
+      const timer = setTimeout(() => {
+        void fs.rm(workDir, { recursive: true, force: true })
+          .then(() => {
+            console.info('[file.cache-video] cleaned', {
+              requestId,
+              workDir: path.basename(workDir),
+              delayMs: cleanupDelayMs
+            })
+          })
+          .catch(() => {})
+      }, cleanupDelayMs)
+      timer.unref?.()
+      console.info('[file.cache-video] cleanup scheduled', {
+        requestId,
+        workDir: path.basename(workDir),
+        delayMs: cleanupDelayMs
       })
     }
   }
+}
+
+export async function downloadVideoUrlToTempFile(params: {
+  videoUrl: string
+  requestId?: string
+  timeoutMs?: number
+  maxBytes?: number
+}) {
+  const fetched = await fetchVideoBuffer(params)
+  const { sourcePath, cleanup } = await writeVideoBufferToTempFile(fetched.buffer, fetched.mime, params.requestId, {
+    cleanupDelayMs: getDownloadedVideoRetentionMs()
+  })
+
+  return {
+    bytes: fetched.bytes,
+    mime: fetched.mime,
+    sourcePath,
+    cleanup
+  }
+}
+
+export async function saveVideoUploadToTempFile(file: UploadVideo, requestId?: string) {
+  if (!file.data || !file.type) {
+    throw createAppError({
+      code: 'INVALID_INPUT',
+      message: '请上传视频文件',
+      statusCode: 400
+    })
+  }
+
+  return writeVideoBufferToTempFile(file.data, file.type, requestId)
 }

@@ -1,3 +1,4 @@
+import { ref } from 'vue'
 import type { ApiError, GenerateRequestPayload, GenerateResponse, ParseLinkResponse } from '~/types/api'
 
 type StreamEvent = {
@@ -164,6 +165,7 @@ export function useGenerate() {
       abortController.value = new AbortController()
       const form = new FormData()
       form.append('mode', payload.mode)
+      if (payload.inputMode) form.append('inputMode', payload.inputMode)
       if (payload.url) form.append('url', payload.url)
       if (payload.file) form.append('video', payload.file)
       form.append('count', String(payload.count))

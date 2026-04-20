@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { validateCount, validatePromptLength, validateUrl, validateVideoFile } from '../../server/utils/validators'
+import { validateCount, validateInputMode, validatePromptLength, validateUrl, validateVideoFile } from '../../server/utils/validators'
 
 describe('validators', () => {
   it('validateCount 支持预设和自定义范围', () => {
@@ -14,6 +14,13 @@ describe('validators', () => {
     expect(validatePromptLength('')).toEqual({ basePrompt: '' })
     expect(validatePromptLength('abc')).toEqual({ basePrompt: 'abc' })
     expect(() => validatePromptLength('a'.repeat(6001))).toThrowError(/6000/)
+  })
+
+  it('validateInputMode 允许 url 和 file，兼容 base64 别名', () => {
+    expect(validateInputMode('url')).toBe('url')
+    expect(validateInputMode('file')).toBe('file')
+    expect(validateInputMode('base64')).toBe('file')
+    expect(() => validateInputMode('xxx')).toThrowError(/url 或 file/)
   })
 
   it('validateUrl 仅允许 http/https，并支持从分享文案中提取链接', () => {

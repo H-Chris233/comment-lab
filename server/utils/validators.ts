@@ -40,6 +40,19 @@ export function validatePromptLength(basePrompt?: string) {
   return { basePrompt: base }
 }
 
+export function validateInputMode(inputMode?: string): 'url' | 'file' | undefined {
+  const value = inputMode?.trim()
+  if (!value) return undefined
+
+  if (value === 'base64') return 'file'
+
+  if (value !== 'url' && value !== 'file') {
+    throw createAppError({ code: 'INVALID_INPUT', message: 'inputMode 必须是 url 或 file', statusCode: 400 })
+  }
+
+  return value
+}
+
 function extractHttpUrls(input: string) {
   const matches = input.match(/https?:\/\/[^\s]+/gi) || []
   return matches.map((raw) => raw.replace(/[)\]}>」』】）。，！？、;；]+$/g, ''))

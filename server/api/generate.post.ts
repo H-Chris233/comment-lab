@@ -1,14 +1,14 @@
 import type { ApiError, GenerateResultData } from '../../types/api'
 import { getQuery, getRequestHeader, setResponseHeaders } from 'h3'
 import { DEFAULT_MODEL } from '../../types/prompt'
-import { generateFromVideoBase64 } from '../services/ai'
-import { ALLOWED_VIDEO_MIME_TYPES, downloadVideoUrlAsDataUrl, fileToBase64DataUrl, getMaxVideoBytes, readMultipart } from '../services/file'
+import { generateFromVideoFile, generateFromVideoUrl } from '../services/ai'
+import { ALLOWED_VIDEO_MIME_TYPES, downloadVideoUrlToTempFile, getMaxVideoBytes, readMultipart, saveVideoUploadToTempFile } from '../services/file'
 import { normalizeComments } from '../services/normalize'
 import { parseDouyinLink } from '../services/douyin'
 import { STYLE_ORDER, buildStylePrompts, splitStyleTargets } from '../services/prompt'
 import { createAppError, isAppError, toApiError } from '../utils/errors'
 import { createRequestId, failure, success } from '../utils/response'
-import { parseBoolean, validateCount, validateMode, validatePromptLength, validateUrl, validateVideoFile } from '../utils/validators'
+import { parseBoolean, validateCount, validateInputMode, validateMode, validatePromptLength, validateUrl, validateVideoFile } from '../utils/validators'
 
 const MAX_ROUNDS_BUFFER = 2
 
@@ -120,6 +120,15 @@ export default defineEventHandler(async (event) => {
     const dedupe = dedupeRaw == null ? true : parseBoolean(dedupeRaw)
     const cleanEmpty = cleanEmptyRaw == null ? true : parseBoolean(cleanEmptyRaw)
     const promptData = validatePromptLength(field('basePrompt'))
+    const inputMode = validateInputMode(field('inputMode')) ?? (mode === 'link' ? 'url' : 'file')
+
+    if (mode === 'upload' && inputMode === 'url') {
+      throw createAppError({
+        code: 'INVALID_INPUT',
+        message: 'upload 模式不支持 inputMode=url',
+        statusCode: 400
+      })
+    }
 
     const model = field('model')?.trim() || useRuntimeConfig().aliyunModel || DEFAULT_MODEL
     console.info('[api.generate] step:validated', {
@@ -128,6 +137,7 @@ export default defineEventHandler(async (event) => {
       count,
       dedupe,
       cleanEmpty,
+      inputMode,
       basePromptLength: promptData.basePrompt.length,
       model
     })
@@ -141,8 +151,9 @@ export default defineEventHandler(async (event) => {
     ensureClientConnected('after-meta')
 
     // 3) 获取视频输入源
-    let dataUrl = ''
+    let localVideoPath = ''
     let cleanupVideoSource: null | (() => Promise<void>) = null
+    let directVideoUrl = ''
 
     if (mode === 'link') {
       const sourceUrl = validateUrl(field('url'))
@@ -153,20 +164,32 @@ export default defineEventHandler(async (event) => {
       let parsed = await parseDouyinLink(sourceUrl, requestId)
       try {
         const parsedVideoUrl = ensureParsedVideoUrl(parsed)
-        const downloaded = await downloadVideoUrlAsDataUrl({
-          videoUrl: parsedVideoUrl,
-          requestId,
-          maxBytes: getMaxVideoBytes()
-        })
-        dataUrl = downloaded.dataUrl
-        cleanupVideoSource = downloaded.cleanup
-        console.info('[api.generate] step:link-parse:ok', {
-          requestId,
-          parsedHost: new URL(parsedVideoUrl).hostname,
-          hasTitle: Boolean(parsed.title),
-          hasCover: Boolean(parsed.cover),
-          downloadedBytes: downloaded.bytes
-        })
+        if (inputMode === 'url') {
+          directVideoUrl = parsedVideoUrl
+          console.info('[api.generate] step:link-parse:ok', {
+            requestId,
+            parsedHost: new URL(parsedVideoUrl).hostname,
+            hasTitle: Boolean(parsed.title),
+            hasCover: Boolean(parsed.cover),
+            transport: 'url'
+          })
+        } else {
+          const downloaded = await downloadVideoUrlToTempFile({
+            videoUrl: parsedVideoUrl,
+            requestId,
+            maxBytes: getMaxVideoBytes()
+          })
+          localVideoPath = downloaded.sourcePath
+          cleanupVideoSource = downloaded.cleanup
+          console.info('[api.generate] step:link-parse:ok', {
+            requestId,
+            parsedHost: new URL(parsedVideoUrl).hostname,
+            hasTitle: Boolean(parsed.title),
+            hasCover: Boolean(parsed.cover),
+            downloadedBytes: downloaded.bytes,
+            transport: 'file'
+          })
+        }
       } catch (error) {
         if (!(isAppError(error) && error.code === 'VIDEO_FETCH_FAILED')) throw error
 
@@ -177,28 +200,41 @@ export default defineEventHandler(async (event) => {
 
         parsed = await parseDouyinLink(sourceUrl, requestId)
         const parsedVideoUrl = ensureParsedVideoUrl(parsed)
-        const downloaded = await downloadVideoUrlAsDataUrl({
-          videoUrl: parsedVideoUrl,
-          requestId,
-          maxBytes: getMaxVideoBytes()
-        })
-        dataUrl = downloaded.dataUrl
-        cleanupVideoSource = downloaded.cleanup
-        console.info('[api.generate] step:link-download-retry-ok', {
-          requestId,
-          parsedHost: new URL(parsedVideoUrl).hostname,
-          downloadedBytes: downloaded.bytes
-        })
+        if (inputMode === 'url') {
+          directVideoUrl = parsedVideoUrl
+          console.info('[api.generate] step:link-download-retry-ok', {
+            requestId,
+            parsedHost: new URL(parsedVideoUrl).hostname,
+            transport: 'url'
+          })
+        } else {
+          const downloaded = await downloadVideoUrlToTempFile({
+            videoUrl: parsedVideoUrl,
+            requestId,
+            maxBytes: getMaxVideoBytes()
+          })
+          localVideoPath = downloaded.sourcePath
+          cleanupVideoSource = downloaded.cleanup
+          console.info('[api.generate] step:link-download-retry-ok', {
+            requestId,
+            parsedHost: new URL(parsedVideoUrl).hostname,
+            downloadedBytes: downloaded.bytes,
+            transport: 'file'
+          })
+        }
       }
     } else {
       const maxBytes = getMaxVideoBytes()
       const file = validateVideoFile(form.find((f) => f.name === 'video'), maxBytes, ALLOWED_VIDEO_MIME_TYPES)
-      dataUrl = fileToBase64DataUrl(file.data!, file.type!)
+      const uploaded = await saveVideoUploadToTempFile(file, requestId)
+      localVideoPath = uploaded.sourcePath
+      cleanupVideoSource = uploaded.cleanup
       console.info('[api.generate] step:upload-accepted', {
         requestId,
         mime: file.type,
         bytes: file.data?.byteLength || 0,
-        maxBytes
+        maxBytes,
+        transport: 'file'
       })
     }
 
@@ -254,25 +290,36 @@ export default defineEventHandler(async (event) => {
         })
 
         const aiResults = await Promise.all(
-          roundStyles.map((style) => generateFromVideoBase64({
-            model,
-            prompt: promptSet[style],
-            dataUrl,
-            requestId,
-            fps: 1,
-            stopAfterItems: roundStyleTargets[style],
-            onLine: (comment) => {
-              if (streamedItemCount >= count) return
-              streamedItemCount += 1
-              emitProgress('item', {
-                requestId,
-                round,
-                style,
-                comment
-              })
-            },
-            signal: abortController.signal
-          }))
+          roundStyles.map((style) => {
+            const commonParams = {
+              model,
+              prompt: promptSet[style],
+              requestId,
+              fps: 1,
+              stopAfterItems: roundStyleTargets[style],
+              onLine: (comment: string) => {
+                if (streamedItemCount >= count) return
+                streamedItemCount += 1
+                emitProgress('item', {
+                  requestId,
+                  round,
+                  style,
+                  comment
+                })
+              },
+              signal: abortController.signal
+            }
+
+            return inputMode === 'url'
+              ? generateFromVideoUrl({
+                  ...commonParams,
+                  videoUrl: directVideoUrl
+                })
+              : generateFromVideoFile({
+                  ...commonParams,
+                  videoPath: localVideoPath
+                })
+          })
         )
         ensureClientConnected(`round-${round}-after-ai`)
 

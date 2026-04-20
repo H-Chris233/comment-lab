@@ -1,9 +1,14 @@
 node_modules
 .nuxt
 .output
+.tmp
 .env
 .DS_Store
 *.log
 .omx
 .claude/
 .omx/
+__pycache__/
+*.pyc
+.venv/
+python_service/__pycache__/
