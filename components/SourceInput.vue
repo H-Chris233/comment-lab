@@ -4,6 +4,7 @@ import { ref } from 'vue'
 const props = defineProps<{
   mode: 'link' | 'upload'
   inputMode: 'file' | 'base64'
+  includeCommentSamples: boolean
   url: string
   loading: boolean
   parseStatus: string
@@ -16,6 +17,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   'update:mode': ['link' | 'upload']
   'update:inputMode': ['file' | 'base64']
+  'update:includeCommentSamples': [boolean]
   'update:url': [string]
   'update:file': [File | null]
   'parse-link': []
@@ -106,6 +108,26 @@ function clearSelectedFile() {
             @click="emit('update:inputMode', 'base64')"
           >
             base64
+          </button>
+        </div>
+      </div>
+
+      <div class="switch-row">
+        <span class="switch-label">评论样本</span>
+        <div class="switch-group">
+          <button
+            :class="{ active: props.includeCommentSamples }"
+            class="switch-btn"
+            @click="emit('update:includeCommentSamples', true)"
+          >
+            开启
+          </button>
+          <button
+            :class="{ active: !props.includeCommentSamples }"
+            class="switch-btn"
+            @click="emit('update:includeCommentSamples', false)"
+          >
+            关闭
           </button>
         </div>
       </div>

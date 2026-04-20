@@ -32,7 +32,11 @@ function renderTemplate(template: string, params: BuildPromptParams, target: num
   const promptSection = basePrompt ? `附加提示词：\n${basePrompt}` : ''
   const title = params.title?.trim()
   const titleSection = title ? `视频标题：${sanitizePromptText(title)}` : ''
-  const contextSection = [titleSection, promptSection].filter(Boolean).join('\n')
+  const commentSamples = normalizeCommentSamples(params.commentSamples)
+  const sampleSection = commentSamples.length
+    ? `评论样本（仅供模仿语气、句式和节奏，不要照抄）：\n${commentSamples.map((sample) => `- ${sample}`).join('\n')}`
+    : ''
+  const contextSection = [titleSection, sampleSection, promptSection].filter(Boolean).join('\n')
 
   return template
     .replaceAll('{{PROMPT_SECTION}}', contextSection)
@@ -46,6 +50,32 @@ function sanitizePromptText(value: string) {
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 120)
+}
+
+function normalizeCommentSamples(samples?: string[]) {
+  if (!Array.isArray(samples) || !samples.length) return []
+
+  const seen = new Set<string>()
+  const normalized: string[] = []
+
+  for (const sample of samples) {
+    const text = sanitizeCommentSample(sample)
+    if (!text || seen.has(text)) continue
+    seen.add(text)
+    normalized.push(text)
+    if (normalized.length >= 8) break
+  }
+
+  return normalized
+}
+
+function sanitizeCommentSample(value: string) {
+  return value
+    .replace(/^[\s\-•·\d.)、：:]+/g, '')
+    .replace(/[\u0000-\u001f\u007f]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 80)
 }
 
 function splitByRatio(total: number) {

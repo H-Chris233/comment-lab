@@ -5,4 +5,5 @@ export const DEFAULT_MODEL = 'qwen3.5-omni-plus'
 export interface BuildPromptParams {
   basePrompt: string
   title?: string
+  commentSamples?: string[]
 }

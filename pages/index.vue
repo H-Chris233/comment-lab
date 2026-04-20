@@ -11,6 +11,7 @@ import { shouldShowDebugRaw } from '~/utils/env'
 
 const mode = ref<'link' | 'upload'>('link')
 const inputMode = ref<'file' | 'base64'>('file')
+const includeCommentSamples = ref(false)
 const url = ref('')
 const file = ref<File | null>(null)
 const basePrompt = ref(DEFAULT_PROMPT)
@@ -89,6 +90,7 @@ async function handleGenerate() {
   await generate({
     mode: mode.value,
     inputMode: mode.value === 'link' ? inputMode.value : 'file',
+    includeCommentSamples: mode.value === 'link' ? includeCommentSamples.value : false,
     url: url.value,
     file: file.value,
     count: count.value,
@@ -157,6 +159,7 @@ function handleFileError(msg: string) {
           <SourceInput
             v-model:mode="mode"
             v-model:input-mode="inputMode"
+            v-model:include-comment-samples="includeCommentSamples"
             v-model:url="url"
             :loading="isLoading"
             :parse-status="parseStatus"

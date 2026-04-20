@@ -43,6 +43,23 @@ describe('buildStylePrompts', () => {
     expect(result.short).toContain('视频标题：这个夏天最治愈的一段')
   })
 
+  it('link 模式可注入评论样本到 prompt 上下文', async () => {
+    const result = await buildStylePrompts({
+      basePrompt: '请偏口语化',
+      title: '这个夏天最治愈的一段',
+      commentSamples: [
+        '这个镜头真的好舒服',
+        '主包这段状态太松弛了',
+        '这个镜头真的好舒服'
+      ]
+    }, splitStyleTargets(100))
+
+    expect(result.long).toContain('评论样本（仅供模仿语气、句式和节奏，不要照抄）')
+    expect(result.long).toContain('- 这个镜头真的好舒服')
+    expect(result.long).toContain('- 主包这段状态太松弛了')
+    expect(result.long).not.toContain('这个镜头真的好舒服\n- 这个镜头真的好舒服')
+  })
+
   it('按 40/40/20 拆分目标条数', () => {
     expect(splitStyleTargets(100)).toEqual({ short: 40, medium: 40, long: 20 })
     expect(splitStyleTargets(200)).toEqual({ short: 80, medium: 80, long: 40 })

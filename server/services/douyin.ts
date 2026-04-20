@@ -6,6 +6,7 @@ export interface ParsedVideoResult {
   videoUrl?: string
   title?: string
   cover?: string
+  awemeId?: string
   raw?: unknown
   message?: string
 }
@@ -112,12 +113,88 @@ function extractTitleFromTikHub(payload: any) {
   return typeof title === 'string' ? title : undefined
 }
 
+function extractAwemeIdFromTikHub(payload: any) {
+  const candidates = [
+    'data.aweme_detail.aweme_id',
+    'data.aweme_detail.awemeId',
+    'data.aweme_detail.aweme_id_str',
+    'data.aweme_detail.awemeIdStr',
+    'data.aweme_id',
+    'data.awemeId',
+    'aweme_id',
+    'awemeId'
+  ]
+
+  for (const path of candidates) {
+    const value = getByPath(payload, path)
+    if (typeof value === 'string' && value.trim()) return value.trim()
+    if (typeof value === 'number' && Number.isFinite(value)) return String(value)
+  }
+
+  return undefined
+}
+
 function extractCoverFromTikHub(payload: any) {
   return pickFirstUrl(
     getByPath(payload, 'data.aweme_detail.video.cover.url_list')
     ?? getByPath(payload, 'data.aweme_detail.video.origin_cover.url_list')
     ?? getByPath(payload, 'data.cover')
   )
+}
+
+function cleanCommentSample(value: string) {
+  return value
+    .replace(/^[\s\-•·\d.)、：:]+/g, '')
+    .replace(/[\u0000-\u001f\u007f]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function extractCommentSamplesFromTikHub(payload: any) {
+  const arrays = [
+    getByPath(payload, 'data.comments'),
+    getByPath(payload, 'data.comment_list'),
+    getByPath(payload, 'data.commentList'),
+    getByPath(payload, 'data.items'),
+    getByPath(payload, 'data.list'),
+    getByPath(payload, 'data.data')
+  ].filter(Array.isArray)
+
+  const candidates = arrays.length ? arrays : [payload]
+  const results: string[] = []
+  const seen = new Set<string>()
+
+  const pushComment = (value: unknown) => {
+    if (typeof value !== 'string') return
+    const text = cleanCommentSample(value)
+    if (!text || text.length < 2) return
+    if (seen.has(text)) return
+    seen.add(text)
+    results.push(text)
+  }
+
+  const visit = (value: any, depth = 0) => {
+    if (!value || depth > 3) return
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item, depth + 1)
+      return
+    }
+    if (typeof value !== 'object') return
+
+    pushComment(value.text)
+    pushComment(value.comment_text)
+    pushComment(value.content)
+    pushComment(value.comment)
+
+    for (const child of Object.values(value)) {
+      if (Array.isArray(child) || (child && typeof child === 'object')) {
+        visit(child, depth + 1)
+      }
+    }
+  }
+
+  for (const item of candidates) visit(item)
+  return results.slice(0, 8)
 }
 
 async function callTikHubForDouyinVideo(shareUrl: string, requestId?: string) {
@@ -214,6 +291,7 @@ async function callTikHubForDouyinVideo(shareUrl: string, requestId?: string) {
           videoUrl,
           title: extractTitleFromTikHub(json),
           cover: extractCoverFromTikHub(json),
+          awemeId: extractAwemeIdFromTikHub(json) || extractDouyinVideoId(videoUrl) || undefined,
           raw: json
         }
       } catch (error) {
@@ -243,6 +321,119 @@ async function callTikHubForDouyinVideo(shareUrl: string, requestId?: string) {
   })
 }
 
+async function callTikHubForDouyinAwemeId(shareUrl: string, requestId?: string) {
+  const { baseUrl, apiKey } = getTikHubConfig()
+  if (!apiKey) return undefined
+
+  const endpointTries = [
+    '/api/v1/douyin/web/get_aweme_id',
+    '/api/v1/douyin/app/v3/get_aweme_id',
+    '/api/v1/douyin/app/v2/get_aweme_id'
+  ]
+
+  for (const endpoint of endpointTries) {
+    const apiUrl = new URL(`${baseUrl}${endpoint}`)
+    apiUrl.searchParams.set('url', shareUrl)
+
+    try {
+      const res = await fetch(apiUrl.toString(), {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          Accept: 'application/json'
+        }
+      })
+
+      if (!res.ok) continue
+
+      const json = await res.json().catch(() => null)
+      if (!json || typeof json !== 'object') continue
+
+      const awemeId = extractAwemeIdFromTikHub(json)
+      if (awemeId) {
+        console.info('[douyin.tikhub] aweme-id resolved', { requestId, endpoint, awemeId })
+        return awemeId
+      }
+    } catch (error) {
+      console.warn('[douyin.tikhub] aweme-id request failed', {
+        requestId,
+        endpoint,
+        message: error instanceof Error ? error.message : 'unknown'
+      })
+    }
+  }
+
+  return undefined
+}
+
+async function callTikHubForDouyinComments(shareUrl: string, awemeId?: string, requestId?: string) {
+  const { baseUrl, apiKey } = getTikHubConfig()
+  console.info('[douyin.tikhub-comments] start', {
+    requestId,
+    baseUrl,
+    shareHost: new URL(shareUrl).hostname,
+    hasApiKey: Boolean(apiKey),
+    awemeId: awemeId || ''
+  })
+
+  if (!apiKey) {
+    return []
+  }
+
+  const resolvedAwemeId = awemeId || await callTikHubForDouyinAwemeId(shareUrl, requestId)
+  if (!resolvedAwemeId) {
+    console.warn('[douyin.tikhub-comments] aweme-id not found', { requestId })
+    return []
+  }
+
+  const endpointTries = [
+    '/api/v1/douyin/web/fetch_video_comments',
+    '/api/v1/douyin/app/v3/fetch_video_comments',
+    '/api/v1/douyin/app/v2/fetch_video_comments'
+  ]
+
+  for (const endpoint of endpointTries) {
+    const apiUrl = new URL(`${baseUrl}${endpoint}`)
+    apiUrl.searchParams.set('aweme_id', resolvedAwemeId)
+    apiUrl.searchParams.set('awemeId', resolvedAwemeId)
+    apiUrl.searchParams.set('count', '20')
+    apiUrl.searchParams.set('cursor', '0')
+
+    try {
+      const res = await fetch(apiUrl.toString(), {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          Accept: 'application/json'
+        }
+      })
+
+      if (!res.ok) continue
+
+      const json = await res.json().catch(() => null)
+      if (!json || typeof json !== 'object') continue
+
+      const comments = extractCommentSamplesFromTikHub(json)
+      if (comments.length) {
+        console.info('[douyin.tikhub-comments] resolved', {
+          requestId,
+          endpoint,
+          commentCount: comments.length
+        })
+        return comments
+      }
+    } catch (error) {
+      console.warn('[douyin.tikhub-comments] request failed', {
+        requestId,
+        endpoint,
+        message: error instanceof Error ? error.message : 'unknown'
+      })
+    }
+  }
+
+  return []
+}
+
 export async function normalizeDouyinVideoUrl(inputUrl: string) {
   const validated = ensureDouyinHost(inputUrl)
   const directId = extractDouyinVideoId(validated)
@@ -270,10 +461,22 @@ export async function parseDouyinLink(url: string, requestId?: string): Promise<
     videoUrl: resolved.videoUrl,
     title: resolved.title,
     cover: resolved.cover,
+    awemeId: resolved.awemeId,
     raw: resolved.raw
   }
 }
 
 export async function verifyVideoUrlReachable(_videoUrl: string) {
   return true
+}
+
+export async function fetchDouyinCommentSamples(url: string, requestId?: string) {
+  const normalized = await normalizeDouyinVideoUrl(url)
+  const resolved = await resolveDouyinVideoByTikHub(normalized, requestId)
+  return callTikHubForDouyinComments(normalized, resolved.awemeId || extractDouyinVideoId(resolved.videoUrl || '') || undefined, requestId)
+}
+
+export async function fetchDouyinCommentSamplesByAwemeId(url: string, awemeId: string, requestId?: string) {
+  const normalized = await normalizeDouyinVideoUrl(url)
+  return callTikHubForDouyinComments(normalized, awemeId, requestId)
 }
