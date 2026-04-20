@@ -34,6 +34,7 @@ const {
   generate,
   regenerate,
   cancelGenerate,
+  shuffleComments,
   requestedCount,
   finalCount,
   beforeNormalizeCount,
@@ -121,6 +122,10 @@ function handleDeleteOne(index: number) {
   comments.value.splice(index, 1)
 }
 
+function handleShuffleAll() {
+  shuffleComments()
+}
+
 function handleFileError(msg: string) {
   parseStatus.value = msg
 }
@@ -198,6 +203,7 @@ function handleFileError(msg: string) {
           @copy-all="handleCopyAll"
           @copy-one="handleCopyOne"
           @delete-one="handleDeleteOne"
+          @shuffle-all="handleShuffleAll"
           @export-txt="exportTxt(comments)"
           @export-word="exportWord(comments)"
           @export-csv="exportCsv(comments)"

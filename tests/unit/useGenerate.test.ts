@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { useGenerate } from '../../composables/useGenerate'
+import { shuffleInPlace, useGenerate } from '../../composables/useGenerate'
 
 describe('useGenerate', () => {
   beforeEach(() => {
@@ -33,5 +33,18 @@ describe('useGenerate', () => {
     })
 
     expect(result.ok).toBe(true)
+  })
+
+  it('会原地打乱数组顺序', () => {
+    const values = ['a', 'b', 'c', 'd']
+    const original = values
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0)
+
+    const result = shuffleInPlace(values)
+
+    expect(result).toBe(original)
+    expect(result).toEqual(['b', 'c', 'd', 'a'])
+
+    random.mockRestore()
   })
 })

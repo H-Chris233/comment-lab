@@ -6,6 +6,15 @@ type StreamEvent = {
   data: any
 }
 
+export function shuffleInPlace<T>(items: T[]) {
+  for (let i = items.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[items[i], items[j]] = [items[j], items[i]]
+  }
+
+  return items
+}
+
 function parseSseEvents(chunk: string): StreamEvent[] {
   const events: StreamEvent[] = []
   const blocks = chunk.replace(/\r/g, '').split('\n\n').filter(Boolean)
@@ -318,6 +327,10 @@ export function useGenerate() {
     abortController.value.abort()
   }
 
+  function shuffleComments() {
+    shuffleInPlace(comments.value)
+  }
+
   async function regenerate() {
     if (!lastPayload.value) {
       return {
@@ -348,6 +361,7 @@ export function useGenerate() {
     parseLink,
     generate,
     regenerate,
-    cancelGenerate
+    cancelGenerate,
+    shuffleComments
   }
 }

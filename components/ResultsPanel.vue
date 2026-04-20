@@ -24,6 +24,7 @@ const emit = defineEmits<{
   copyAll: []
   copyOne: [string]
   deleteOne: [number]
+  shuffleAll: []
   exportTxt: []
   exportWord: []
   exportCsv: []
@@ -84,6 +85,15 @@ const loadingText = computed(() => {
             <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
           <span>复制全部</span>
+        </button>
+        <button class="action-btn action-btn-secondary" :disabled="comments.length < 2" @click="emit('shuffleAll')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M16 3h5v5" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M4 20l5.5-5.5a2.1 2.1 0 0 1 3 0l.9.9a2.1 2.1 0 0 0 3 0L20 12" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M21 16v5h-5" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M4 4l5.5 5.5a2.1 2.1 0 0 0 3 0l.9-.9a2.1 2.1 0 0 1 3 0L20 12" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span>随机打乱</span>
         </button>
         <button class="action-btn" :disabled="!hasComments" @click="emit('exportTxt')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

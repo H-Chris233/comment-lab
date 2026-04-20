@@ -2,7 +2,7 @@ import { parseBooleanEnv } from './utils/env'
 
 export default defineNuxtConfig({
   compatibilityDate: '2025-10-10',
-  devtools: { enabled: false },
+  devtools: { enabled: true },
   vite: {
     server: {
       allowedHosts: ['test.qmx.qzz.io']
