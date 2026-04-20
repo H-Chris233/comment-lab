@@ -30,10 +30,22 @@ async function loadTemplate(style: CommentStyle) {
 function renderTemplate(template: string, params: BuildPromptParams, target: number) {
   const basePrompt = params.basePrompt.trim()
   const promptSection = basePrompt ? `附加提示词：\n${basePrompt}` : ''
+  const title = params.title?.trim()
+  const titleSection = title ? `视频标题：${sanitizePromptText(title)}` : ''
+  const contextSection = [titleSection, promptSection].filter(Boolean).join('\n')
 
   return template
-    .replaceAll('{{PROMPT_SECTION}}', promptSection)
+    .replaceAll('{{PROMPT_SECTION}}', contextSection)
+    .replaceAll('{{CONTEXT_SECTION}}', contextSection)
     .replaceAll('{{STYLE_TARGET}}', String(target))
+}
+
+function sanitizePromptText(value: string) {
+  return value
+    .replace(/[\u0000-\u001f\u007f]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 120)
 }
 
 function splitByRatio(total: number) {

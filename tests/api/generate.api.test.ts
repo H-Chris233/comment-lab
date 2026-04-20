@@ -143,6 +143,44 @@ describe('POST /api/generate', () => {
     expect(generateFromVideoFile).not.toHaveBeenCalled()
   })
 
+  it('link 模式会把 TikHub 标题注入到 prompt 中', async () => {
+    vi.mocked(parseDouyinLink).mockResolvedValueOnce({
+      ok: true,
+      videoUrl: 'https://www.douyin.com/video/7626738541439099121',
+      title: '这个夏天最治愈的一段'
+    } as any)
+
+    vi.mocked(generateFromVideoUrl).mockResolvedValueOnce({
+      rawText: '第一条\n第二条',
+      model: 'qwen3.5-omni-plus',
+      streamChunkCount: 2,
+      durationMs: 10
+    } as any)
+      .mockResolvedValueOnce({
+        rawText: '第三条\n第四条',
+        model: 'qwen3.5-omni-plus',
+        streamChunkCount: 2,
+        durationMs: 9
+      } as any)
+
+    const app = createApp()
+    app.use('/api/generate', generateHandler)
+
+    const res = await request(toNodeListener(app))
+      .post('/api/generate')
+      .field('mode', 'link')
+      .field('inputMode', 'url')
+      .field('url', 'https://v.douyin.com/abcde/')
+      .field('count', '2')
+      .field('basePrompt', 'base')
+
+    expect(res.status).toBe(200)
+    expect(res.body.ok).toBe(true)
+
+    const firstCallArgs = vi.mocked(generateFromVideoUrl).mock.calls[0]?.[0] as any
+    expect(firstCallArgs.prompt).toContain('视频标题：这个夏天最治愈的一段')
+  })
+
   it('流式模式会在每条评论完成时推送 item 事件', async () => {
     vi.mocked(generateFromVideoFile).mockImplementation(async (params: any) => {
       params.onLine?.('即时-1-1')
@@ -282,10 +320,13 @@ describe('POST /api/generate', () => {
     expect(firstCallArgs.videoPath).toBe('/tmp/uploaded.mp4')
   })
 
-  it('模型返回空文本时返回 MODEL_OUTPUT_EMPTY', async () => {
-    vi.mocked(generateFromVideoFile).mockRejectedValue(
-      createAppError({ code: 'MODEL_OUTPUT_EMPTY', message: '模型输出为空，请重试', statusCode: 502 })
-    )
+  it('模型输出全部无效时也会返回原始输出用于调试', async () => {
+    vi.mocked(generateFromVideoFile).mockResolvedValueOnce({
+      rawText: '评论如下\n好',
+      model: 'qwen3.5-omni-plus',
+      streamChunkCount: 2,
+      durationMs: 10
+    } as any)
 
     const app = createApp()
     app.use('/api/generate', generateHandler)
@@ -293,12 +334,14 @@ describe('POST /api/generate', () => {
     const res = await request(toNodeListener(app))
       .post('/api/generate')
       .field('mode', 'upload')
-      .field('count', '100')
+      .field('count', '1')
       .field('basePrompt', 'base')
       .attach('video', Buffer.from('1234'), { filename: 'ok.mp4', contentType: 'video/mp4' })
 
-    expect(res.status).toBe(502)
+    expect(res.status).toBe(422)
     expect(res.body.ok).toBe(false)
     expect(res.body.code).toBe('MODEL_OUTPUT_EMPTY')
+    expect(res.body.data.rawText).toContain('评论如下')
+    expect(res.body.data.promptTrace).toEqual(expect.any(Array))
   })
 })

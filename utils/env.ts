@@ -6,8 +6,5 @@ export function parseBooleanEnv(value?: string | null) {
 }
 
 export function shouldShowDebugRaw(debugEnabled: boolean, rawText?: string, rawPromptTrace?: string[]) {
-  return Boolean(
-    debugEnabled &&
-    ((rawText && rawText.trim()) || rawPromptTrace?.some((prompt) => prompt.trim()))
-  )
+  return debugEnabled
 }

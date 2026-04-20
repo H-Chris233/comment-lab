@@ -1,16 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { parseBooleanEnv } from '../../utils/env'
+import { shouldShowDebugRaw } from '../../utils/env'
 
-describe('parseBooleanEnv', () => {
-  it('识别 truthy/falsey 环境值', () => {
-    expect(parseBooleanEnv('true')).toBe(true)
-    expect(parseBooleanEnv('1')).toBe(true)
-    expect(parseBooleanEnv('yes')).toBe(true)
-    expect(parseBooleanEnv('on')).toBe(true)
+describe('shouldShowDebugRaw', () => {
+  it('DEBUG_RAW_ENABLED 开启时始终显示调试入口', () => {
+    expect(shouldShowDebugRaw(true)).toBe(true)
+    expect(shouldShowDebugRaw(true, '', [])).toBe(true)
+  })
 
-    expect(parseBooleanEnv('false')).toBe(false)
-    expect(parseBooleanEnv('0')).toBe(false)
-    expect(parseBooleanEnv('off')).toBe(false)
-    expect(parseBooleanEnv(undefined)).toBe(false)
+  it('DEBUG_RAW_ENABLED 关闭时不显示调试入口', () => {
+    expect(shouldShowDebugRaw(false)).toBe(false)
+    expect(shouldShowDebugRaw(false, '原始输出', ['prompt'])).toBe(false)
   })
 })

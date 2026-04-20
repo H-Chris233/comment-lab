@@ -8,8 +8,6 @@ from typing import Literal, Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-import dashscope
-from dashscope import MultiModalConversation
 from dotenv import load_dotenv
 
 
@@ -58,42 +56,68 @@ def ensure_file_uri(video_path: str) -> str:
     return f"file://{absolute}"
 
 
+def _as_mapping(value: object) -> dict[str, object] | None:
+    return value if isinstance(value, dict) else None
+
+
+def _get_attr(value: object, key: str) -> object | None:
+    if isinstance(value, dict):
+        return value.get(key)
+    return getattr(value, key, None)
+
+
+def _walk_text_nodes(node: object) -> list[str]:
+    if node is None:
+        return []
+
+    if isinstance(node, str):
+        text = node.strip()
+        return [text] if text else []
+
+    if isinstance(node, (list, tuple)):
+        parts: list[str] = []
+        for item in node:
+            parts.extend(_walk_text_nodes(item))
+        return parts
+
+    if isinstance(node, dict) or hasattr(node, "__dict__"):
+        parts: list[str] = []
+
+        for key in ("text", "content", "delta", "message", "output", "choices"):
+            child = _get_attr(node, key)
+            if child is None:
+                continue
+
+            if key == "text" and isinstance(child, str):
+                text = child.strip()
+                if text:
+                    return [text]
+                continue
+
+            if key == "content":
+                if isinstance(child, str):
+                    text = child.strip()
+                    if text:
+                        return [text]
+                    continue
+                if isinstance(child, (list, tuple)):
+                    parts.extend(_walk_text_nodes(child))
+                    continue
+                if child is not None:
+                    parts.extend(_walk_text_nodes(child))
+                    continue
+
+            parts.extend(_walk_text_nodes(child))
+
+        return parts
+
+    return []
+
+
 def extract_text(result: object) -> str:
-    output = getattr(result, "output", None)
-    if output is None and isinstance(result, dict):
-        output = result.get("output")
-
-    if output is None:
-        return ""
-
-    text = getattr(output, "text", None)
-    if isinstance(text, str) and text.strip():
-        return text.strip()
-
-    choices = getattr(output, "choices", None)
-    if choices is None and isinstance(output, dict):
-        choices = output.get("choices")
-
-    if isinstance(choices, list) and choices:
-        message = getattr(choices[0], "message", None)
-        if message is None and isinstance(choices[0], dict):
-            message = choices[0].get("message")
-
-        content = getattr(message, "content", None)
-        if content is None and isinstance(message, dict):
-            content = message.get("content")
-
-        if isinstance(content, str):
-            return content.strip()
-
-        if isinstance(content, list):
-            parts: list[str] = []
-            for item in content:
-                part_text = item.get("text") if isinstance(item, dict) else getattr(item, "text", None)
-                if isinstance(part_text, str) and part_text:
-                    parts.append(part_text)
-            return "".join(parts).strip()
-
+    texts = _walk_text_nodes(result)
+    if texts:
+        return "\n".join(texts).strip()
     return ""
 
 
@@ -125,6 +149,12 @@ async def run_conversation(request: GenerateRequest) -> dict[str, object]:
     api_key = get_api_key()
     if not api_key:
         raise HTTPException(status_code=500, detail="DashScope API Key 未配置")
+
+    try:
+        import dashscope
+        from dashscope import MultiModalConversation
+    except ModuleNotFoundError as exc:  # pragma: no cover - surfaced in runtime env
+        raise HTTPException(status_code=500, detail="DashScope SDK 未安装") from exc
 
     dashscope.base_http_api_url = normalize_base_url()
 

@@ -32,6 +32,17 @@ describe('buildStylePrompts', () => {
     expect(result.long).not.toContain('附加提示词：')
   })
 
+  it('link 模式可注入视频标题到 prompt 上下文', async () => {
+    const result = await buildStylePrompts({
+      basePrompt: '请偏口语化',
+      title: '这个夏天最治愈的一段'
+    }, splitStyleTargets(100))
+
+    expect(result.long).toContain('视频标题：这个夏天最治愈的一段')
+    expect(result.medium).toContain('视频标题：这个夏天最治愈的一段')
+    expect(result.short).toContain('视频标题：这个夏天最治愈的一段')
+  })
+
   it('按 40/40/20 拆分目标条数', () => {
     expect(splitStyleTargets(100)).toEqual({ short: 40, medium: 40, long: 20 })
     expect(splitStyleTargets(200)).toEqual({ short: 80, medium: 80, long: 40 })

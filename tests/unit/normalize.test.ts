@@ -33,4 +33,33 @@ describe('normalizeComments', () => {
     expect(result.comments).toEqual(['哈哈'])
     expect(result.removedDuplicate).toBe(1)
   })
+
+  it('会把同一行里被句末符号分隔的多个评论拆开', () => {
+    const raw = '1. 这个镜头真的顺，越看越舒服。这个转场也很丝滑！\n3. 结尾稍微仓促了点？'
+    const result = normalizeComments(raw, { dedupe: true, cleanEmpty: true })
+
+    expect(result.comments).toEqual([
+      '这个镜头真的顺，越看越舒服',
+      '这个转场也很丝滑！',
+      '结尾稍微仓促了点？'
+    ])
+  })
+
+  it('会忽略模型常见的前言并保留真正的评论', () => {
+    const raw = [
+      '下面是我整理的评论：',
+      '1. 这个镜头真的稳，越看越舒服',
+      '- 转场也太丝滑了',
+      '根据视频内容，这个氛围感真的拉满了',
+      '总结：整体挺治愈'
+    ].join('\n')
+
+    const result = normalizeComments(raw, { dedupe: true, cleanEmpty: true })
+
+    expect(result.comments).toEqual([
+      '这个镜头真的稳，越看越舒服',
+      '转场也太丝滑了',
+      '这个氛围感真的拉满了'
+    ])
+  })
 })

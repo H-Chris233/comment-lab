@@ -154,6 +154,7 @@ export default defineEventHandler(async (event) => {
     let localVideoPath = ''
     let cleanupVideoSource: null | (() => Promise<void>) = null
     let directVideoUrl = ''
+    let videoTitle = ''
 
     if (mode === 'link') {
       const sourceUrl = validateUrl(field('url'))
@@ -164,6 +165,7 @@ export default defineEventHandler(async (event) => {
       let parsed = await parseDouyinLink(sourceUrl, requestId)
       try {
         const parsedVideoUrl = ensureParsedVideoUrl(parsed)
+        videoTitle = parsed.title?.trim() || videoTitle
         if (inputMode === 'url') {
           directVideoUrl = parsedVideoUrl
           console.info('[api.generate] step:link-parse:ok', {
@@ -200,6 +202,7 @@ export default defineEventHandler(async (event) => {
 
         parsed = await parseDouyinLink(sourceUrl, requestId)
         const parsedVideoUrl = ensureParsedVideoUrl(parsed)
+        videoTitle = parsed.title?.trim() || videoTitle
         if (inputMode === 'url') {
           directVideoUrl = parsedVideoUrl
           console.info('[api.generate] step:link-download-retry-ok', {
@@ -275,7 +278,8 @@ export default defineEventHandler(async (event) => {
         })
 
         const promptSet = await buildStylePrompts({
-          basePrompt: promptData.basePrompt
+          basePrompt: promptData.basePrompt,
+          title: videoTitle
         }, roundStyleTargets)
 
         const batchPrompts = roundStyles.map((style) => promptSet[style])
@@ -412,11 +416,21 @@ export default defineEventHandler(async (event) => {
     })
 
     if (!trimmedComments.length) {
-      throw createAppError({
+      return {
+        ok: false,
         code: 'MODEL_OUTPUT_EMPTY',
         message: '结果格式异常，请重新生成',
-        statusCode: 502
-      })
+        statusCode: 422,
+        data: {
+          rawText: rawTextCombined,
+          promptTrace,
+          requestedCount: count,
+          finalCount: 0,
+          beforeNormalizeCount,
+          afterNormalizeCount: 0,
+          model
+        }
+      }
     }
 
     if (trimmedComments.length < Math.ceil(count * 0.6)) {
