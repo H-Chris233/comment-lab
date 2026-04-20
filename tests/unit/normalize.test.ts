@@ -19,12 +19,12 @@ describe('normalizeComments', () => {
     expect(result.comments).toEqual(['真的好看', '哈哈'])
   })
 
-  it('会去除绝大多数句末句号', () => {
+  it('会去除所有句末句号', () => {
     const raw = Array.from({ length: 20 }, (_, i) => `第${i + 1}条评论。`).join('\n')
     const result = normalizeComments(raw, { dedupe: true, cleanEmpty: true })
 
-    expect(result.comments.slice(0, 19).every((line) => !/[。．.]$/.test(line))).toBe(true)
-    expect(result.comments[19]).toBe('第20条评论。')
+    expect(result.comments.every((line) => !/[。．.]$/.test(line))).toBe(true)
+    expect(result.comments[19]).toBe('第20条评论')
   })
 
   it('去掉句末句号后仍会正确去重', () => {

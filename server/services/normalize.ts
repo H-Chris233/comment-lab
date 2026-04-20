@@ -19,7 +19,6 @@ function normalizeSpaces(line: string) {
 
 function stripSentenceEndingPeriod(line: string, index: number) {
   if (!/[。．.]$/.test(line)) return line
-  if ((index + 1) % 20 === 0) return line
   return line.replace(/[。．.]+$/, '')
 }
 
