@@ -13,7 +13,7 @@ import {
 } from '../services/prompt'
 import { createAppError, isAppError, toApiError } from '../utils/errors'
 import { createRequestId, failure, success } from '../utils/response'
-import { parseBoolean, validateCount, validateInputMode, validateMode, validatePromptLength, validateUrl, validateVideoFile } from '../utils/validators'
+import { parseBoolean, validateCount, validateInputMode, validateModel, validateMode, validatePromptLength, validateUrl, validateVideoFile } from '../utils/validators'
 
 const MAX_ROUNDS_BUFFER = 2
 
@@ -128,6 +128,7 @@ export default defineEventHandler(async (event) => {
     const includeCommentSamples = includeCommentSamplesRaw == null ? false : parseBoolean(includeCommentSamplesRaw)
     const promptData = validatePromptLength(field('basePrompt'))
     const inputMode = validateInputMode(field('inputMode')) ?? (mode === 'link' ? 'url' : 'file')
+    const validatedModel = validateModel(field('model'))
 
     if (mode === 'upload' && inputMode === 'url') {
       throw createAppError({
@@ -137,7 +138,7 @@ export default defineEventHandler(async (event) => {
       })
     }
 
-    const model = field('model')?.trim() || useRuntimeConfig().aliyunModel || DEFAULT_MODEL
+    const model = validatedModel || useRuntimeConfig().aliyunModel || DEFAULT_MODEL
     console.info('[api.generate] step:validated', {
       requestId,
       mode,

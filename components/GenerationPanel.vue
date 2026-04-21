@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { MODEL_OPTIONS } from '~/types/prompt'
 
 const props = defineProps<{
   count: number
   dedupe: boolean
   cleanEmpty: boolean
+  model: string
   loading: boolean
 }>()
 
@@ -12,6 +14,7 @@ const emit = defineEmits<{
   'update:count': [number]
   'update:dedupe': [boolean]
   'update:cleanEmpty': [boolean]
+  'update:model': [string]
   generate: []
 }>()
 
@@ -79,6 +82,24 @@ function enableCustomCount() {
           >
           <span>允许范围 1 ~ 1500</span>
         </div>
+      </div>
+
+      <div class="setting-group">
+        <label class="setting-label">模型</label>
+        <select
+          class="model-select"
+          :value="props.model"
+          @change="emit('update:model', ($event.target as HTMLSelectElement).value)"
+        >
+          <option
+            v-for="option in MODEL_OPTIONS"
+            :key="option.value"
+            :value="option.value"
+          >
+            {{ option.label }}
+          </option>
+        </select>
+        <p class="model-hint">可在页面切换不同模型，刷新后会记住上次选择</p>
       </div>
 
     </div>
@@ -236,6 +257,30 @@ function enableCustomCount() {
   font-size: 14px;
   color: #164E63;
   background: white;
+}
+
+.model-select {
+  width: 100%;
+  max-width: 280px;
+  border: 1px solid #CBD5E1;
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: white;
+  color: #164E63;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 200ms ease, box-shadow 200ms ease;
+}
+
+.model-select:focus {
+  border-color: #0891B2;
+  box-shadow: 0 0 0 3px rgba(8, 145, 178, 0.12);
+}
+
+.model-hint {
+  color: #64748B;
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 .format-toggle {

@@ -6,11 +6,19 @@ import GenerationPanel from '~/components/GenerationPanel.vue'
 import ResultsPanel from '~/components/ResultsPanel.vue'
 import { useExport } from '~/composables/useExport'
 import { useGenerate } from '~/composables/useGenerate'
-import { DEFAULT_PROMPT } from '~/types/prompt'
+import { DEFAULT_MODEL, DEFAULT_PROMPT, MODEL_OPTIONS, type ModelOption } from '~/types/prompt'
 import { shouldShowDebugRaw } from '~/utils/env'
 
 const mode = ref<'link' | 'upload'>('link')
 const inputMode = ref<'file' | 'base64'>('file')
+const runtimeConfig = useRuntimeConfig()
+const allowedModels = new Set<ModelOption>(MODEL_OPTIONS.map((option) => option.value))
+function isAllowedModel(value: string): value is ModelOption {
+  return allowedModels.has(value as ModelOption)
+}
+const selectedModel = ref<ModelOption>(
+  isAllowedModel(runtimeConfig.public.defaultModel) ? runtimeConfig.public.defaultModel : DEFAULT_MODEL
+)
 const includeCommentSamples = ref(false)
 const url = ref('')
 const file = ref<File | null>(null)
@@ -21,7 +29,6 @@ const cleanEmpty = ref(true)
 const parseStatus = ref('')
 const copiedHint = ref('')
 const showRawDebug = ref(false)
-const runtimeConfig = useRuntimeConfig()
 
 const {
   parsing,
@@ -90,6 +97,7 @@ async function handleGenerate() {
   await generate({
     mode: mode.value,
     inputMode: mode.value === 'link' ? inputMode.value : 'file',
+    model: selectedModel.value,
     includeCommentSamples: mode.value === 'link' ? includeCommentSamples.value : false,
     url: url.value,
     file: file.value,
@@ -131,6 +139,29 @@ function handleShuffleAll() {
 function handleFileError(msg: string) {
   parseStatus.value = msg
 }
+
+onMounted(() => {
+  if (!process.client) return
+
+  const storedModel = localStorage.getItem('comment-lab:selected-model')
+  if (storedModel && isAllowedModel(storedModel)) {
+    selectedModel.value = storedModel
+  }
+
+  watch(
+    selectedModel,
+    (value) => {
+      if (!isAllowedModel(value)) {
+        selectedModel.value = isAllowedModel(runtimeConfig.public.defaultModel)
+          ? runtimeConfig.public.defaultModel
+          : DEFAULT_MODEL
+        return
+      }
+      localStorage.setItem('comment-lab:selected-model', value)
+    },
+    { immediate: true }
+  )
+})
 </script>
 
 <template>
@@ -180,6 +211,7 @@ function handleFileError(msg: string) {
             v-model:count="count"
             v-model:dedupe="dedupe"
             v-model:clean-empty="cleanEmpty"
+            v-model:model="selectedModel"
             :loading="isLoading"
             @generate="handleGenerate"
           />

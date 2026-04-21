@@ -1,4 +1,5 @@
 import type { UploadVideo } from '../services/file'
+import { DEFAULT_MODEL, MODEL_OPTIONS } from '../../types/prompt'
 import { createAppError } from './errors'
 
 export function parseBoolean(value?: string) {
@@ -51,6 +52,21 @@ export function validateInputMode(inputMode?: string): 'url' | 'file' | undefine
   }
 
   return value
+}
+
+export function validateModel(model?: string): string | undefined {
+  const value = model?.trim()
+  if (!value) return undefined
+
+  if (!MODEL_OPTIONS.some((option) => option.value === value)) {
+    throw createAppError({
+      code: 'INVALID_INPUT',
+      message: `model 必须是 ${MODEL_OPTIONS.map((option) => option.value).join('、')}`,
+      statusCode: 400
+    })
+  }
+
+  return value || DEFAULT_MODEL
 }
 
 function extractHttpUrls(input: string) {

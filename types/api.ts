@@ -15,6 +15,7 @@ export interface ApiError {
 export interface GenerateRequestPayload {
   mode: 'link' | 'upload'
   inputMode?: 'file' | 'base64'
+  model?: string
   includeCommentSamples?: boolean
   url?: string
   count: number

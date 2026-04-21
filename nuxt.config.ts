@@ -1,4 +1,5 @@
 import { parseBooleanEnv } from './utils/env'
+import { DEFAULT_MODEL } from './types/prompt'
 
 export default defineNuxtConfig({
   compatibilityDate: '2025-10-10',
@@ -20,7 +21,8 @@ export default defineNuxtConfig({
     pythonDashscopeServiceUrl: process.env.PYTHON_DASHSCOPE_SERVICE_URL || 'http://127.0.0.1:8001',
     public: {
       appName: 'Comment Lab',
-      debugRawEnabled: parseBooleanEnv(process.env.DEBUG_RAW_ENABLED)
+      debugRawEnabled: parseBooleanEnv(process.env.DEBUG_RAW_ENABLED),
+      defaultModel: process.env.ALIYUN_MODEL || DEFAULT_MODEL
     }
   }
 })

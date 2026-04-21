@@ -175,6 +175,7 @@ export function useGenerate() {
       const form = new FormData()
       form.append('mode', payload.mode)
       if (payload.inputMode) form.append('inputMode', payload.inputMode)
+      if (payload.model) form.append('model', payload.model)
       if (payload.includeCommentSamples != null) form.append('includeCommentSamples', String(payload.includeCommentSamples))
       if (payload.url) form.append('url', payload.url)
       if (payload.file) form.append('video', payload.file)

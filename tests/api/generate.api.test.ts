@@ -307,6 +307,25 @@ describe('POST /api/generate', () => {
     expect(firstCallArgs.videoPath).toBe('/tmp/uploaded.mp4')
   })
 
+  it('可通过请求指定不同模型', async () => {
+    const app = createApp()
+    app.use('/api/generate', generateHandler)
+
+    const res = await request(toNodeListener(app))
+      .post('/api/generate')
+      .field('mode', 'upload')
+      .field('model', 'qwen3.6-plus')
+      .field('count', '2')
+      .field('basePrompt', 'base')
+      .attach('video', Buffer.from('1234'), { filename: 'ok.mp4', contentType: 'video/mp4' })
+
+    expect(res.status).toBe(200)
+    expect(res.body.ok).toBe(true)
+    expect(vi.mocked(generateFromVideoFile)).toHaveBeenCalled()
+    const firstCallArgs = vi.mocked(generateFromVideoFile).mock.calls[0]?.[0] as any
+    expect(firstCallArgs.model).toBe('qwen3.6-plus')
+  })
+
   it('模型输出全部无效时也会返回原始输出用于调试', async () => {
     vi.mocked(generateFromVideoFile).mockImplementation(async () => ({
       rawText: '评论如下\n好',
