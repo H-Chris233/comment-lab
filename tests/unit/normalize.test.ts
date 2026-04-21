@@ -78,4 +78,32 @@ describe('normalizeComments', () => {
     expect(result.comments).toEqual(['这个节奏很丝滑', '主包这段挺自然'])
     expect(result.removedInvalid).toBe(4)
   })
+
+  it('会过滤测评腔和广告对比腔', () => {
+    const raw = [
+      '这种测评看看才真实',
+      '不像有些广告吹得天花乱坠',
+      '实测之后确实挺猛',
+      '这个感觉还是挺自然'
+    ].join('\n')
+
+    const result = normalizeComments(raw, { dedupe: true, cleanEmpty: true })
+
+    expect(result.comments).toEqual(['这个感觉还是挺自然'])
+    expect(result.removedInvalid).toBe(3)
+  })
+
+  it('会过滤帧率和开头片段这类拍法评价', () => {
+    const raw = [
+      '这帧率绝了',
+      '开头那段绝了',
+      '讲拍摄手法的评论',
+      '这个感觉还是很自然'
+    ].join('\n')
+
+    const result = normalizeComments(raw, { dedupe: true, cleanEmpty: true })
+
+    expect(result.comments).toEqual(['这个感觉还是很自然'])
+    expect(result.removedInvalid).toBe(3)
+  })
 })

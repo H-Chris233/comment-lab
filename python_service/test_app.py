@@ -1,6 +1,6 @@
 import unittest
 
-from python_service.app import extract_text
+from python_service.app import extract_text, should_disable_thinking
 
 
 class ExtractTextTests(unittest.TestCase):
@@ -40,6 +40,18 @@ class ExtractTextTests(unittest.TestCase):
             }
         }
         self.assertEqual(extract_text(payload), "直接返回字符串")
+
+
+class ThinkingModeTests(unittest.TestCase):
+    def test_plus_models_disable_thinking(self):
+        self.assertTrue(should_disable_thinking("qwen3.5-plus"))
+        self.assertTrue(should_disable_thinking("qwen3.5-plus-2026-02-15"))
+        self.assertTrue(should_disable_thinking("qwen3.6-plus"))
+        self.assertTrue(should_disable_thinking("qwen3.6-plus-2026-04-02"))
+
+    def test_other_models_keep_default_thinking_policy(self):
+        self.assertFalse(should_disable_thinking("qwen3.5-omni-plus"))
+        self.assertFalse(should_disable_thinking("qwen3.6-flash"))
 
 
 if __name__ == "__main__":

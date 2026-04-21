@@ -56,6 +56,10 @@ def ensure_file_uri(video_path: str) -> str:
     return f"file://{absolute}"
 
 
+def should_disable_thinking(model: str) -> bool:
+    return model.startswith("qwen3.5-plus") or model.startswith("qwen3.6-plus")
+
+
 def _as_mapping(value: object) -> dict[str, object] | None:
     return value if isinstance(value, dict) else None
 
@@ -159,10 +163,15 @@ async def run_conversation(request: GenerateRequest) -> dict[str, object]:
     dashscope.base_http_api_url = normalize_base_url()
 
     def _call():
+        call_kwargs = {}
+        if should_disable_thinking(request.model):
+            call_kwargs["enable_thinking"] = False
+
         return MultiModalConversation.call(
             api_key=api_key,
             model=request.model,
             messages=messages,
+            **call_kwargs,
         )
 
     result = await asyncio.to_thread(_call)

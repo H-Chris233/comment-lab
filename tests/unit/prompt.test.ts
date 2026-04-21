@@ -102,4 +102,14 @@ describe('buildStylePrompts', () => {
     expect(result.long_2).toContain('当前长度桶：长评论桶 B')
     expect(result.long_2).toContain('28~35字')
   })
+
+  it('prompt 会明确禁止当前不想要的句式风格', async () => {
+    const result = await buildStylePrompts({
+      basePrompt: '请偏口语化'
+    }, splitStyleTargets(100))
+
+    expect(result.short).toContain('测评腔/实测腔/结果总结腔、广告对比腔')
+    expect(result.medium).toContain('讲拍摄手法、镜头语言、运镜、剪辑、构图、机位、转场、帧率、开头片段')
+    expect(result.long).toContain('测评腔/实测腔/结果总结腔、广告对比腔')
+  })
 })
