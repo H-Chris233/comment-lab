@@ -106,4 +106,21 @@ describe('normalizeComments', () => {
     expect(result.comments).toEqual(['这个感觉还是很自然'])
     expect(result.removedInvalid).toBe(3)
   })
+
+  it('会过滤新增的禁用句式', () => {
+    const raw = [
+      '允许泛化',
+      '前面更好看',
+      '笑死我了',
+      '有点上头啊',
+      '刷到就看完',
+      '怎么拍的？',
+      '这个评论还是挺自然'
+    ].join('\n')
+
+    const result = normalizeComments(raw, { dedupe: true, cleanEmpty: true })
+
+    expect(result.comments).toEqual(['这个评论还是挺自然'])
+    expect(result.removedInvalid).toBe(6)
+  })
 })

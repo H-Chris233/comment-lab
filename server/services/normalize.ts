@@ -23,6 +23,7 @@ function stripSentenceEndingPeriod(line: string) {
 }
 
 const BANNED_PHRASES = [
+  '允许泛化',
   '博主',
   '种草了',
   '笑死我了',
@@ -35,6 +36,9 @@ const BANNED_PHRASES = [
   '有点上头啊',
   '绝了',
   '值这个价',
+  '前面更好看',
+  '怎么拍的？',
+  '怎么拍的',
   '太丝滑了吧',
   '测评',
   '实测',
