@@ -1,4 +1,5 @@
 import { parseDouyinLink } from '../services/douyin'
+import { assertAuthenticated } from '../services/auth'
 import { toApiError } from '../utils/errors'
 import { createRequestId, failure, success } from '../utils/response'
 import { validateUrl } from '../utils/validators'
@@ -8,6 +9,7 @@ export default defineEventHandler(async (event) => {
 
   try {
     console.info('[api.parse-link] start', { requestId })
+    await assertAuthenticated(event)
     const body = await readBody<{ url?: string }>(event)
     console.info('[api.parse-link] step:read-body', {
       requestId,

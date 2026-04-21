@@ -17,6 +17,10 @@ vi.mock('../../server/services/file', async () => {
   }
 })
 
+vi.mock('../../server/services/auth', () => ({
+  assertAuthenticated: vi.fn().mockResolvedValue({ hasPassword: true, authenticated: true })
+}))
+
 vi.mock('../../server/services/douyin', () => ({
   parseDouyinLink: vi.fn().mockResolvedValue({ ok: true, videoUrl: 'https://www.douyin.com/video/7626738541439099121', awemeId: '7626738541439099121' }),
   fetchDouyinCommentSamplesByAwemeId: vi.fn().mockResolvedValue([])

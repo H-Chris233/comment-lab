@@ -193,7 +193,15 @@ export function useGenerate() {
         signal: abortController.value.signal
       })
 
-      if (!response.ok && !response.body) {
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => null)
+        if (errorData && typeof errorData === 'object' && errorData.ok === false) {
+          const apiError = errorData as ApiError
+          error.value = apiError.message
+          errorCode.value = apiError.code
+          return apiError
+        }
+
         throw new Error(`HTTP ${response.status}`)
       }
 

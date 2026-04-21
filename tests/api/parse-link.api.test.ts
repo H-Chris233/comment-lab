@@ -7,6 +7,10 @@ vi.mock('../../server/services/douyin', () => ({
   parseDouyinLink: vi.fn()
 }))
 
+vi.mock('../../server/services/auth', () => ({
+  assertAuthenticated: vi.fn().mockResolvedValue({ hasPassword: true, authenticated: true })
+}))
+
 import { parseDouyinLink } from '../../server/services/douyin'
 import parseLinkHandler from '../../server/api/parse-link.post'
 

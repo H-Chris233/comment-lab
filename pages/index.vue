@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import AppHeader from '~/components/AppHeader.vue'
+import PasswordPanel from '~/components/PasswordPanel.vue'
 import SourceInput from '~/components/SourceInput.vue'
 import PromptEditor from '~/components/PromptEditor.vue'
 import GenerationPanel from '~/components/GenerationPanel.vue'
 import ResultsPanel from '~/components/ResultsPanel.vue'
+import { useAuth } from '~/composables/useAuth'
 import { useExport } from '~/composables/useExport'
 import { useGenerate } from '~/composables/useGenerate'
 import { DEFAULT_MODEL, DEFAULT_PROMPT, MODEL_OPTIONS, type ModelOption } from '~/types/prompt'
@@ -12,6 +14,12 @@ import { shouldShowDebugRaw } from '~/utils/env'
 const mode = ref<'link' | 'upload'>('link')
 const inputMode = ref<'file' | 'base64'>('file')
 const runtimeConfig = useRuntimeConfig()
+const auth = useAuth()
+const authLoading = auth.loading
+const authError = auth.error
+const authHasPassword = auth.hasPassword
+const authUnlocked = auth.unlocked
+const authReady = auth.ready
 const allowedModels = new Set<ModelOption>(MODEL_OPTIONS.map((option) => option.value))
 function isAllowedModel(value: string): value is ModelOption {
   return allowedModels.has(value as ModelOption)
@@ -29,6 +37,8 @@ const cleanEmpty = ref(true)
 const parseStatus = ref('')
 const copiedHint = ref('')
 const showRawDebug = ref(false)
+const passwordNotice = ref('')
+const passwordPanelKey = ref(0)
 
 const {
   parsing,
@@ -53,6 +63,8 @@ const {
 
 const { copyAll, exportTxt, exportWord, exportCsv } = useExport()
 
+await auth.loadStatus()
+
 const fileMeta = computed(() => {
   if (!file.value) return { name: '', size: '', type: '' }
   const kb = file.value.size / 1024
@@ -61,6 +73,7 @@ const fileMeta = computed(() => {
 })
 
 const canShowRaw = computed(() => shouldShowDebugRaw(Boolean(runtimeConfig.public.debugRawEnabled), rawText.value, rawPromptTrace.value))
+const isUnlocked = computed(() => authUnlocked.value)
 
 const isLoading = computed(() => parsing.value || generating.value)
 const hasComments = computed(() => comments.value.length > 0)
@@ -76,6 +89,9 @@ async function handleParseLink() {
   parseStatus.value = ''
   const res = await parseLink(url.value)
   if (!res.ok) {
+    if (res.code === 'UNAUTHORIZED') {
+      await auth.loadStatus()
+    }
     parseStatus.value = res.message || '链接解析失败，请稍后重试'
     return
   }
@@ -94,7 +110,7 @@ async function handleGenerate() {
     return
   }
 
-  await generate({
+  const result = await generate({
     mode: mode.value,
     inputMode: mode.value === 'link' ? inputMode.value : 'file',
     model: selectedModel.value,
@@ -106,6 +122,10 @@ async function handleGenerate() {
     dedupe: dedupe.value,
     cleanEmpty: cleanEmpty.value
   })
+
+  if (!result.ok && result.code === 'UNAUTHORIZED') {
+    await auth.loadStatus()
+  }
 }
 
 async function handleRegenerate() {
@@ -140,6 +160,34 @@ function handleFileError(msg: string) {
   parseStatus.value = msg
 }
 
+async function handleLockSubmit(payload: { password: string; confirmPassword: string }) {
+  passwordNotice.value = ''
+  const hadPassword = authHasPassword.value
+  const action = hadPassword ? auth.login : auth.setPassword
+  const res = await action(payload.password, payload.confirmPassword)
+  if (res.ok) {
+    passwordNotice.value = hadPassword ? '密码正确，已进入主页面' : '密码已设置，已进入主页面'
+  }
+}
+
+async function handleChangePassword(payload: { password: string; confirmPassword: string }) {
+  passwordNotice.value = ''
+  const res = await auth.changePassword(payload.password, payload.confirmPassword)
+  if (res.ok) {
+    passwordNotice.value = '密码已修改，当前会话继续有效'
+    passwordPanelKey.value += 1
+  }
+}
+
+async function handleLogout() {
+  passwordNotice.value = ''
+  const res = await auth.logout()
+  if (res.ok) {
+    passwordNotice.value = '已退出当前会话'
+    await auth.loadStatus()
+  }
+}
+
 onMounted(() => {
   if (!process.client) return
 
@@ -170,81 +218,126 @@ onMounted(() => {
 
     <main class="main-content">
       <div class="container">
-        <!-- Error Alert -->
-        <Transition name="fade">
-          <div v-if="error" class="error-alert">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="12" cy="12" r="10" stroke-linecap="round" stroke-linejoin="round"/>
-              <line x1="12" y1="8" x2="12" y2="12" stroke-linecap="round" stroke-linejoin="round"/>
-              <line x1="12" y1="16" x2="12.01" y2="16" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-            <div class="error-content">
-              <p class="error-title">出错了</p>
-              <p class="error-message">{{ error }} <span v-if="errorCode" class="error-code">({{ errorCode }})</span></p>
-            </div>
+        <div v-if="!authReady" class="auth-loading-card glass-card">
+          <div class="loading-animation">
+            <div v-for="i in 3" :key="i" class="loading-dot" :style="{ animationDelay: `${(i - 1) * 0.15}s` }" />
           </div>
-        </Transition>
-
-        <!-- Input Section -->
-        <div class="sections-wrapper">
-          <SourceInput
-            v-model:mode="mode"
-            v-model:input-mode="inputMode"
-            v-model:include-comment-samples="includeCommentSamples"
-            v-model:url="url"
-            :loading="isLoading"
-            :parse-status="parseStatus"
-            :file-name="fileMeta.name"
-            :file-size="fileMeta.size"
-            :file-type="fileMeta.type"
-            :max-size-mb="100"
-            @update:file="file = $event"
-            @parse-link="handleParseLink"
-            @file-error="handleFileError"
-          />
-
-          <PromptEditor
-            v-model:base-prompt="basePrompt"
-          />
-
-          <GenerationPanel
-            v-model:count="count"
-            v-model:dedupe="dedupe"
-            v-model:clean-empty="cleanEmpty"
-            v-model:model="selectedModel"
-            :loading="isLoading"
-            @generate="handleGenerate"
-          />
+          <p class="loading-text">正在检查密码锁状态...</p>
         </div>
 
-        <!-- Results Section -->
-        <ResultsPanel
-          v-if="generationState !== 'input'"
-          v-model:show-raw-debug="showRawDebug"
-          :comments="comments"
-          :loading="isLoading"
-          :generating="generating"
-          :parsing="parsing"
-          :requested-count="requestedCount"
-          :final-count="finalCount"
-          :before-count="beforeNormalizeCount"
-          :after-count="afterNormalizeCount"
-          :model="model"
-          :request-id="requestId"
-          :copied-hint="copiedHint"
-          :can-show-raw="canShowRaw"
-          :raw-text="rawText"
-          :raw-prompt-trace="rawPromptTrace"
-          @copy-all="handleCopyAll"
-          @copy-one="handleCopyOne"
-          @delete-one="handleDeleteOne"
-          @shuffle-all="handleShuffleAll"
-          @export-txt="exportTxt(comments)"
-          @export-word="exportWord(comments)"
-          @export-csv="exportCsv(comments)"
-          @regenerate="handleRegenerate"
-          @cancel="handleCancelGenerate"
-        />
+        <template v-else>
+          <!-- Error Alert -->
+          <Transition name="fade">
+            <div v-if="error && isUnlocked" class="error-alert">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10" stroke-linecap="round" stroke-linejoin="round"/>
+                <line x1="12" y1="8" x2="12" y2="12" stroke-linecap="round" stroke-linejoin="round"/>
+                <line x1="12" y1="16" x2="12.01" y2="16" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              <div class="error-content">
+                <p class="error-title">出错了</p>
+                <p class="error-message">{{ error }} <span v-if="errorCode" class="error-code">({{ errorCode }})</span></p>
+              </div>
+            </div>
+          </Transition>
+
+          <template v-if="!isUnlocked">
+            <div class="auth-shell">
+              <PasswordPanel
+                :mode="authHasPassword ? 'login' : 'setup'"
+                :loading="authLoading"
+                :error="authError"
+                @submit="handleLockSubmit"
+              />
+            </div>
+          </template>
+
+          <template v-else>
+            <!-- Input Section -->
+            <div class="sections-wrapper">
+              <SourceInput
+                v-model:mode="mode"
+                v-model:input-mode="inputMode"
+                v-model:include-comment-samples="includeCommentSamples"
+                v-model:url="url"
+                :loading="isLoading"
+                :parse-status="parseStatus"
+                :file-name="fileMeta.name"
+                :file-size="fileMeta.size"
+                :file-type="fileMeta.type"
+                :max-size-mb="100"
+                @update:file="file = $event"
+                @parse-link="handleParseLink"
+                @file-error="handleFileError"
+              />
+
+              <PromptEditor
+                v-model:base-prompt="basePrompt"
+              />
+
+              <GenerationPanel
+                v-model:count="count"
+                v-model:dedupe="dedupe"
+                v-model:clean-empty="cleanEmpty"
+                v-model:model="selectedModel"
+                :loading="isLoading"
+                @generate="handleGenerate"
+              />
+
+              <section class="glass-card auth-settings-card">
+                <div class="auth-settings-head">
+                  <div>
+                    <h3 class="card-title">密码锁</h3>
+                    <p class="card-desc">修改后当前会话继续有效，关闭浏览器后下次会使用新密码。</p>
+                  </div>
+                </div>
+                <PasswordPanel
+                  :key="passwordPanelKey"
+                  mode="change"
+                  :loading="authLoading"
+                  :error="authError"
+                  compact
+                  @submit="handleChangePassword"
+                />
+                <div class="auth-settings-actions">
+                  <p v-if="passwordNotice" class="auth-notice">{{ passwordNotice }}</p>
+                  <button class="auth-logout-btn" type="button" @click="handleLogout">
+                    退出当前会话
+                  </button>
+                </div>
+              </section>
+            </div>
+
+            <!-- Results Section -->
+            <ResultsPanel
+              v-if="generationState !== 'input'"
+              v-model:show-raw-debug="showRawDebug"
+              :comments="comments"
+              :loading="isLoading"
+              :generating="generating"
+              :parsing="parsing"
+              :requested-count="requestedCount"
+              :final-count="finalCount"
+              :before-count="beforeNormalizeCount"
+              :after-count="afterNormalizeCount"
+              :model="model"
+              :request-id="requestId"
+              :copied-hint="copiedHint"
+              :can-show-raw="canShowRaw"
+              :raw-text="rawText"
+              :raw-prompt-trace="rawPromptTrace"
+              @copy-all="handleCopyAll"
+              @copy-one="handleCopyOne"
+              @delete-one="handleDeleteOne"
+              @shuffle-all="handleShuffleAll"
+              @export-txt="exportTxt(comments)"
+              @export-word="exportWord(comments)"
+              @export-csv="exportCsv(comments)"
+              @regenerate="handleRegenerate"
+              @cancel="handleCancelGenerate"
+            />
+          </template>
+        </template>
       </div>
     </main>
 
@@ -300,6 +393,72 @@ body {
   display: flex;
   flex-direction: column;
   gap: 20px;
+}
+
+.auth-loading-card,
+.auth-shell {
+  margin-top: 12px;
+}
+
+.auth-loading-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 32px 24px;
+}
+
+.auth-shell {
+  display: flex;
+  justify-content: center;
+}
+
+.auth-shell :deep(.password-card) {
+  width: 100%;
+  max-width: 520px;
+}
+
+.auth-settings-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.auth-settings-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.auth-settings-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.auth-notice {
+  margin: 0;
+  color: #0F766E;
+  font-size: 13px;
+}
+
+.auth-logout-btn {
+  border: 1px solid #CBD5E1;
+  border-radius: 999px;
+  background: white;
+  color: #475569;
+  padding: 8px 14px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 160ms ease;
+}
+
+.auth-logout-btn:hover {
+  border-color: #0891B2;
+  color: #0891B2;
+  box-shadow: 0 4px 12px rgba(8, 145, 178, 0.08);
 }
 
 /* Error Alert */

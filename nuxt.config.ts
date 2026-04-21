@@ -18,6 +18,7 @@ export default defineNuxtConfig({
     maxVideoSizeMb: Number(process.env.MAX_VIDEO_SIZE_MB || 100),
     tempVideoRetentionMinutes: Number(process.env.TEMP_VIDEO_RETENTION_MINUTES || 10),
     tempVideoDir: process.env.TEMP_VIDEO_DIR,
+    authLockFile: process.env.AUTH_LOCK_FILE || '.tmp/auth-lock.json',
     pythonDashscopeServiceUrl: process.env.PYTHON_DASHSCOPE_SERVICE_URL || 'http://127.0.0.1:8001',
     public: {
       appName: 'Comment Lab',

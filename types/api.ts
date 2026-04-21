@@ -44,3 +44,15 @@ export interface ParseLinkData {
 }
 
 export type ParseLinkResponse = ApiSuccess<ParseLinkData> | ApiError
+
+export interface AuthStatusData {
+  hasPassword: boolean
+  authenticated: boolean
+}
+
+export type AuthStatusResponse = ApiSuccess<AuthStatusData> | ApiError
+
+export interface AuthSubmitPayload {
+  password: string
+  confirmPassword?: string
+}
