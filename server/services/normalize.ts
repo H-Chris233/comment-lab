@@ -22,6 +22,39 @@ function stripSentenceEndingPeriod(line: string) {
   return line.replace(/[。．.]+$/, '')
 }
 
+const BANNED_PHRASES = [
+  '博主',
+  '种草了',
+  '笑死我了',
+  '狠狠爱了',
+  '刷到即缘分',
+  '这BGM绝了',
+  '有点东西',
+  '这BGM有点上头',
+  '有点意外',
+  '有点上头啊',
+  '绝了',
+  '值这个价',
+  '太丝滑了吧',
+  '这个运镜不错',
+  '运镜不错',
+  '运镜',
+  '镜头语言',
+  '画面语言',
+  '构图',
+  '剪辑',
+  '机位',
+  '转场',
+  '景别',
+  '分镜',
+  '拍摄手法',
+  '拍法',
+  '镜头切',
+  '镜头感',
+  '画面构图',
+  '节奏感'
+] as const
+
 const CONTENT_PREFIXES = [
   /^下面是/,
   /^以下是/,
@@ -98,6 +131,10 @@ function isBoilerplate(line: string) {
   ].some((word) => lower.includes(word))
 }
 
+function hasBannedPhrase(line: string) {
+  return BANNED_PHRASES.some((phrase) => line.includes(phrase))
+}
+
 function isInvalidLength(line: string) {
   return line.length < 2 || line.length > 60
 }
@@ -142,7 +179,7 @@ function normalizeFromLines(originalLines: string[], options?: NormalizeOptions)
       return keep
     })
     .filter((line) => {
-      const invalid = isBoilerplate(line) || isInvalidLength(line)
+      const invalid = isBoilerplate(line) || hasBannedPhrase(line) || isInvalidLength(line)
       if (invalid) removedInvalid += 1
       return !invalid
     })

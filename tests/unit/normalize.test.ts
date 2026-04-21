@@ -35,12 +35,12 @@ describe('normalizeComments', () => {
   })
 
   it('会把同一行里被句末符号分隔的多个评论拆开', () => {
-    const raw = '1. 这个镜头真的顺，越看越舒服。这个转场也很丝滑！\n3. 结尾稍微仓促了点？'
+    const raw = '1. 这个画面真的顺，越看越舒服。这个节奏也很丝滑！\n3. 结尾稍微仓促了点？'
     const result = normalizeComments(raw, { dedupe: true, cleanEmpty: true })
 
     expect(result.comments).toEqual([
-      '这个镜头真的顺，越看越舒服',
-      '这个转场也很丝滑！',
+      '这个画面真的顺，越看越舒服',
+      '这个节奏也很丝滑！',
       '结尾稍微仓促了点？'
     ])
   })
@@ -48,8 +48,8 @@ describe('normalizeComments', () => {
   it('会忽略模型常见的前言并保留真正的评论', () => {
     const raw = [
       '下面是我整理的评论：',
-      '1. 这个镜头真的稳，越看越舒服',
-      '- 转场也太丝滑了',
+      '1. 这个画面真的稳，越看越舒服',
+      '- 节奏也太丝滑了',
       '根据视频内容，这个氛围感真的拉满了',
       '总结：整体挺治愈'
     ].join('\n')
@@ -57,9 +57,25 @@ describe('normalizeComments', () => {
     const result = normalizeComments(raw, { dedupe: true, cleanEmpty: true })
 
     expect(result.comments).toEqual([
-      '这个镜头真的稳，越看越舒服',
-      '转场也太丝滑了',
+      '这个画面真的稳，越看越舒服',
+      '节奏也太丝滑了',
       '这个氛围感真的拉满了'
     ])
+  })
+
+  it('会过滤指定营销化表达和拍摄手法描述', () => {
+    const raw = [
+      '博主这段太会了',
+      '这个运镜不错',
+      '笑死我了',
+      '太丝滑了吧',
+      '这个节奏很丝滑',
+      '主包这段挺自然'
+    ].join('\n')
+
+    const result = normalizeComments(raw, { dedupe: true, cleanEmpty: true })
+
+    expect(result.comments).toEqual(['这个节奏很丝滑', '主包这段挺自然'])
+    expect(result.removedInvalid).toBe(4)
   })
 })
