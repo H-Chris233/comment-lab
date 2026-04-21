@@ -5,7 +5,12 @@ import { generateFromVideoFile, generateFromVideoUrl } from '../services/ai'
 import { ALLOWED_VIDEO_MIME_TYPES, downloadVideoUrlToTempFile, getMaxVideoBytes, readMultipart, saveVideoUploadToTempFile } from '../services/file'
 import { normalizeComments } from '../services/normalize'
 import { fetchDouyinCommentSamplesByAwemeId, parseDouyinLink } from '../services/douyin'
-import { STYLE_ORDER, buildStylePrompts, splitStyleTargets } from '../services/prompt'
+import {
+  LENGTH_BUCKETS,
+  LENGTH_BUCKET_ORDER,
+  buildLengthBucketPrompts,
+  splitLengthBucketTargets
+} from '../services/prompt'
 import { createAppError, isAppError, toApiError } from '../utils/errors'
 import { createRequestId, failure, success } from '../utils/response'
 import { parseBoolean, validateCount, validateInputMode, validateMode, validatePromptLength, validateUrl, validateVideoFile } from '../utils/validators'
@@ -273,7 +278,7 @@ export default defineEventHandler(async (event) => {
       })
     }
 
-    // 4)~7) 分批并行调用模型（按短/中/长 40/40/20 拆分），直到补足需求
+    // 4)~7) 分批并行调用模型（按 6 个长度桶拆分），直到补足需求
     const finalComments: string[] = []
     let rawTextCombined = ''
     const promptTrace: string[] = []
@@ -289,15 +294,15 @@ export default defineEventHandler(async (event) => {
         if (finalComments.length >= count) break
 
         const remaining = count - finalComments.length
-        const roundStyleTargets = splitStyleTargets(remaining)
-        const roundStyles = STYLE_ORDER.filter((style) => roundStyleTargets[style] > 0)
+        const roundBucketTargets = splitLengthBucketTargets(remaining)
+        const roundBuckets = LENGTH_BUCKET_ORDER.filter((bucket) => roundBucketTargets[bucket] > 0)
         console.info('[api.generate] step:round:start', {
           requestId,
           round,
           maxRounds,
           currentCount: finalComments.length,
           remaining,
-          targets: roundStyleTargets
+          targets: roundBucketTargets
         })
 
         emitProgress('round', {
@@ -306,41 +311,43 @@ export default defineEventHandler(async (event) => {
           maxRounds,
           currentCount: finalComments.length,
           remaining,
-          targets: roundStyleTargets
+          targets: roundBucketTargets
         })
 
-        const promptSet = await buildStylePrompts({
+        const promptSet = await buildLengthBucketPrompts({
           basePrompt: promptData.basePrompt,
           title: videoTitle,
           commentSamples
-        }, roundStyleTargets)
+        }, roundBucketTargets)
 
-        const batchPrompts = roundStyles.map((style) => promptSet[style])
+        const batchPrompts = roundBuckets.map((bucket) => promptSet[bucket])
         promptTrace.push(...batchPrompts)
         console.info('[api.generate] step:round:prompt', {
           requestId,
           round,
-          prompts: roundStyles.reduce<Record<string, string>>((acc, style) => {
-            acc[style] = promptSet[style]
+          prompts: roundBuckets.reduce<Record<string, string>>((acc, bucket) => {
+            acc[bucket] = promptSet[bucket]
             return acc
           }, {})
         })
 
         const aiResults = await Promise.all(
-          roundStyles.map((style) => {
+          roundBuckets.map((bucket) => {
+            const bucketConfig = LENGTH_BUCKETS[bucket]
             const commonParams = {
               model,
-              prompt: promptSet[style],
+              prompt: promptSet[bucket],
               requestId,
               fps: 1,
-              stopAfterItems: roundStyleTargets[style],
+              stopAfterItems: roundBucketTargets[bucket],
               onLine: (comment: string) => {
                 if (streamedItemCount >= count) return
                 streamedItemCount += 1
                 emitProgress('item', {
                   requestId,
                   round,
-                  style,
+                  style: bucketConfig.style,
+                  bucket,
                   comment
                 })
               },
@@ -373,8 +380,8 @@ export default defineEventHandler(async (event) => {
         }))
 
         const roundComments = normalizedResults.flatMap(({ normalized }, index) => {
-          const style = roundStyles[index]
-          const target = roundStyleTargets[style]
+          const bucket = roundBuckets[index]
+          const target = roundBucketTargets[bucket]
           return normalized.comments.slice(0, target)
         })
         console.info('[api.generate] step:round:normalized', {
@@ -474,19 +481,19 @@ export default defineEventHandler(async (event) => {
         threshold: Math.ceil(count * 0.6)
       })
 
-        return {
-          ok: false,
-          code: 'MODEL_OUTPUT_INSUFFICIENT',
-          message: '模型输出条数不足，请重试或调整提示词',
-          statusCode: 422,
-          data: {
-            rawText: rawTextCombined,
-            promptTrace,
-            requestedCount: count,
-            finalCount: trimmedComments.length,
-            beforeNormalizeCount,
-            afterNormalizeCount: trimmedComments.length,
-            model
+      return {
+        ok: false,
+        code: 'MODEL_OUTPUT_INSUFFICIENT',
+        message: '模型输出条数不足，请重试或调整提示词',
+        statusCode: 422,
+        data: {
+          rawText: rawTextCombined,
+          promptTrace,
+          requestedCount: count,
+          finalCount: trimmedComments.length,
+          beforeNormalizeCount,
+          afterNormalizeCount: trimmedComments.length,
+          model
         }
       }
     }

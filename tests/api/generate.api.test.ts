@@ -27,6 +27,34 @@ import { downloadVideoUrlToTempFile, saveVideoUploadToTempFile } from '../../ser
 import { fetchDouyinCommentSamplesByAwemeId, parseDouyinLink } from '../../server/services/douyin'
 import generateHandler from '../../server/api/generate.post'
 
+function bucketLengthFromPrompt(prompt: string) {
+  const ranges: Array<[string, number]> = [
+    ['3~5字', 3],
+    ['6~10字', 6],
+    ['10~15字', 10],
+    ['16~20字', 16],
+    ['21~27字', 21],
+    ['28~35字', 28]
+  ]
+
+  for (const [marker, length] of ranges) {
+    if (prompt.includes(marker)) return length
+  }
+
+  return 3
+}
+
+function buildBucketRawText(prompt: string, count?: number) {
+  const targetLength = bucketLengthFromPrompt(prompt)
+  const itemCount = Math.max(Number(count || 0), 1)
+
+  return Array.from({ length: itemCount }, (_, index) => {
+    const suffix = String(index + 1).padStart(2, '0')
+    const prefixLength = Math.max(targetLength - suffix.length, 1)
+    return `${'a'.repeat(prefixLength)}${suffix}`.slice(0, targetLength)
+  }).join('\n')
+}
+
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -35,6 +63,18 @@ beforeEach(() => {
     sourcePath: '/tmp/mock.mp4',
     cleanup: async () => {}
   } as any)
+  vi.mocked(generateFromVideoUrl).mockImplementation(async (params: any) => ({
+    rawText: buildBucketRawText(params.prompt, params.stopAfterItems),
+    model: 'qwen3.5-omni-plus',
+    streamChunkCount: Math.max(1, params.stopAfterItems || 1),
+    durationMs: 10
+  } as any))
+  vi.mocked(generateFromVideoFile).mockImplementation(async (params: any) => ({
+    rawText: buildBucketRawText(params.prompt, params.stopAfterItems),
+    model: 'qwen3.5-omni-plus',
+    streamChunkCount: Math.max(1, params.stopAfterItems || 1),
+    durationMs: 10
+  } as any))
 })
 
 describe('POST /api/generate', () => {
@@ -67,27 +107,7 @@ describe('POST /api/generate', () => {
     expect(res.body.code).toBe('FILE_TOO_LARGE')
   }, 30_000)
 
-  it('单轮会按 40/40/20 并行调用三次模型并合并结果', async () => {
-    vi.mocked(generateFromVideoFile)
-      .mockResolvedValueOnce({
-        rawText: Array.from({ length: 40 }, (_, i) => `短-${i + 1}`).join('\n'),
-        model: 'qwen3.5-omni-plus',
-        streamChunkCount: 5,
-        durationMs: 10
-      } as any)
-      .mockResolvedValueOnce({
-        rawText: Array.from({ length: 40 }, (_, i) => `中-${i + 1}`).join('\n'),
-        model: 'qwen3.5-omni-plus',
-        streamChunkCount: 4,
-        durationMs: 8
-      } as any)
-      .mockResolvedValueOnce({
-        rawText: Array.from({ length: 20 }, (_, i) => `长-${i + 1}`).join('\n'),
-        model: 'qwen3.5-omni-plus',
-        streamChunkCount: 3,
-        durationMs: 7
-      } as any)
-
+  it('单轮会按 6 桶并行调用六次模型并合并结果', async () => {
     const app = createApp()
     app.use('/api/generate', generateHandler)
 
@@ -101,31 +121,13 @@ describe('POST /api/generate', () => {
     expect(res.status).toBe(200)
     expect(res.body.ok).toBe(true)
     expect(res.body.data.finalCount).toBe(100)
-    expect(vi.mocked(generateFromVideoFile)).toHaveBeenCalledTimes(3)
+    expect(vi.mocked(generateFromVideoFile)).toHaveBeenCalledTimes(6)
 
-    const firstCallArgs = vi.mocked(generateFromVideoFile).mock.calls[0]?.[0] as any
-    const secondCallArgs = vi.mocked(generateFromVideoFile).mock.calls[1]?.[0] as any
-    const thirdCallArgs = vi.mocked(generateFromVideoFile).mock.calls[2]?.[0] as any
-    expect(firstCallArgs.stopAfterItems).toBe(40)
-    expect(secondCallArgs.stopAfterItems).toBe(40)
-    expect(thirdCallArgs.stopAfterItems).toBe(20)
+    const stopAfterItems = vi.mocked(generateFromVideoFile).mock.calls.map((call) => (call[0] as any).stopAfterItems)
+    expect(stopAfterItems).toEqual([17, 17, 17, 17, 16, 16])
   })
 
   it('link 模式在 inputMode=url 时直接传视频 URL 给模型', async () => {
-    vi.mocked(generateFromVideoUrl)
-      .mockResolvedValueOnce({
-        rawText: '第一条\n第二条',
-        model: 'qwen3.5-omni-plus',
-        streamChunkCount: 2,
-        durationMs: 10
-      } as any)
-      .mockResolvedValueOnce({
-        rawText: '第三条\n第四条',
-        model: 'qwen3.5-omni-plus',
-        streamChunkCount: 2,
-        durationMs: 9
-      } as any)
-
     const app = createApp()
     app.use('/api/generate', generateHandler)
 
@@ -150,19 +152,6 @@ describe('POST /api/generate', () => {
       videoUrl: 'https://www.douyin.com/video/7626738541439099121',
       title: '这个夏天最治愈的一段'
     } as any)
-
-    vi.mocked(generateFromVideoUrl).mockResolvedValueOnce({
-      rawText: '第一条\n第二条',
-      model: 'qwen3.5-omni-plus',
-      streamChunkCount: 2,
-      durationMs: 10
-    } as any)
-      .mockResolvedValueOnce({
-        rawText: '第三条\n第四条',
-        model: 'qwen3.5-omni-plus',
-        streamChunkCount: 2,
-        durationMs: 9
-      } as any)
 
     const app = createApp()
     app.use('/api/generate', generateHandler)
@@ -190,23 +179,10 @@ describe('POST /api/generate', () => {
       awemeId: '7626738541439099121'
     } as any)
 
-    vi.mocked(fetchDouyinCommentSamplesByAwemeId).mockResolvedValueOnce([
+    vi.mocked(fetchDouyinCommentSamplesByAwemeId).mockResolvedValue([
       '这个镜头真的好舒服',
       '主包这段状态太松弛了'
     ])
-
-    vi.mocked(generateFromVideoUrl).mockResolvedValueOnce({
-      rawText: '第一条\n第二条',
-      model: 'qwen3.5-omni-plus',
-      streamChunkCount: 2,
-      durationMs: 10
-    } as any)
-      .mockResolvedValueOnce({
-        rawText: '第三条\n第四条',
-        model: 'qwen3.5-omni-plus',
-        streamChunkCount: 2,
-        durationMs: 9
-      } as any)
 
     const app = createApp()
     app.use('/api/generate', generateHandler)
@@ -290,25 +266,6 @@ describe('POST /api/generate', () => {
       cleanup: async () => {}
     } as any)
 
-    vi.mocked(generateFromVideoFile).mockResolvedValueOnce({
-      rawText: '第一条\n第二条',
-      model: 'qwen3.5-omni-plus',
-      streamChunkCount: 2,
-      durationMs: 10
-    } as any)
-      .mockResolvedValueOnce({
-        rawText: '第三条\n第四条',
-        model: 'qwen3.5-omni-plus',
-        streamChunkCount: 2,
-        durationMs: 9
-      } as any)
-      .mockResolvedValueOnce({
-        rawText: '第五条\n第六条',
-        model: 'qwen3.5-omni-plus',
-        streamChunkCount: 2,
-        durationMs: 8
-      } as any)
-
     const app = createApp()
     app.use('/api/generate', generateHandler)
 
@@ -332,25 +289,6 @@ describe('POST /api/generate', () => {
       cleanup: async () => {}
     } as any)
 
-    vi.mocked(generateFromVideoFile).mockResolvedValueOnce({
-      rawText: '第一条\n第二条',
-      model: 'qwen3.5-omni-plus',
-      streamChunkCount: 2,
-      durationMs: 10
-    } as any)
-      .mockResolvedValueOnce({
-        rawText: '第三条\n第四条',
-        model: 'qwen3.5-omni-plus',
-        streamChunkCount: 2,
-        durationMs: 9
-      } as any)
-      .mockResolvedValueOnce({
-        rawText: '第五条\n第六条',
-        model: 'qwen3.5-omni-plus',
-        streamChunkCount: 2,
-        durationMs: 8
-      } as any)
-
     const app = createApp()
     app.use('/api/generate', generateHandler)
 
@@ -370,12 +308,12 @@ describe('POST /api/generate', () => {
   })
 
   it('模型输出全部无效时也会返回原始输出用于调试', async () => {
-    vi.mocked(generateFromVideoFile).mockResolvedValueOnce({
+    vi.mocked(generateFromVideoFile).mockImplementation(async () => ({
       rawText: '评论如下\n好',
       model: 'qwen3.5-omni-plus',
       streamChunkCount: 2,
       durationMs: 10
-    } as any)
+    } as any))
 
     const app = createApp()
     app.use('/api/generate', generateHandler)

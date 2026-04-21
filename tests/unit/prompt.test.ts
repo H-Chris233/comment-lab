@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { buildStylePrompts, splitStyleTargets } from '../../server/services/prompt'
+import {
+  buildLengthBucketPrompts,
+  buildStylePrompts,
+  splitLengthBucketTargets,
+  splitStyleTargets
+} from '../../server/services/prompt'
 
 describe('buildStylePrompts', () => {
   it('应从三份独立 txt 模板生成三种风格 prompt', async () => {
@@ -64,5 +69,37 @@ describe('buildStylePrompts', () => {
     expect(splitStyleTargets(100)).toEqual({ short: 40, medium: 40, long: 20 })
     expect(splitStyleTargets(200)).toEqual({ short: 80, medium: 80, long: 40 })
     expect(splitStyleTargets(300)).toEqual({ short: 120, medium: 120, long: 60 })
+  })
+
+  it('按 6 桶均匀拆分目标条数', () => {
+    expect(splitLengthBucketTargets(6)).toEqual({
+      short_1: 1,
+      short_2: 1,
+      medium_1: 1,
+      medium_2: 1,
+      long_1: 1,
+      long_2: 1
+    })
+
+    expect(splitLengthBucketTargets(100)).toEqual({
+      short_1: 17,
+      short_2: 17,
+      medium_1: 17,
+      medium_2: 17,
+      long_1: 16,
+      long_2: 16
+    })
+  })
+
+  it('六桶 prompt 会注入桶范围', async () => {
+    const result = await buildLengthBucketPrompts({
+      basePrompt: '请偏口语化',
+      title: '这个夏天最治愈的一段'
+    }, splitLengthBucketTargets(6))
+
+    expect(result.short_1).toContain('当前长度桶：短评论桶 A')
+    expect(result.short_1).toContain('3~5字')
+    expect(result.long_2).toContain('当前长度桶：长评论桶 B')
+    expect(result.long_2).toContain('28~35字')
   })
 })

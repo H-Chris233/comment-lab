@@ -12,7 +12,53 @@ export const STYLE_RATIOS: Record<CommentStyle, number> = {
   long: 0.2
 }
 
+const STYLE_DEFAULT_RANGES: Record<CommentStyle, string> = {
+  short: '3~10字',
+  medium: '10~25字',
+  long: '25~35字'
+}
+
+const STYLE_DEFAULT_SUBRANGES: Record<CommentStyle, string> = {
+  short: '3、4、5、6、7、8、9、10 这些字数点都要尽量覆盖，避免只集中在 6/7 这类常见字数',
+  medium: '10~12、13~15、16~18、19~21、22~25 这些子区间都要尽量覆盖，避免只集中在 13/14 或 16/17 这类常见字数',
+  long: '25~27、28~30、31~33、34~35 这些子区间都要尽量覆盖，避免只集中在 26/27 或 31/32 这类常见字数'
+}
+
 const TEMPLATE_CACHE = new Map<CommentStyle, string>()
+
+export type LengthBucketKey =
+  | 'short_1'
+  | 'short_2'
+  | 'medium_1'
+  | 'medium_2'
+  | 'long_1'
+  | 'long_2'
+
+export type LengthBucketConfig = {
+  key: LengthBucketKey
+  style: CommentStyle
+  label: string
+  range: string
+  subranges: string
+}
+
+export const LENGTH_BUCKET_ORDER: LengthBucketKey[] = [
+  'short_1',
+  'short_2',
+  'medium_1',
+  'medium_2',
+  'long_1',
+  'long_2'
+]
+
+export const LENGTH_BUCKETS: Record<LengthBucketKey, LengthBucketConfig> = {
+  short_1: { key: 'short_1', style: 'short', label: '短评论桶 A', range: '3~5字', subranges: '3、4、5 这几个字数点都要尽量覆盖，避免只集中在 3/4 这类常见字数' },
+  short_2: { key: 'short_2', style: 'short', label: '短评论桶 B', range: '6~10字', subranges: '6、7、8、9、10 这几个字数点都要尽量覆盖，避免只集中在 6/7 这类常见字数' },
+  medium_1: { key: 'medium_1', style: 'medium', label: '中评论桶 A', range: '10~15字', subranges: '10~12、13~15 这两个子区间都要尽量覆盖，避免只集中在 13/14 这类常见字数' },
+  medium_2: { key: 'medium_2', style: 'medium', label: '中评论桶 B', range: '16~20字', subranges: '16~18、19~20 这两个子区间都要尽量覆盖，避免只集中在 16/17 这类常见字数' },
+  long_1: { key: 'long_1', style: 'long', label: '长评论桶 A', range: '21~27字', subranges: '21~24、25~27 这两个子区间都要尽量覆盖，避免只集中在 26/27 这类常见字数' },
+  long_2: { key: 'long_2', style: 'long', label: '长评论桶 B', range: '28~35字', subranges: '28~31、32~35 这两个子区间都要尽量覆盖，避免只集中在 31/32 这类常见字数' }
+}
 
 function templatePath(style: CommentStyle) {
   return join(process.cwd(), 'prompts', `${style}.txt`)
@@ -36,11 +82,20 @@ function renderTemplate(template: string, params: BuildPromptParams, target: num
   const sampleSection = commentSamples.length
     ? `评论样本（仅供模仿语气、句式和节奏，不要照抄）：\n${commentSamples.map((sample) => `- ${sample}`).join('\n')}`
     : ''
-  const contextSection = [titleSection, sampleSection, promptSection].filter(Boolean).join('\n')
+  const bucketLabel = params.lengthBucket?.trim()
+  const bucketRange = params.lengthRange?.trim()
+  const bucketSubranges = params.lengthSubranges?.trim() || ''
+  const bucketSection = bucketLabel && bucketRange
+    ? `当前长度桶：${bucketLabel}\n本轮只生成 ${bucketRange} 的评论，长度要在该桶内分散，不要挤在常见字数点。`
+    : ''
+  const contextSection = [titleSection, bucketSection, sampleSection, promptSection].filter(Boolean).join('\n')
 
   return template
     .replaceAll('{{PROMPT_SECTION}}', contextSection)
     .replaceAll('{{CONTEXT_SECTION}}', contextSection)
+    .replaceAll('{{BUCKET_LABEL}}', bucketLabel || '')
+    .replaceAll('{{BUCKET_RANGE}}', bucketRange || '')
+    .replaceAll('{{BUCKET_SUBRANGES}}', bucketSubranges)
     .replaceAll('{{STYLE_TARGET}}', String(target))
 }
 
@@ -117,9 +172,31 @@ export function splitStyleTargets(total: number) {
   return splitByRatio(total)
 }
 
+export function splitLengthBucketTargets(total: number) {
+  const base = Math.floor(total / LENGTH_BUCKET_ORDER.length)
+  let remaining = total % LENGTH_BUCKET_ORDER.length
+
+  return LENGTH_BUCKET_ORDER.reduce<Record<LengthBucketKey, number>>((acc, key) => {
+    acc[key] = base + (remaining > 0 ? 1 : 0)
+    if (remaining > 0) remaining -= 1
+    return acc
+  }, {
+    short_1: 0,
+    short_2: 0,
+    medium_1: 0,
+    medium_2: 0,
+    long_1: 0,
+    long_2: 0
+  })
+}
+
 export async function buildStylePrompt(style: CommentStyle, params: BuildPromptParams, target: number) {
   const template = await loadTemplate(style)
-  return renderTemplate(template, params, target)
+  return renderTemplate(template, {
+    ...params,
+    lengthRange: params.lengthRange || STYLE_DEFAULT_RANGES[style],
+    lengthSubranges: params.lengthSubranges || STYLE_DEFAULT_SUBRANGES[style]
+  }, target)
 }
 
 export async function buildStylePrompts(
@@ -136,4 +213,43 @@ export async function buildStylePrompts(
     acc[style] = prompt
     return acc
   }, { long: '', medium: '', short: '' })
+}
+
+export async function buildLengthBucketPrompt(
+  bucket: LengthBucketConfig,
+  params: BuildPromptParams,
+  target: number
+) {
+  return buildStylePrompt(bucket.style, {
+    ...params,
+    lengthBucket: bucket.label,
+    lengthRange: bucket.range,
+    lengthSubranges: bucket.subranges
+  }, target)
+}
+
+export async function buildLengthBucketPrompts(
+  params: BuildPromptParams,
+  targets: Record<LengthBucketKey, number>
+) {
+  const entries = await Promise.all(
+    LENGTH_BUCKET_ORDER
+      .filter((key) => targets[key] > 0)
+      .map(async (key) => {
+        const bucket = LENGTH_BUCKETS[key]
+        return [key, await buildLengthBucketPrompt(bucket, params, targets[key])] as const
+      })
+  )
+
+  return entries.reduce<Record<LengthBucketKey, string>>((acc, [key, prompt]) => {
+    acc[key] = prompt
+    return acc
+  }, {
+    short_1: '',
+    short_2: '',
+    medium_1: '',
+    medium_2: '',
+    long_1: '',
+    long_2: ''
+  })
 }
