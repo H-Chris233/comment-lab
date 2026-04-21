@@ -1,0 +1,17 @@
+.git
+.gitignore
+.claude/
+.omx/
+.nuxt/
+.output/
+node_modules/
+.tmp/
+.env
+.env.local
+.env.*
+*.log
+__pycache__/
+*.pyc
+.venv/
+python_service/__pycache__/
+python_service/.venv/

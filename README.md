@@ -38,6 +38,33 @@ npm run python:dev
 
 `python:dev` 会通过 `uv` 自动创建/复用 Python 环境并启动侧车服务。
 
+## 生产部署
+
+仓库已提供 `docker-compose.yml`，生产环境可以一条命令直接拉起：
+
+```bash
+cp .env.example .env
+npm run docker:up
+```
+
+这会同时启动：
+- Nuxt App 容器
+- Python DashScope 侧车容器
+
+两者共享同一个临时视频卷，确保下载到本地的视频在两个容器里都能访问。
+
+默认对外端口是 `3000`，如果宿主机这个端口已被占用，可以这样改：
+
+```bash
+APP_PORT=3001 npm run docker:up
+```
+
+如需停止：
+
+```bash
+npm run docker:down
+```
+
 ## 关键环境变量
 
 - `ALIYUN_API_KEY`: 阿里云百炼 API Key（仅服务端）
@@ -47,6 +74,8 @@ npm run python:dev
 - `TIKHUB_BASE_URL`: TikHub API 地址（默认 `https://api.tikhub.io`）
 - `MAX_VIDEO_SIZE_MB`: 前端/服务端上传大小限制（默认 100）
 - `PYTHON_DASHSCOPE_SERVICE_URL`: Python 侧车地址（默认 `http://127.0.0.1:8001`）
+
+> 说明：Docker Compose 会把这份 `.env` 同时传给两个容器，并额外注入 `NUXT_*` 变量供 Nuxt runtimeConfig 覆盖。
 
 ## 限制说明
 

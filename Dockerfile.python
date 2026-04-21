@@ -1,0 +1,24 @@
+FROM python:3.13-slim-bookworm AS build
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+WORKDIR /app
+
+RUN pip install --no-cache-dir uv==0.11.6
+
+COPY python_service/pyproject.toml python_service/uv.lock ./python_service/
+RUN uv sync --directory python_service --frozen --no-dev --python 3.13
+
+COPY python_service ./python_service
+
+FROM python:3.13-slim-bookworm AS runtime
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+WORKDIR /app/python_service
+
+COPY --from=build /app/python_service /app/python_service
+ENV PATH="/app/python_service/.venv/bin:$PATH"
+
+EXPOSE 8001
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8001"]

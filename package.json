@@ -10,6 +10,8 @@
     "typecheck": "nuxt typecheck",
     "test": "vitest run",
     "test:watch": "vitest",
+    "docker:up": "docker compose up -d --build",
+    "docker:down": "docker compose down",
     "python:sync": "uv sync --directory python_service --python 3.13",
     "python:dev": "uv run --directory python_service --python 3.13 uvicorn app:app --reload --port 8001",
     "dev:all": "bash scripts/dev-all.sh",
