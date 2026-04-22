@@ -123,4 +123,55 @@ describe('generateFromVideoFile', () => {
       vi.unstubAllGlobals()
     }
   })
+
+  it('侧车临时网络失败时会自动重试后成功', async () => {
+    const fetchMock = vi.fn()
+      .mockRejectedValueOnce(new TypeError('fetch failed'))
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          rawText: '第一条\n第二条\n'
+        })
+      })
+    vi.stubGlobal('fetch', fetchMock as any)
+
+    try {
+      const result = await generateFromVideoFile({
+        model: 'qwen3.6-plus',
+        prompt: 'base prompt',
+        videoPath: '/tmp/video.mp4',
+        requestId: 'req_test_retry'
+      })
+
+      expect(result.rawText).toContain('第一条')
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('侧车返回非临时错误时不会重试', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      json: async () => ({
+        message: 'internal error'
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock as any)
+
+    try {
+      await expect(generateFromVideoFile({
+        model: 'qwen3.6-plus',
+        prompt: 'base prompt',
+        videoPath: '/tmp/video.mp4',
+        requestId: 'req_test_no_retry'
+      })).rejects.toThrow('internal error')
+
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
 })

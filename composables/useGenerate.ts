@@ -176,7 +176,7 @@ export function useGenerate() {
 
     try {
       abortController.value = new AbortController()
-      const timeoutMs = Number(runtimeConfig.public?.generateTimeoutMs || runtimeConfig.generateTimeoutMs || 600_000)
+      const timeoutMs = Number(runtimeConfig.public?.generateTimeoutMs || runtimeConfig.generateTimeoutMs || 3_600_000)
       requestTimeoutId.value = setTimeout(() => {
         requestTimedOut = true
         abortController.value?.abort()

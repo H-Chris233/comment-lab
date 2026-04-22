@@ -20,9 +20,9 @@ Object.assign(globalThis, {
     aliyunModel: 'qwen3.5-omni-plus',
     douyinApiBase: 'https://parser.example.com',
     maxVideoSizeMb: 100,
-    generateTimeoutMs: 600_000,
+    generateTimeoutMs: 3_600_000,
     public: {
-      generateTimeoutMs: 600_000
+      generateTimeoutMs: 3_600_000
     },
     tempVideoRetentionMinutes: 10,
     pythonDashscopeServiceUrl: 'http://127.0.0.1:8001',

@@ -1,6 +1,8 @@
 import { createAppError } from '../utils/errors'
 
 const DEFAULT_FPS = 1
+const SIDE_CAR_RETRY_DELAYS_MS = [300, 800, 1600]
+const SIDE_CAR_RETRY_STATUS_CODES = new Set([502, 503, 504])
 
 type GenerateBaseParams = {
   model: string
@@ -84,6 +86,58 @@ function takeFirstItems(raw: string, maxItems?: number) {
   return lines.slice(0, maxItems).join('\n').trim()
 }
 
+function isAbortError(error: unknown) {
+  return Boolean(error && typeof error === 'object' && (error as any).name === 'AbortError')
+}
+
+function isRetryableNetworkError(error: unknown) {
+  if (!(error instanceof Error)) return false
+  if (isAbortError(error)) return false
+
+  const message = error.message.toLowerCase()
+  return [
+    'fetch failed',
+    'networkerror',
+    'connection reset',
+    'econnreset',
+    'etimedout',
+    'socket hang up',
+    'service unavailable',
+    'bad gateway',
+    'gateway timeout'
+  ].some((needle) => message.includes(needle))
+}
+
+function isRetryableSidecarStatus(status: number) {
+  return SIDE_CAR_RETRY_STATUS_CODES.has(status)
+}
+
+function sleepWithAbort(ms: number, signal?: AbortSignal) {
+  if (ms <= 0) return Promise.resolve()
+  if (signal?.aborted) {
+    return Promise.reject(signal.reason ?? new DOMException('Aborted', 'AbortError'))
+  }
+
+  return new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      cleanup()
+      resolve()
+    }, ms)
+
+    const onAbort = () => {
+      cleanup()
+      reject(signal?.reason ?? new DOMException('Aborted', 'AbortError'))
+    }
+
+    const cleanup = () => {
+      clearTimeout(timer)
+      signal?.removeEventListener('abort', onAbort)
+    }
+
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
 async function callPythonSidecar(params: {
   model: string
   prompt: string
@@ -120,7 +174,7 @@ async function callPythonSidecar(params: {
     throw createAppError({
       code: 'MODEL_CALL_FAILED',
       message: detail,
-      statusCode: 502
+      statusCode: response.status
     })
   }
 
@@ -147,6 +201,47 @@ async function callPythonSidecar(params: {
   }
 }
 
+async function callPythonSidecarWithRetry(params: Parameters<typeof callPythonSidecar>[0]) {
+  let lastError: unknown = null
+
+  for (let attempt = 0; attempt <= SIDE_CAR_RETRY_DELAYS_MS.length; attempt += 1) {
+    try {
+      return await callPythonSidecar(params)
+    } catch (error) {
+      lastError = error
+
+      if (isAbortError(error)) throw error
+
+      const retryable = error instanceof Error && isRetryableNetworkError(error)
+      if (!retryable) {
+        const statusCode = (error as any)?.statusCode
+        if (!isRetryableSidecarStatus(Number(statusCode))) {
+          throw error
+        }
+      }
+
+      const delayMs = SIDE_CAR_RETRY_DELAYS_MS[attempt]
+      if (delayMs == null) break
+
+      console.warn('[ai.generate] sidecar retry', {
+        requestId: params.requestId,
+        attempt: attempt + 1,
+        delayMs,
+        reason: error instanceof Error ? error.message : 'unknown'
+      })
+      await sleepWithAbort(delayMs, params.signal)
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : createAppError({
+        code: 'MODEL_CALL_FAILED',
+        message: '模型调用失败',
+        statusCode: 502
+      })
+}
+
 async function generateStreamed(params: GenerateBaseParams & {
   inputMode: 'url' | 'file'
   videoUrl?: string
@@ -169,7 +264,7 @@ async function generateStreamed(params: GenerateBaseParams & {
   let emittedItemCount = 0
 
   try {
-    sidecarResult = await callPythonSidecar({
+    sidecarResult = await callPythonSidecarWithRetry({
       model: params.model,
       prompt: params.prompt,
       fps,
@@ -194,7 +289,7 @@ async function generateStreamed(params: GenerateBaseParams & {
       textLength: rawAccumulated.length
     })
   } catch (error) {
-    if ((error as any)?.name === 'AbortError') {
+    if (isAbortError(error)) {
       const abortReason = params.signal && 'reason' in params.signal ? (params.signal as AbortSignal & { reason?: unknown }).reason : undefined
       const abortReasonText = abortReason instanceof Error
         ? abortReason.message
