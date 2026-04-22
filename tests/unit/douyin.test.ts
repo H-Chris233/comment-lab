@@ -71,4 +71,35 @@ describe('douyin url normalize', () => {
       '主包这段状态太松弛了'
     ])
   })
+
+  it('解析视频时会优先尝试 app/v3 endpoint', async () => {
+    vi.stubGlobal('useRuntimeConfig', () => ({
+      tikhubApiKey: 'test-key',
+      tikhubBaseUrl: 'https://api.tikhub.io'
+    }))
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        data: {
+          aweme_detail: {
+            video: {
+              play_addr: {
+                url_list: ['https://v3-dy-o.zjcdn.com/test-video.mp4']
+              }
+            }
+          }
+        }
+      }), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {})
+
+    const parsed = await parseDouyinLink('https://v.douyin.com/8_1r_vNADwM/', 'req_test')
+
+    expect(parsed.videoUrl).toBe('https://v3-dy-o.zjcdn.com/test-video.mp4')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(new URL(fetchMock.mock.calls[0]?.[0] as string).pathname).toBe('/api/v1/douyin/app/v3/fetch_one_video_by_share_url')
+    expect(infoSpy).toHaveBeenCalled()
+  })
 })

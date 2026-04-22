@@ -215,8 +215,8 @@ async function callTikHubForDouyinVideo(shareUrl: string, requestId?: string) {
   }
 
   const endpointTries = [
-    '/api/v1/douyin/web/fetch_one_video_by_share_url',
     '/api/v1/douyin/app/v3/fetch_one_video_by_share_url',
+    '/api/v1/douyin/web/fetch_one_video_by_share_url',
     '/api/v1/douyin/app/v2/fetch_one_video_by_share_url'
   ]
   const queryKeys = ['share_url', 'url']
@@ -247,7 +247,7 @@ async function callTikHubForDouyinVideo(shareUrl: string, requestId?: string) {
 
         if (!res.ok) {
           lastError = `status=${res.status}`
-          console.warn('[douyin.tikhub] step:non-200', {
+          console.info('[douyin.tikhub] step:non-200', {
             requestId,
             endpoint,
             queryKey,
@@ -296,7 +296,7 @@ async function callTikHubForDouyinVideo(shareUrl: string, requestId?: string) {
         }
       } catch (error) {
         lastError = error instanceof Error ? error.message : 'request_error'
-        console.warn('[douyin.tikhub] step:request-error', {
+        console.info('[douyin.tikhub] step:request-error', {
           requestId,
           endpoint,
           queryKey,
@@ -326,8 +326,8 @@ async function callTikHubForDouyinAwemeId(shareUrl: string, requestId?: string) 
   if (!apiKey) return undefined
 
   const endpointTries = [
-    '/api/v1/douyin/web/get_aweme_id',
     '/api/v1/douyin/app/v3/get_aweme_id',
+    '/api/v1/douyin/web/get_aweme_id',
     '/api/v1/douyin/app/v2/get_aweme_id'
   ]
 
@@ -387,8 +387,8 @@ async function callTikHubForDouyinComments(shareUrl: string, awemeId?: string, r
   }
 
   const endpointTries = [
-    '/api/v1/douyin/web/fetch_video_comments',
     '/api/v1/douyin/app/v3/fetch_video_comments',
+    '/api/v1/douyin/web/fetch_video_comments',
     '/api/v1/douyin/app/v2/fetch_video_comments'
   ]
 
