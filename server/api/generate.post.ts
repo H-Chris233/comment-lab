@@ -15,6 +15,7 @@ import { parseBoolean, validateCount, validateInputMode, validateModel, validate
 import { assertAuthenticated } from '../services/auth'
 
 const MAX_ROUNDS_BUFFER = 2
+const SSE_HEARTBEAT_INTERVAL_MS = 15_000
 
 type RunOutcome =
   | { ok: true; data: GenerateResultData }
@@ -153,11 +154,18 @@ export default defineEventHandler(async (event) => {
 
     const generationTimeoutMs = Number(useRuntimeConfig().generateTimeoutMs || 3_600_000)
     let generationTimeoutTimer: ReturnType<typeof setTimeout> | null = null
+    let heartbeatTimer: ReturnType<typeof setInterval> | null = null
 
     const clearGenerationTimeout = () => {
       if (generationTimeoutTimer == null) return
       clearTimeout(generationTimeoutTimer)
       generationTimeoutTimer = null
+    }
+
+    const clearHeartbeat = () => {
+      if (heartbeatTimer == null) return
+      clearInterval(heartbeatTimer)
+      heartbeatTimer = null
     }
 
     const startGenerationTimeout = () => {
@@ -168,7 +176,19 @@ export default defineEventHandler(async (event) => {
           generationTimeoutMs
         })
         abortController.abort(new Error('REQUEST_TIMEOUT'))
-      }, generationTimeoutMs)
+        }, generationTimeoutMs)
+    }
+
+    const startHeartbeat = () => {
+      if (!streamMode || !sse || heartbeatTimer != null) return
+      heartbeatTimer = setInterval(() => {
+        if (clientDisconnected) return
+        emitProgress('ping', {
+          requestId,
+          ts: Date.now()
+        })
+      }, SSE_HEARTBEAT_INTERVAL_MS)
+      heartbeatTimer.unref?.()
     }
 
     emitProgress('meta', {
@@ -311,6 +331,7 @@ export default defineEventHandler(async (event) => {
 
     try {
       startGenerationTimeout()
+      startHeartbeat()
       for (let round = 1; round <= maxRounds; round += 1) {
         ensureClientConnected(`round-${round}-start`)
         if (finalComments.length >= count) break
@@ -465,6 +486,7 @@ export default defineEventHandler(async (event) => {
       }
     } finally {
       clearGenerationTimeout()
+      clearHeartbeat()
       if (cleanupVideoSource) await cleanupVideoSource()
     }
 
