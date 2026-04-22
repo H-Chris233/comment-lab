@@ -113,7 +113,7 @@ E2E_BASE_URL=http://localhost:3000 E2E_VIDEO_FILE=./your-video.mp4 npm run e2e:a
 
 ## 输出格式
 
-- 支持 `TXT`、`Word`（`.doc`）、`CSV`
+- 支持 `TXT`、`Word`（`.doc`）
 - `TXT` / `Word` 统一按行导出，每条一行
 
 

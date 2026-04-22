@@ -21,11 +21,6 @@ function escapeHtml(value: string) {
     .replaceAll("'", '&#39;')
 }
 
-function escapeCsv(value: string) {
-  const sanitized = value.replace(/\r?\n/g, ' ')
-  return `"${sanitized.replaceAll('"', '""')}"`
-}
-
 export function formatExportLines(comments: string[]) {
   return comments
     .map((text) => text.trim())
@@ -106,15 +101,9 @@ export function useExport() {
     )
   }
 
-  function exportCsv(comments: string[]) {
-    const rows = ['index,text', ...comments.map((text, idx) => `${idx + 1},${escapeCsv(text)}`)]
-    downloadText(`comments_${today()}_${comments.length}.csv`, rows.join('\n'), 'text/csv;charset=utf-8')
-  }
-
   return {
     copyAll,
     exportTxt,
-    exportWord,
-    exportCsv
+    exportWord
   }
 }

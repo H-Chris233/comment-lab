@@ -62,7 +62,7 @@ const {
   requestId
 } = useGenerate()
 
-const { copyAll, exportTxt, exportWord, exportCsv } = useExport()
+const { copyAll, exportTxt, exportWord } = useExport()
 
 await auth.loadStatus()
 
@@ -391,7 +391,6 @@ onMounted(() => {
               @shuffle-all="handleShuffleAll"
               @export-txt="exportTxt(comments)"
               @export-word="exportWord(comments)"
-              @export-csv="exportCsv(comments)"
               @regenerate="handleRegenerate"
               @cancel="handleCancelGenerate"
             />

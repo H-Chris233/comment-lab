@@ -27,7 +27,6 @@ const emit = defineEmits<{
   shuffleAll: []
   exportTxt: []
   exportWord: []
-  exportCsv: []
   regenerate: []
   cancel: []
 }>()
@@ -109,14 +108,6 @@ const loadingText = computed(() => {
             <path d="M7 9h10M7 13h10M7 17h6" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
           <span>导出Word</span>
-        </button>
-        <button class="action-btn" :disabled="!hasComments" @click="emit('exportCsv')">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" stroke-linecap="round" stroke-linejoin="round"/>
-            <polyline points="7 10 12 15 17 10" stroke-linecap="round" stroke-linejoin="round"/>
-            <line x1="12" y1="15" x2="12" y2="3" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-          <span>导出CSV</span>
         </button>
         <button class="action-btn action-btn-secondary" :disabled="generating || parsing" @click="emit('regenerate')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
