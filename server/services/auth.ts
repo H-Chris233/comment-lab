@@ -1,5 +1,5 @@
 import type { H3Event } from 'h3'
-import { deleteCookie, getCookie, setCookie } from 'h3'
+import { deleteCookie, getCookie, getRequestHeader, setCookie } from 'h3'
 import { createHmac, pbkdf2Sync, randomBytes, timingSafeEqual } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
@@ -66,6 +66,20 @@ function createSessionToken(secret: string) {
   const payload = `${issuedAt}.${nonce}`
   const signature = createHmac('sha256', secret).update(payload).digest('base64url')
   return `${payload}.${signature}`
+}
+
+function isSecureAuthCookie(event: H3Event) {
+  const forwardedProto = getRequestHeader(event, 'x-forwarded-proto')?.split(',')[0]?.trim().toLowerCase()
+  if (forwardedProto) {
+    return forwardedProto === 'https'
+  }
+
+  const forwardedSsl = getRequestHeader(event, 'x-forwarded-ssl')?.trim().toLowerCase()
+  if (forwardedSsl) {
+    return forwardedSsl === 'on' || forwardedSsl === '1'
+  }
+
+  return Boolean((event.node.req.socket as import('node:net').Socket & { encrypted?: boolean }).encrypted)
 }
 
 function verifySessionToken(token: string, secret: string) {
@@ -178,7 +192,7 @@ function issueSessionCookie(event: H3Event, state: AuthState) {
   setCookie(event, AUTH_COOKIE_NAME, createSessionToken(state.sessionSecret), {
     httpOnly: true,
     sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
+    secure: isSecureAuthCookie(event),
     path: '/'
   })
 }

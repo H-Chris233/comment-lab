@@ -48,6 +48,29 @@ describe('auth api', () => {
     expect(statusRes.body.data.authenticated).toBe(true)
   })
 
+  it('HTTP 请求下登录返回的 session cookie 不应强制 Secure', async () => {
+    const previousNodeEnv = process.env.NODE_ENV
+    process.env.NODE_ENV = 'production'
+
+    try {
+      const app = createApp()
+      app.use('/api/auth/set-password', authSetPasswordHandler)
+
+      const setRes = await request(toNodeListener(app))
+        .post('/api/auth/set-password')
+        .send({ password: 'abcd1234', confirmPassword: 'abcd1234' })
+
+      const setCookie = Array.isArray(setRes.headers['set-cookie'])
+        ? setRes.headers['set-cookie'][0] || ''
+        : ''
+
+      expect(setCookie).toContain('comment-lab-session=')
+      expect(setCookie).not.toContain('Secure')
+    } finally {
+      process.env.NODE_ENV = previousNodeEnv
+    }
+  })
+
   it('密码错误时拒绝登录', async () => {
     const app = createApp()
     app.use('/api/auth/set-password', authSetPasswordHandler)
