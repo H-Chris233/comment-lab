@@ -4,14 +4,6 @@ import { shuffleInPlace, useGenerate } from '../../composables/useGenerate'
 describe('useGenerate', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
-    const body = init?.body as FormData | undefined
-    const entries = body ? Array.from(body.entries()) : []
-    const inputMode = entries.find(([key]) => key === 'inputMode')?.[1]
-    const model = entries.find(([key]) => key === 'model')?.[1]
-
-    expect(inputMode).toBe('file')
-    expect(model).toBe('qwen3.6-plus')
-
       return new Response(
         'event: done\ndata: {"ok":true,"data":{"comments":[],"rawText":"","promptTrace":[],"requestedCount":1,"finalCount":0,"beforeNormalizeCount":0,"afterNormalizeCount":0,"model":"test"},"requestId":"req_test"}\n\n',
         {
@@ -25,6 +17,7 @@ describe('useGenerate', () => {
 
   it('会把 inputMode 带到生成请求里', async () => {
     const { generate } = useGenerate()
+    const fetchSpy = vi.mocked(globalThis.fetch)
 
     const result = await generate({
       mode: 'link',
@@ -36,6 +29,14 @@ describe('useGenerate', () => {
     })
 
     expect(result.ok).toBe(true)
+
+    const body = fetchSpy.mock.calls[0]?.[1]?.body as FormData | undefined
+    const entries = body ? Array.from(body.entries()) : []
+    const inputMode = entries.find(([key]) => key === 'inputMode')?.[1]
+    const model = entries.find(([key]) => key === 'model')?.[1]
+
+    expect(inputMode).toBe('file')
+    expect(model).toBe('qwen3.6-plus')
   })
 
   it('会原地打乱数组顺序', () => {

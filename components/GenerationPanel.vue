@@ -132,6 +132,7 @@ function enableCustomCount() {
         </span>
         <span class="checkbox-label">清理空行</span>
       </label>
+
     </div>
 
     <div class="action-section">
@@ -156,7 +157,7 @@ function enableCustomCount() {
           <rect x="3" y="11" width="18" height="11" rx="2" ry="2" stroke-linecap="round" stroke-linejoin="round"/>
           <path d="M7 11V7a5 5 0 0 1 10 0v4" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
-        视频内容仅用于生成评论，不会被保存或用于其他用途
+        视频内容仅用于生成评论，不会被保存或用于其他用途。
       </p>
     </div>
   </section>
@@ -322,6 +323,7 @@ function enableCustomCount() {
 
 .options-row {
   display: flex;
+  flex-wrap: wrap;
   gap: 24px;
   padding: 16px 0;
   border-top: 1px solid #E2E8F0;

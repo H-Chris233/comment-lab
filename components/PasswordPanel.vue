@@ -6,6 +6,7 @@ const props = defineProps<{
   loading: boolean
   error?: string
   compact?: boolean
+  embedded?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -73,7 +74,7 @@ defineExpose({ resetForm })
 </script>
 
 <template>
-  <section class="glass-card password-card" :class="{ compact: props.compact }">
+  <section class="password-card" :class="{ compact: props.compact, embedded: props.embedded }">
     <div class="card-header">
       <div>
         <h3 class="card-title">{{ title }}</h3>
@@ -118,7 +119,7 @@ defineExpose({ resetForm })
 </template>
 
 <style scoped>
-.glass-card {
+.password-card {
   background: rgba(255, 255, 255, 0.72);
   backdrop-filter: blur(12px);
   border: 1px solid rgba(255, 255, 255, 0.55);
@@ -129,6 +130,15 @@ defineExpose({ resetForm })
 
 .password-card.compact {
   padding: 20px;
+}
+
+.password-card.embedded {
+  background: transparent;
+  backdrop-filter: none;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 0;
 }
 
 .card-header {

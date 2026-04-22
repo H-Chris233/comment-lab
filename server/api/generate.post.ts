@@ -6,10 +6,8 @@ import { ALLOWED_VIDEO_MIME_TYPES, downloadVideoUrlToTempFile, getMaxVideoBytes,
 import { normalizeComments } from '../services/normalize'
 import { fetchDouyinCommentSamplesByAwemeId, parseDouyinLink } from '../services/douyin'
 import {
-  LENGTH_BUCKETS,
-  LENGTH_BUCKET_ORDER,
-  buildLengthBucketPrompts,
-  splitLengthBucketTargets
+  buildExactLengthPrompts,
+  splitExactLengthTargets
 } from '../services/prompt'
 import { createAppError, isAppError, toApiError } from '../utils/errors'
 import { createRequestId, failure, success } from '../utils/response'
@@ -79,14 +77,14 @@ export default defineEventHandler(async (event) => {
 
   event.node.req.on('aborted', () => {
     clientDisconnected = true
-    abortController.abort()
+    abortController.abort(new Error('CLIENT_ABORTED'))
     console.warn('[api.generate] client aborted', { requestId })
   })
 
   event.node.res.on('close', () => {
     if (clientDisconnected || event.node.res.writableEnded) return
     clientDisconnected = true
-    abortController.abort()
+    abortController.abort(new Error('CLIENT_ABORTED'))
     console.warn('[api.generate] response closed before completion', { requestId })
   })
 
@@ -152,6 +150,26 @@ export default defineEventHandler(async (event) => {
       basePromptLength: promptData.basePrompt.length,
       model
     })
+
+    const generationTimeoutMs = 60_000
+    let generationTimeoutTimer: ReturnType<typeof setTimeout> | null = null
+
+    const clearGenerationTimeout = () => {
+      if (generationTimeoutTimer == null) return
+      clearTimeout(generationTimeoutTimer)
+      generationTimeoutTimer = null
+    }
+
+    const startGenerationTimeout = () => {
+      if (generationTimeoutTimer != null) return
+      generationTimeoutTimer = setTimeout(() => {
+        console.warn('[api.generate] generation timeout reached', {
+          requestId,
+          generationTimeoutMs
+        })
+        abortController.abort(new Error('REQUEST_TIMEOUT'))
+      }, generationTimeoutMs)
+    }
 
     emitProgress('meta', {
       requestId,
@@ -257,14 +275,14 @@ export default defineEventHandler(async (event) => {
       const uploaded = await saveVideoUploadToTempFile(file, requestId)
       localVideoPath = uploaded.sourcePath
       cleanupVideoSource = uploaded.cleanup
-      console.info('[api.generate] step:upload-accepted', {
-        requestId,
-        mime: file.type,
-        bytes: file.data?.byteLength || 0,
-        maxBytes,
-        transport: 'file'
-      })
-    }
+        console.info('[api.generate] step:upload-accepted', {
+          requestId,
+          mime: file.type,
+          bytes: file.data?.byteLength || 0,
+          maxBytes,
+          transport: 'file'
+        })
+      }
 
     if (commentSamplesPromise) {
       commentSamples = await commentSamplesPromise.catch((error) => {
@@ -281,7 +299,7 @@ export default defineEventHandler(async (event) => {
       })
     }
 
-    // 4)~7) 分批并行调用模型（按 6 个长度桶拆分），直到补足需求
+    // 4)~7) 分批并行调用模型（按精确字数拆分），直到补足需求
     const finalComments: string[] = []
     let rawTextCombined = ''
     const promptTrace: string[] = []
@@ -292,20 +310,21 @@ export default defineEventHandler(async (event) => {
     const maxRounds = Math.max(2, Math.ceil(count / 50) + MAX_ROUNDS_BUFFER)
 
     try {
+      startGenerationTimeout()
       for (let round = 1; round <= maxRounds; round += 1) {
         ensureClientConnected(`round-${round}-start`)
         if (finalComments.length >= count) break
 
         const remaining = count - finalComments.length
-        const roundBucketTargets = splitLengthBucketTargets(remaining)
-        const roundBuckets = LENGTH_BUCKET_ORDER.filter((bucket) => roundBucketTargets[bucket] > 0)
+        const roundLengthTargets = splitExactLengthTargets(remaining)
+        const roundLengths = roundLengthTargets.filter(({ target }) => target > 0)
         console.info('[api.generate] step:round:start', {
           requestId,
           round,
           maxRounds,
           currentCount: finalComments.length,
           remaining,
-          targets: roundBucketTargets
+          targets: roundLengthTargets
         })
 
         emitProgress('round', {
@@ -314,43 +333,44 @@ export default defineEventHandler(async (event) => {
           maxRounds,
           currentCount: finalComments.length,
           remaining,
-          targets: roundBucketTargets
+          targets: roundLengthTargets
         })
 
-        const promptSet = await buildLengthBucketPrompts({
+        const promptSet = await buildExactLengthPrompts({
           basePrompt: promptData.basePrompt,
           title: videoTitle,
           commentSamples
-        }, roundBucketTargets)
+        }, roundLengthTargets)
 
-        const batchPrompts = roundBuckets.map((bucket) => promptSet[bucket])
+        const batchPrompts = roundLengths.map(({ length }) => promptSet[length])
         promptTrace.push(...batchPrompts)
         console.info('[api.generate] step:round:prompt', {
           requestId,
           round,
-          prompts: roundBuckets.reduce<Record<string, string>>((acc, bucket) => {
-            acc[bucket] = promptSet[bucket]
+          prompts: roundLengths.reduce<Record<string, string>>((acc, { length }) => {
+            acc[String(length)] = promptSet[length]
             return acc
           }, {})
         })
 
         const aiResults = await Promise.all(
-          roundBuckets.map((bucket) => {
-            const bucketConfig = LENGTH_BUCKETS[bucket]
+          roundLengths.map(({ length, target }) => {
+            const prompt = promptSet[length]
+            const exactStyle = length <= 10 ? 'short' : length <= 18 ? 'medium' : 'long'
             const commonParams = {
               model,
-              prompt: promptSet[bucket],
+              prompt,
               requestId,
               fps: 1,
-              stopAfterItems: roundBucketTargets[bucket],
+              stopAfterItems: target,
               onLine: (comment: string) => {
                 if (streamedItemCount >= count) return
                 streamedItemCount += 1
                 emitProgress('item', {
                   requestId,
                   round,
-                  style: bucketConfig.style,
-                  bucket,
+                  style: exactStyle,
+                  bucket: `${length}字`,
                   comment
                 })
               },
@@ -383,8 +403,7 @@ export default defineEventHandler(async (event) => {
         }))
 
         const roundComments = normalizedResults.flatMap(({ normalized }, index) => {
-          const bucket = roundBuckets[index]
-          const target = roundBucketTargets[bucket]
+          const target = roundLengths[index]?.target || 0
           return normalized.comments.slice(0, target)
         })
         console.info('[api.generate] step:round:normalized', {
@@ -445,6 +464,7 @@ export default defineEventHandler(async (event) => {
         }
       }
     } finally {
+      clearGenerationTimeout()
       if (cleanupVideoSource) await cleanupVideoSource()
     }
 

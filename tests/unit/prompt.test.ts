@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
-  buildLengthBucketPrompts,
+  buildExactLengthPrompts,
   buildStylePrompts,
-  splitLengthBucketTargets,
+  splitExactLengthTargets,
   splitStyleTargets
 } from '../../server/services/prompt'
 
@@ -12,18 +12,30 @@ describe('buildStylePrompts', () => {
       basePrompt: '请偏口语化，多用反问句'
     }, splitStyleTargets(100))
 
-    expect(result.long).toContain('真实路人评论')
-    expect(result.medium).toContain('真实路人评论')
-    expect(result.short).toContain('真实路人评论')
+    expect(result.long).toContain('根据以下视频内容生成评论：')
+    expect(result.medium).toContain('根据以下视频内容生成评论：')
+    expect(result.short).toContain('根据以下视频内容生成评论：')
     expect(result.long).toContain('25~35字')
     expect(result.medium).toContain('10~25字')
     expect(result.short).toContain('3~10字')
-    expect(result.long).toContain('达到 20 条立即停止')
-    expect(result.medium).toContain('达到 40 条立即停止')
-    expect(result.short).toContain('达到 40 条立即停止')
-    expect(result.long).toContain('仅可少量加入以下 emoji：😎🌹😡👋😅😂😲👍😣🤣🥀')
-    expect(result.medium).toContain('仅可少量加入以下 emoji：😎🌹😡👋😅😂😲👍😣🤣🥀')
-    expect(result.short).toContain('仅可少量加入以下 emoji：😎🌹😡👋😅😂😲👍😣🤣🥀')
+    expect(result.long).toContain('输出 20 条')
+    expect(result.medium).toContain('输出 40 条')
+    expect(result.short).toContain('输出 40 条')
+    expect(result.long).toContain('整体字数按系统分配的精确长度执行')
+    expect(result.medium).toContain('整体字数按系统分配的精确长度执行')
+    expect(result.short).toContain('整体字数按系统分配的精确长度执行')
+    expect(result.long).toContain('限定Emoji为 😎🌹😡👋😅😂😲👍😣🤣🥀')
+    expect(result.medium).toContain('限定Emoji为 😎🌹😡👋😅😂😲👍😣🤣🥀')
+    expect(result.short).toContain('限定Emoji为 😎🌹😡👋😅😂😲👍😣🤣🥀')
+    expect(result.long).toContain('总量约10%，分散在句首、中间、句尾都可以')
+    expect(result.medium).toContain('总量约10%，分散在句首、中间、句尾都可以')
+    expect(result.short).toContain('总量约10%，分散在句首、中间、句尾都可以')
+    expect(result.long).toContain('尾巴标点可不带，也可用。！？')
+    expect(result.medium).toContain('尾巴标点可不带，也可用。！？')
+    expect(result.short).toContain('尾巴标点可不带，也可用。！？')
+    expect(result.long).toContain('每个字数都尽量覆盖')
+    expect(result.medium).toContain('每个字数都尽量覆盖')
+    expect(result.short).toContain('每个字数都尽量覆盖')
     expect(result.long).toContain('附加提示词：')
     expect(result.long).toContain('请偏口语化')
     expect(result.long).toContain('多用反问句')
@@ -71,36 +83,32 @@ describe('buildStylePrompts', () => {
     expect(splitStyleTargets(300)).toEqual({ short: 120, medium: 120, long: 60 })
   })
 
-  it('按 6 桶均匀拆分目标条数', () => {
-    expect(splitLengthBucketTargets(6)).toEqual({
-      short_1: 1,
-      short_2: 1,
-      medium_1: 1,
-      medium_2: 1,
-      long_1: 1,
-      long_2: 1
-    })
+  it('按 3~27 字精确拆分目标条数', () => {
+    expect(splitExactLengthTargets(4, 3, 6)).toEqual([
+      { length: 3, target: 1 },
+      { length: 4, target: 1 },
+      { length: 5, target: 1 },
+      { length: 6, target: 1 }
+    ])
 
-    expect(splitLengthBucketTargets(100)).toEqual({
-      short_1: 17,
-      short_2: 17,
-      medium_1: 17,
-      medium_2: 17,
-      long_1: 16,
-      long_2: 16
-    })
+    expect(splitExactLengthTargets(100, 3, 27)).toHaveLength(25)
+    expect(splitExactLengthTargets(100, 3, 27).every((entry) => entry.target === 4)).toBe(true)
   })
 
-  it('六桶 prompt 会注入桶范围', async () => {
-    const result = await buildLengthBucketPrompts({
+  it('精确字数 prompt 会注入精确长度', async () => {
+    const result = await buildExactLengthPrompts({
       basePrompt: '请偏口语化',
       title: '这个夏天最治愈的一段'
-    }, splitLengthBucketTargets(6))
+    }, [
+      { length: 3, target: 1 },
+      { length: 18, target: 1 },
+      { length: 27, target: 1 }
+    ])
 
-    expect(result.short_1).toContain('当前长度桶：短评论桶 A')
-    expect(result.short_1).toContain('3~5字')
-    expect(result.long_2).toContain('当前长度桶：长评论桶 B')
-    expect(result.long_2).toContain('28~35字')
+    expect(result[3]).toContain('当前长度桶：精确长度 3 字')
+    expect(result[3]).toContain('本轮只生成 3字 的评论')
+    expect(result[18]).toContain('当前长度桶：精确长度 18 字')
+    expect(result[27]).toContain('当前长度桶：精确长度 27 字')
   })
 
   it('prompt 会明确禁止当前不想要的句式风格', async () => {
@@ -108,8 +116,8 @@ describe('buildStylePrompts', () => {
       basePrompt: '请偏口语化'
     }, splitStyleTargets(100))
 
-    expect(result.short).toContain('测评腔/实测腔/结果总结腔、广告对比腔')
-    expect(result.medium).toContain('讲拍摄手法、镜头语言、运镜、剪辑、构图、机位、转场、帧率、开头片段')
-    expect(result.long).toContain('测评腔/实测腔/结果总结腔、广告对比腔')
+    expect(result.short).toContain('严格禁止出现以下词汇或表达：博主、种草、笑死我了')
+    expect(result.medium).toContain('严格禁止出现以下词汇或表达：博主、种草、笑死我了')
+    expect(result.long).toContain('严格禁止出现以下词汇或表达：博主、种草、笑死我了')
   })
 })

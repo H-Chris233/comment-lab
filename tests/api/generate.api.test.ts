@@ -32,18 +32,11 @@ import { fetchDouyinCommentSamplesByAwemeId, parseDouyinLink } from '../../serve
 import generateHandler from '../../server/api/generate.post'
 
 function bucketLengthFromPrompt(prompt: string) {
-  const ranges: Array<[string, number]> = [
-    ['3~5字', 3],
-    ['6~10字', 6],
-    ['10~15字', 10],
-    ['16~20字', 16],
-    ['21~27字', 21],
-    ['28~35字', 28]
-  ]
+  const exactMatch = prompt.match(/精确长度\s*(\d+)\s*字/) || prompt.match(/本轮只生成\s*(\d+)\s*字/)
+  if (exactMatch?.[1]) return Number(exactMatch[1])
 
-  for (const [marker, length] of ranges) {
-    if (prompt.includes(marker)) return length
-  }
+  const rangeMatch = prompt.match(/(\d+)~(\d+)字/)
+  if (rangeMatch?.[1]) return Number(rangeMatch[1])
 
   return 3
 }
@@ -111,7 +104,7 @@ describe('POST /api/generate', () => {
     expect(res.body.code).toBe('FILE_TOO_LARGE')
   }, 30_000)
 
-  it('单轮会按 6 桶并行调用六次模型并合并结果', async () => {
+  it('单轮会按 3~27 字并行调用精确长度并合并结果', async () => {
     const app = createApp()
     app.use('/api/generate', generateHandler)
 
@@ -125,10 +118,10 @@ describe('POST /api/generate', () => {
     expect(res.status).toBe(200)
     expect(res.body.ok).toBe(true)
     expect(res.body.data.finalCount).toBe(100)
-    expect(vi.mocked(generateFromVideoFile)).toHaveBeenCalledTimes(6)
+    expect(vi.mocked(generateFromVideoFile)).toHaveBeenCalledTimes(25)
 
     const stopAfterItems = vi.mocked(generateFromVideoFile).mock.calls.map((call) => (call[0] as any).stopAfterItems)
-    expect(stopAfterItems).toEqual([17, 17, 17, 17, 16, 16])
+    expect(stopAfterItems).toEqual(Array.from({ length: 25 }, () => 4))
   })
 
   it('link 模式在 inputMode=url 时直接传视频 URL 给模型', async () => {

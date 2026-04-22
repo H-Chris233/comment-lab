@@ -3,7 +3,6 @@ import { ref } from 'vue'
 
 const props = defineProps<{
   mode: 'link' | 'upload'
-  inputMode: 'file' | 'base64'
   includeCommentSamples: boolean
   url: string
   loading: boolean
@@ -16,7 +15,6 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'update:mode': ['link' | 'upload']
-  'update:inputMode': ['file' | 'base64']
   'update:includeCommentSamples': [boolean]
   'update:url': [string]
   'update:file': [File | null]
@@ -93,26 +91,6 @@ function clearSelectedFile() {
 
     <div v-if="props.mode === 'link'" class="input-group">
       <div class="switch-row">
-        <span class="switch-label">传输方式</span>
-        <div class="switch-group">
-          <button
-            :class="{ active: props.inputMode === 'file' }"
-            class="switch-btn"
-            @click="emit('update:inputMode', 'file')"
-          >
-            直传文件
-          </button>
-          <button
-            :class="{ active: props.inputMode === 'base64' }"
-            class="switch-btn"
-            @click="emit('update:inputMode', 'base64')"
-          >
-            base64
-          </button>
-        </div>
-      </div>
-
-      <div class="switch-row">
         <span class="switch-label">评论样本</span>
         <div class="switch-group">
           <button
@@ -156,7 +134,7 @@ function clearSelectedFile() {
       <p v-if="props.parseStatus" class="status" :class="{ error: props.parseStatus.includes('失败') || props.parseStatus.includes('请先') }">
         {{ props.parseStatus }}
       </p>
-      <p class="hint">直传文件更适合大视频；base64 作为兼容模式</p>
+      <p class="hint">当前固定使用直传文件</p>
     </div>
 
     <div v-else class="input-group">

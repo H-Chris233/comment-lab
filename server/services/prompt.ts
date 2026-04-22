@@ -12,6 +12,15 @@ export const STYLE_RATIOS: Record<CommentStyle, number> = {
   long: 0.2
 }
 
+const LENGTH_BUCKET_RATIOS: Record<LengthBucketKey, number> = {
+  short_1: 0.1,
+  short_2: 0.12,
+  medium_1: 0.18,
+  medium_2: 0.2,
+  long_1: 0.22,
+  long_2: 0.18
+}
+
 const STYLE_DEFAULT_RANGES: Record<CommentStyle, string> = {
   short: '3~10字',
   medium: '10~25字',
@@ -60,6 +69,14 @@ export const LENGTH_BUCKETS: Record<LengthBucketKey, LengthBucketConfig> = {
   long_2: { key: 'long_2', style: 'long', label: '长评论桶 B', range: '28~35字', subranges: '28~31、32~35 这两个子区间都要尽量覆盖，避免只集中在 31/32 这类常见字数' }
 }
 
+export const EXACT_LENGTH_MIN = 3
+export const EXACT_LENGTH_MAX = 27
+
+export type ExactLengthTarget = {
+  length: number
+  target: number
+}
+
 function templatePath(style: CommentStyle) {
   return join(process.cwd(), 'prompts', `${style}.txt`)
 }
@@ -85,6 +102,11 @@ function renderTemplate(template: string, params: BuildPromptParams, target: num
   const bucketLabel = params.lengthBucket?.trim()
   const bucketRange = params.lengthRange?.trim()
   const bucketSubranges = params.lengthSubranges?.trim() || ''
+  const bucketRuleText = bucketRange
+    ? (/[~～\-—]/.test(bucketRange)
+        ? `每条评论字数严格限定在 ${bucketRange} 之间，且需在以下子区间内分布：${bucketSubranges}。长度需自然参差。`
+        : `每条评论字数严格限定在 ${bucketRange}，长度需自然参差。`)
+    : ''
   const bucketSection = bucketLabel && bucketRange
     ? `当前长度桶：${bucketLabel}\n本轮只生成 ${bucketRange} 的评论，长度要在该桶内分散，不要挤在常见字数点。`
     : ''
@@ -96,6 +118,7 @@ function renderTemplate(template: string, params: BuildPromptParams, target: num
     .replaceAll('{{BUCKET_LABEL}}', bucketLabel || '')
     .replaceAll('{{BUCKET_RANGE}}', bucketRange || '')
     .replaceAll('{{BUCKET_SUBRANGES}}', bucketSubranges)
+    .replaceAll('{{BUCKET_RULE_TEXT}}', bucketRuleText)
     .replaceAll('{{STYLE_TARGET}}', String(target))
 }
 
@@ -164,6 +187,41 @@ function splitByRatio(total: number) {
   }, { long: 0, medium: 0, short: 0 })
 }
 
+function splitByCustomRatio<T extends string>(
+  total: number,
+  order: readonly T[],
+  ratios: Record<T, number>
+) {
+  const exactEntries = order.map((key, index) => {
+    const exact = total * ratios[key]
+    const count = Math.floor(exact)
+    return {
+      key,
+      index,
+      count,
+      remainder: exact - count
+    }
+  })
+
+  let remaining = total - exactEntries.reduce((sum, entry) => sum + entry.count, 0)
+
+  const ranked = [...exactEntries].sort((a, b) => {
+    if (b.remainder !== a.remainder) return b.remainder - a.remainder
+    return a.index - b.index
+  })
+
+  for (const entry of ranked) {
+    if (remaining <= 0) break
+    entry.count += 1
+    remaining -= 1
+  }
+
+  return exactEntries.reduce<Record<T, number>>((acc, entry) => {
+    acc[entry.key] = entry.count
+    return acc
+  }, Object.fromEntries(order.map((key) => [key, 0])) as Record<T, number>)
+}
+
 export function splitStyleTargets(total: number) {
   if (total <= 0) {
     return { long: 0, medium: 0, short: 0 }
@@ -173,21 +231,42 @@ export function splitStyleTargets(total: number) {
 }
 
 export function splitLengthBucketTargets(total: number) {
-  const base = Math.floor(total / LENGTH_BUCKET_ORDER.length)
-  let remaining = total % LENGTH_BUCKET_ORDER.length
+  return splitByCustomRatio(total, LENGTH_BUCKET_ORDER, LENGTH_BUCKET_RATIOS)
+}
 
-  return LENGTH_BUCKET_ORDER.reduce<Record<LengthBucketKey, number>>((acc, key) => {
-    acc[key] = base + (remaining > 0 ? 1 : 0)
-    if (remaining > 0) remaining -= 1
-    return acc
-  }, {
-    short_1: 0,
-    short_2: 0,
-    medium_1: 0,
-    medium_2: 0,
-    long_1: 0,
-    long_2: 0
+export function splitExactLengthTargets(
+  total: number,
+  minLength = EXACT_LENGTH_MIN,
+  maxLength = EXACT_LENGTH_MAX
+) {
+  if (total <= 0 || maxLength < minLength) return []
+
+  const lengths = Array.from({ length: maxLength - minLength + 1 }, (_, index) => minLength + index)
+  const exactEntries = lengths.map((length, index) => {
+    const exact = total / lengths.length
+    const count = Math.floor(exact)
+    return {
+      length,
+      index,
+      count,
+      remainder: exact - count
+    }
   })
+
+  let remaining = total - exactEntries.reduce((sum, entry) => sum + entry.count, 0)
+
+  const ranked = [...exactEntries].sort((a, b) => {
+    if (b.remainder !== a.remainder) return b.remainder - a.remainder
+    return a.index - b.index
+  })
+
+  for (const entry of ranked) {
+    if (remaining <= 0) break
+    entry.count += 1
+    remaining -= 1
+  }
+
+  return exactEntries.map(({ length, count }) => ({ length, target: count }))
 }
 
 export async function buildStylePrompt(style: CommentStyle, params: BuildPromptParams, target: number) {
@@ -197,6 +276,37 @@ export async function buildStylePrompt(style: CommentStyle, params: BuildPromptP
     lengthRange: params.lengthRange || STYLE_DEFAULT_RANGES[style],
     lengthSubranges: params.lengthSubranges || STYLE_DEFAULT_SUBRANGES[style]
   }, target)
+}
+
+export async function buildExactLengthPrompt(
+  length: number,
+  params: BuildPromptParams,
+  target: number
+) {
+  const style: CommentStyle = length <= 10 ? 'short' : length <= 18 ? 'medium' : 'long'
+  const template = await loadTemplate(style)
+  return renderTemplate(template, {
+    ...params,
+    lengthBucket: `精确长度 ${length} 字`,
+    lengthRange: `${length}字`,
+    lengthSubranges: `${length}字`
+  }, target)
+}
+
+export async function buildExactLengthPrompts(
+  params: BuildPromptParams,
+  targets: ExactLengthTarget[]
+) {
+  const entries = await Promise.all(
+    targets
+      .filter(({ target }) => target > 0)
+      .map(async ({ length, target }) => [length, await buildExactLengthPrompt(length, params, target)] as const)
+  )
+
+  return entries.reduce<Record<number, string>>((acc, [length, prompt]) => {
+    acc[length] = prompt
+    return acc
+  }, {})
 }
 
 export async function buildStylePrompts(

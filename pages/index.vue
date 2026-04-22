@@ -12,7 +12,6 @@ import { DEFAULT_MODEL, DEFAULT_PROMPT, MODEL_OPTIONS, type ModelOption } from '
 import { shouldShowDebugRaw } from '~/utils/env'
 
 const mode = ref<'link' | 'upload'>('link')
-const inputMode = ref<'file' | 'base64'>('file')
 const runtimeConfig = useRuntimeConfig()
 const auth = useAuth()
 const authLoading = auth.loading
@@ -28,6 +27,7 @@ const selectedModel = ref<ModelOption>(
   isAllowedModel(runtimeConfig.public.defaultModel) ? runtimeConfig.public.defaultModel : DEFAULT_MODEL
 )
 const includeCommentSamples = ref(false)
+const fixedInputMode: 'file' = 'file'
 const url = ref('')
 const file = ref<File | null>(null)
 const basePrompt = ref(DEFAULT_PROMPT)
@@ -39,6 +39,7 @@ const copiedHint = ref('')
 const showRawDebug = ref(false)
 const passwordNotice = ref('')
 const passwordPanelKey = ref(0)
+const isPasswordModalOpen = ref(false)
 
 const {
   parsing,
@@ -112,7 +113,7 @@ async function handleGenerate() {
 
   const result = await generate({
     mode: mode.value,
-    inputMode: mode.value === 'link' ? inputMode.value : 'file',
+    inputMode: fixedInputMode,
     model: selectedModel.value,
     includeCommentSamples: mode.value === 'link' ? includeCommentSamples.value : false,
     url: url.value,
@@ -188,8 +189,42 @@ async function handleLogout() {
   }
 }
 
+function openPasswordModal() {
+  passwordPanelKey.value += 1
+  passwordNotice.value = ''
+  isPasswordModalOpen.value = true
+}
+
+function closePasswordModal() {
+  isPasswordModalOpen.value = false
+}
+
+function handlePasswordModalKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape' && isPasswordModalOpen.value) {
+    closePasswordModal()
+  }
+}
+
+watch(isPasswordModalOpen, (open) => {
+  if (!process.client) return
+  document.body.style.overflow = open ? 'hidden' : ''
+})
+
+watch(authUnlocked, (unlocked) => {
+  if (!unlocked) {
+    closePasswordModal()
+  }
+})
+
+onBeforeUnmount(() => {
+  if (!process.client) return
+  document.body.style.overflow = ''
+  window.removeEventListener('keydown', handlePasswordModalKeydown)
+})
+
 onMounted(() => {
   if (!process.client) return
+  window.addEventListener('keydown', handlePasswordModalKeydown)
 
   const storedModel = localStorage.getItem('comment-lab:selected-model')
   if (storedModel && isAllowedModel(storedModel)) {
@@ -257,7 +292,6 @@ onMounted(() => {
             <div class="sections-wrapper">
               <SourceInput
                 v-model:mode="mode"
-                v-model:input-mode="inputMode"
                 v-model:include-comment-samples="includeCommentSamples"
                 v-model:url="url"
                 :loading="isLoading"
@@ -283,30 +317,55 @@ onMounted(() => {
                 :loading="isLoading"
                 @generate="handleGenerate"
               />
+            </div>
 
-              <section class="glass-card auth-settings-card">
-                <div class="auth-settings-head">
-                  <div>
-                    <h3 class="card-title">密码锁</h3>
-                    <p class="card-desc">修改后当前会话继续有效，关闭浏览器后下次会使用新密码。</p>
+            <Transition name="fade">
+              <div v-if="passwordNotice" class="auth-toast">
+                <span>{{ passwordNotice }}</span>
+              </div>
+            </Transition>
+
+            <button class="password-fab" type="button" @click="openPasswordModal">
+              修改密码
+            </button>
+
+            <Teleport to="body">
+              <Transition name="fade">
+                <div
+                  v-if="isPasswordModalOpen"
+                  class="password-modal-backdrop"
+                  @click.self="closePasswordModal"
+                >
+                  <div class="password-modal" role="dialog" aria-modal="true" aria-labelledby="password-modal-title">
+                    <div class="password-modal-head">
+                      <div>
+                        <h3 id="password-modal-title" class="password-modal-title">密码锁</h3>
+                        <p class="password-modal-desc">修改后当前会话继续有效，关闭浏览器后下次会使用新密码。</p>
+                      </div>
+                      <button class="password-modal-close" type="button" aria-label="关闭弹窗" @click="closePasswordModal">
+                        ×
+                      </button>
+                    </div>
+
+                    <PasswordPanel
+                      :key="passwordPanelKey"
+                      mode="change"
+                      :loading="authLoading"
+                      :error="authError"
+                      compact
+                      embedded
+                      @submit="handleChangePassword"
+                    />
+
+                    <div class="password-modal-actions">
+                      <button class="auth-logout-btn" type="button" @click="handleLogout">
+                        退出当前会话
+                      </button>
+                    </div>
                   </div>
                 </div>
-                <PasswordPanel
-                  :key="passwordPanelKey"
-                  mode="change"
-                  :loading="authLoading"
-                  :error="authError"
-                  compact
-                  @submit="handleChangePassword"
-                />
-                <div class="auth-settings-actions">
-                  <p v-if="passwordNotice" class="auth-notice">{{ passwordNotice }}</p>
-                  <button class="auth-logout-btn" type="button" @click="handleLogout">
-                    退出当前会话
-                  </button>
-                </div>
-              </section>
-            </div>
+              </Transition>
+            </Teleport>
 
             <!-- Results Section -->
             <ResultsPanel
@@ -418,32 +477,6 @@ body {
   max-width: 520px;
 }
 
-.auth-settings-card {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.auth-settings-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.auth-settings-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-}
-
-.auth-notice {
-  margin: 0;
-  color: #0F766E;
-  font-size: 13px;
-}
-
 .auth-logout-btn {
   border: 1px solid #CBD5E1;
   border-radius: 999px;
@@ -459,6 +492,122 @@ body {
   border-color: #0891B2;
   color: #0891B2;
   box-shadow: 0 4px 12px rgba(8, 145, 178, 0.08);
+}
+
+.auth-toast {
+  position: fixed;
+  right: 24px;
+  bottom: 92px;
+  z-index: 55;
+  max-width: min(360px, calc(100vw - 32px));
+  padding: 12px 16px;
+  border-radius: 999px;
+  background: rgba(8, 145, 178, 0.94);
+  color: white;
+  box-shadow: 0 16px 32px rgba(8, 145, 178, 0.18);
+  font-size: 13px;
+  backdrop-filter: blur(10px);
+}
+
+.password-fab {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 60;
+  border: none;
+  border-radius: 999px;
+  padding: 14px 18px;
+  background: linear-gradient(135deg, #0F766E 0%, #0891B2 100%);
+  color: white;
+  font-size: 14px;
+  font-weight: 600;
+  box-shadow: 0 16px 34px rgba(8, 145, 178, 0.28);
+  cursor: pointer;
+  transition: transform 160ms ease, box-shadow 160ms ease, opacity 160ms ease;
+}
+
+.password-fab:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 20px 40px rgba(8, 145, 178, 0.32);
+}
+
+.password-fab:focus-visible,
+.password-modal-close:focus-visible,
+.auth-logout-btn:focus-visible {
+  outline: 3px solid rgba(8, 145, 178, 0.24);
+  outline-offset: 2px;
+}
+
+.password-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(4px);
+}
+
+.password-modal {
+  width: min(560px, 100%);
+  max-height: min(90vh, 760px);
+  overflow: auto;
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  border-radius: 24px;
+  box-shadow: 0 30px 80px rgba(15, 23, 42, 0.22);
+  padding: 24px;
+}
+
+.password-modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.password-modal-title {
+  margin: 0;
+  font-family: 'Poppins', sans-serif;
+  font-size: 20px;
+  font-weight: 700;
+  color: #164E63;
+}
+
+.password-modal-desc {
+  margin: 8px 0 0;
+  color: #64748B;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.password-modal-close {
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 999px;
+  background: #F1F5F9;
+  color: #475569;
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 160ms ease, color 160ms ease, transform 160ms ease;
+}
+
+.password-modal-close:hover {
+  background: #E2E8F0;
+  color: #0F172A;
+  transform: rotate(90deg);
+}
+
+.password-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
 }
 
 /* Error Alert */
@@ -592,6 +741,33 @@ textarea:focus-visible {
 
   .container {
     gap: 16px;
+  }
+
+  .auth-toast {
+    right: 12px;
+    bottom: 76px;
+    max-width: calc(100vw - 24px);
+  }
+
+  .password-fab {
+    right: 12px;
+    bottom: 12px;
+    padding: 12px 16px;
+  }
+
+  .password-modal-backdrop {
+    padding: 12px;
+    align-items: flex-end;
+  }
+
+  .password-modal {
+    max-height: calc(100vh - 24px);
+    padding: 20px;
+    border-radius: 20px;
+  }
+
+  .password-modal-head {
+    margin-bottom: 14px;
   }
 }
 </style>

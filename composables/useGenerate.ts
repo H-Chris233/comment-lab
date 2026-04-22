@@ -67,7 +67,9 @@ export function useGenerate() {
   const afterNormalizeCount = ref(0)
   const model = ref('')
   const abortController = ref<AbortController | null>(null)
+  const requestTimeoutId = ref<ReturnType<typeof setTimeout> | null>(null)
   let streamedCommentSet = new Set<string>()
+  let requestTimedOut = false
 
   const lastPayload = ref<GenerateRequestPayload & { file?: File | null } | null>(null)
 
@@ -169,9 +171,15 @@ export function useGenerate() {
     afterNormalizeCount.value = 0
     finalCount.value = 0
     streamedCommentSet = new Set<string>()
+    requestTimedOut = false
 
     try {
       abortController.value = new AbortController()
+      const timeoutMs = 60_000
+      requestTimeoutId.value = setTimeout(() => {
+        requestTimedOut = true
+        abortController.value?.abort()
+      }, timeoutMs)
       const form = new FormData()
       form.append('mode', payload.mode)
       if (payload.inputMode) form.append('inputMode', payload.inputMode)
@@ -304,8 +312,13 @@ export function useGenerate() {
       return doneResponse
     } catch (e) {
       if ((e as any)?.name === 'AbortError') {
-        error.value = '已取消本次生成'
-        errorCode.value = 'REQUEST_ABORTED'
+        if (requestTimedOut) {
+          error.value = '请求超时，请重试'
+          errorCode.value = 'REQUEST_TIMEOUT'
+        } else {
+          error.value = '已取消本次生成'
+          errorCode.value = 'REQUEST_ABORTED'
+        }
         return {
           ok: false,
           code: errorCode.value,
@@ -327,6 +340,10 @@ export function useGenerate() {
         requestId: mapped.requestId || requestId.value
       }
     } finally {
+      if (requestTimeoutId.value != null) {
+        clearTimeout(requestTimeoutId.value)
+        requestTimeoutId.value = null
+      }
       abortController.value = null
       generating.value = false
     }

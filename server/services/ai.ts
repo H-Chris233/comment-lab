@@ -101,18 +101,17 @@ async function callPythonSidecar(params: {
       'content-type': 'application/json',
       'x-request-id': params.requestId
     },
-    body: JSON.stringify(buildSidecarPayload(params)),
+    body: JSON.stringify(buildSidecarPayload({
+      ...params
+    })),
     signal: params.signal
   })
 
-  const payload = await response.json().catch(() => null) as null | {
-    rawText?: unknown
-    model?: unknown
-    detail?: unknown
-    message?: unknown
-  }
-
   if (!response.ok) {
+    const payload = await response.json().catch(() => null) as null | {
+      detail?: unknown
+      message?: unknown
+    }
     const detail = typeof payload?.detail === 'string'
       ? payload.detail
       : typeof payload?.message === 'string'
@@ -125,9 +124,26 @@ async function callPythonSidecar(params: {
     })
   }
 
+  const payload = await response.json().catch(() => null) as null | {
+    rawText?: unknown
+    model?: unknown
+    usage?: unknown
+    finishReason?: unknown
+  }
+
+  if (!payload) {
+    throw createAppError({
+      code: 'MODEL_CALL_FAILED',
+      message: 'Python sidecar 响应为空',
+      statusCode: 502
+    })
+  }
+
   return {
-    rawText: typeof payload?.rawText === 'string' ? payload.rawText : '',
-    model: typeof payload?.model === 'string' ? payload.model : params.model
+    rawText: typeof payload.rawText === 'string' ? payload.rawText : '',
+    model: typeof payload.model === 'string' ? payload.model : params.model,
+    usage: payload.usage,
+    finishReason: typeof payload.finishReason === 'string' ? payload.finishReason : null
   }
 }
 
@@ -147,14 +163,13 @@ async function generateStreamed(params: GenerateBaseParams & {
     promptLength: params.prompt.length
   })
 
-  let usage: unknown
-  let finishReason: string | null = 'stop'
   let rawAccumulated = ''
+  let sidecarResult: Awaited<ReturnType<typeof callPythonSidecar>> | null = null
   const lineCollector = createCompleteLineCollector()
   let emittedItemCount = 0
 
   try {
-    const result = await callPythonSidecar({
+    sidecarResult = await callPythonSidecar({
       model: params.model,
       prompt: params.prompt,
       fps,
@@ -162,10 +177,10 @@ async function generateStreamed(params: GenerateBaseParams & {
       videoUrl: params.videoUrl,
       videoPath: params.videoPath,
       requestId: params.requestId,
-      signal: params.signal
+      signal: params.signal,
     })
 
-    rawAccumulated = result.rawText
+    rawAccumulated = sidecarResult.rawText
     const completeLines = lineCollector.collect(`${rawAccumulated}\n`)
     for (const line of completeLines) {
       if (params.stopAfterItems && emittedItemCount >= params.stopAfterItems) break
@@ -180,6 +195,21 @@ async function generateStreamed(params: GenerateBaseParams & {
     })
   } catch (error) {
     if ((error as any)?.name === 'AbortError') {
+      const abortReason = params.signal && 'reason' in params.signal ? (params.signal as AbortSignal & { reason?: unknown }).reason : undefined
+      const abortReasonText = abortReason instanceof Error
+        ? abortReason.message
+        : typeof abortReason === 'string'
+          ? abortReason
+          : ''
+
+      if (/timeout/i.test(abortReasonText)) {
+        throw createAppError({
+          code: 'REQUEST_TIMEOUT',
+          message: '生成请求超时，请重试',
+          statusCode: 504
+        })
+      }
+
       throw createAppError({
         code: 'CLIENT_ABORTED',
         message: '客户端已取消本次生成',
@@ -207,15 +237,15 @@ async function generateStreamed(params: GenerateBaseParams & {
     rawTextLength: rawText.length,
     durationMs,
     emittedItemCount,
-    usage,
-    finishReason
+    usage: sidecarResult?.usage,
+    finishReason: sidecarResult?.finishReason
   })
 
   return {
     rawText,
     model: params.model,
-    usage,
-    finishReason,
+    usage: sidecarResult?.usage,
+    finishReason: sidecarResult?.finishReason,
     streamChunkCount: Math.max(1, countCompleteItemsByLines(rawText)),
     durationMs
   }

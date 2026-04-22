@@ -109,6 +109,7 @@ describe('normalizeComments', () => {
 
   it('会过滤新增的禁用句式', () => {
     const raw = [
+      '这个选题很种草',
       '允许泛化',
       '前面更好看',
       '笑死我了',
@@ -120,7 +121,54 @@ describe('normalizeComments', () => {
 
     const result = normalizeComments(raw, { dedupe: true, cleanEmpty: true })
 
-    expect(result.comments).toEqual(['这个评论还是挺自然'])
+    expect(result.comments).toEqual(['有点上头啊', '这个评论还是挺自然'])
     expect(result.removedInvalid).toBe(6)
+  })
+
+  it('会按比例保留少量 emoji，而不是全部清除', () => {
+    const raw = [
+      '😎这个真的好看😂',
+      '中间放个👍表情也行',
+      '纯Emoji😅'
+    ].join('\n')
+
+    const result = normalizeComments(raw, { dedupe: true, cleanEmpty: true })
+    const keptEmojiCount = result.comments.reduce((sum, line) => {
+      return sum + (line.match(/\p{Extended_Pictographic}/gu)?.length ?? 0)
+    }, 0)
+
+    expect(result.comments.some((line) => /\p{Extended_Pictographic}/u.test(line))).toBe(true)
+    expect(keptEmojiCount).toBeGreaterThan(0)
+    expect(keptEmojiCount).toBeLessThan(3)
+    expect(result.comments.some((line) => line.includes('这个真的好看'))).toBe(true)
+    expect(result.comments.some((line) => line.includes('中间放个') && line.includes('表情也行'))).toBe(true)
+    expect(result.comments.some((line) => line.includes('纯Emoji'))).toBe(true)
+  })
+
+  it('会按比例把一部分逗号替换为空格和句末标点', () => {
+    const raw = Array.from({ length: 10 }, (_, i) => `第${i + 1}条，前半句，后半句，结尾部分`).join('\n')
+    const result = normalizeComments(raw, { dedupe: true, cleanEmpty: true })
+    const joined = result.comments.join('\n')
+
+    expect(joined).toContain(' ')
+    expect(/[。！？]/.test(joined)).toBe(true)
+    expect(joined.includes('，')).toBe(true)
+  })
+
+  it('可以通过参数覆盖 emoji 和逗号比例', () => {
+    const raw = '😎这个真的好看😂，中间放个👍表情也行，纯Emoji😅'
+    const result = normalizeComments(raw, {
+      dedupe: true,
+      cleanEmpty: true,
+      emojiRatio: 1,
+      commaSpaceRatio: 1,
+      commaPeriodRatio: 0
+    })
+
+    expect(result.comments.join('')).toContain('😎')
+    expect(result.comments.join('')).toContain('😂')
+    expect(result.comments.join('')).toContain('😅')
+    expect(result.comments.join('')).not.toContain('，')
+    expect(result.comments.join('')).not.toContain('。')
   })
 })

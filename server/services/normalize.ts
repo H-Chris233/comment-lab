@@ -7,7 +7,19 @@ export interface NormalizeResult {
   removedInvalid: number
 }
 
-type NormalizeOptions = { dedupe?: boolean; cleanEmpty?: boolean }
+export type NormalizeOptions = {
+  dedupe?: boolean
+  cleanEmpty?: boolean
+  emojiRatio?: number
+  commaSpaceRatio?: number
+  commaPeriodRatio?: number
+}
+
+export const NORMALIZE_DEFAULT_RATIOS = {
+  emojiRatio: 0.1,
+  commaSpaceRatio: 0.3,
+  commaPeriodRatio: 0.1
+} as const
 
 function removePrefix(line: string) {
   return line.replace(/^((?:\d+|[①②③④⑤⑥⑦⑧⑨⑩])[\.、\-\)]\s*|[-*•·>]\s*)/, '')
@@ -15,6 +27,57 @@ function removePrefix(line: string) {
 
 function normalizeSpaces(line: string) {
   return line.replace(/\s+/g, ' ').trim()
+}
+
+function normalizeBgm(line: string) {
+  return line.replace(/BGM/gi, 'bgm')
+}
+
+const EMOJI_SEQUENCE_RE = /(?:[😎🌹😡👋😅😂😲👍😣🤣🥀]|\p{Extended_Pictographic}(?:\uFE0F|\u200D\p{Extended_Pictographic})*)/gu
+
+function stripEmoji(line: string) {
+  return line.replace(EMOJI_SEQUENCE_RE, '')
+}
+
+function countEmoji(line: string) {
+  return line.match(EMOJI_SEQUENCE_RE)?.length ?? 0
+}
+
+function keepEmojiBudget(line: string, keepCount: number) {
+  if (keepCount <= 0) return stripEmoji(line)
+
+  let seen = 0
+  return line.replace(EMOJI_SEQUENCE_RE, (match) => {
+    seen += 1
+    return seen <= keepCount ? match : ''
+  })
+}
+
+function countCommas(line: string) {
+  return (line.match(/，/g) || []).length
+}
+
+function rewriteCommaBudget(line: string, keepSpaces: number, keepPeriods: number) {
+  let spacesLeft = keepSpaces
+  let periodsLeft = keepPeriods
+  const terminalPunctuation = ['。', '！', '？']
+  let terminalIndex = 0
+
+  return line.replace(/，/g, () => {
+    if (spacesLeft > 0) {
+      spacesLeft -= 1
+      return ' '
+    }
+
+    if (periodsLeft > 0) {
+      periodsLeft -= 1
+      const punctuation = terminalPunctuation[terminalIndex % terminalPunctuation.length]
+      terminalIndex += 1
+      return punctuation
+    }
+
+    return '，'
+  })
 }
 
 function stripSentenceEndingPeriod(line: string) {
@@ -25,16 +88,15 @@ function stripSentenceEndingPeriod(line: string) {
 const BANNED_PHRASES = [
   '允许泛化',
   '博主',
-  '种草了',
+  '种草',
   '笑死我了',
   '狠狠爱了',
   '刷到即缘分',
-  '这BGM绝了',
+  'bgm',
+  '这bgm绝了',
   '有点东西',
-  '这BGM有点上头',
+  '这bgm有点上头',
   '有点意外',
-  '有点上头啊',
-  '绝了',
   '值这个价',
   '前面更好看',
   '怎么拍的？',
@@ -178,9 +240,117 @@ function expandRawLines(raw: string) {
     })
 }
 
+function applyEmojiRatio(lines: string[], ratio: number = NORMALIZE_DEFAULT_RATIOS.emojiRatio) {
+  if (!lines.length) return lines
+
+  const lineMeta = lines.map((line, index) => {
+    const textLength = stripEmoji(line).length
+    const emojiCount = countEmoji(line)
+    return { line, index, textLength, emojiCount, keep: 0, remainder: 0 }
+  })
+
+  const totalTextLength = lineMeta.reduce((sum, item) => sum + item.textLength, 0)
+  if (totalTextLength <= 0) return lines.map((line) => stripEmoji(line))
+
+  const totalBudget = Math.max(0, Math.round(totalTextLength * ratio))
+  if (totalBudget <= 0) return lines.map((line) => stripEmoji(line))
+
+  for (const item of lineMeta) {
+    const exact = (totalBudget * item.textLength) / totalTextLength
+    const base = Math.floor(exact)
+    item.keep = Math.min(item.emojiCount, base)
+    item.remainder = exact - base
+  }
+
+  let remaining = totalBudget - lineMeta.reduce((sum, item) => sum + item.keep, 0)
+  const ranked = [...lineMeta].sort((a, b) => {
+    if (b.remainder !== a.remainder) return b.remainder - a.remainder
+    if (b.emojiCount !== a.emojiCount) return b.emojiCount - a.emojiCount
+    if (b.textLength !== a.textLength) return b.textLength - a.textLength
+    return a.index - b.index
+  })
+
+  for (const item of ranked) {
+    if (remaining <= 0) break
+    if (item.keep >= item.emojiCount) continue
+    item.keep += 1
+    remaining -= 1
+  }
+
+  return lineMeta
+    .sort((a, b) => a.index - b.index)
+    .map((item) => keepEmojiBudget(item.line, item.keep))
+}
+
+function applyCommaRatio(
+  lines: string[],
+  spaceRatio: number = NORMALIZE_DEFAULT_RATIOS.commaSpaceRatio,
+  periodRatio: number = NORMALIZE_DEFAULT_RATIOS.commaPeriodRatio
+) {
+  if (!lines.length) return lines
+
+  const totalCommas = lines.reduce((sum, line) => sum + countCommas(line), 0)
+  if (totalCommas <= 0) return lines
+
+  const spaceBudget = Math.max(0, Math.floor(totalCommas * spaceRatio))
+  const periodBudget = Math.max(0, Math.floor(totalCommas * periodRatio))
+
+  const lineMeta = lines.map((line, index) => {
+    const commaCount = countCommas(line)
+    const exactSpace = commaCount > 0 ? (spaceBudget * commaCount) / totalCommas : 0
+    const exactPeriod = commaCount > 0 ? (periodBudget * commaCount) / totalCommas : 0
+    return {
+      line,
+      index,
+      commaCount,
+      keepSpaces: Math.min(commaCount, Math.floor(exactSpace)),
+      keepPeriods: 0,
+      spaceRemainder: exactSpace - Math.floor(exactSpace),
+      periodRemainder: exactPeriod - Math.floor(exactPeriod)
+    }
+  })
+
+  let remainingSpaces = spaceBudget - lineMeta.reduce((sum, item) => sum + item.keepSpaces, 0)
+  let remainingPeriods = periodBudget
+
+  const bySpace = [...lineMeta].sort((a, b) => {
+    if (b.spaceRemainder !== a.spaceRemainder) return b.spaceRemainder - a.spaceRemainder
+    if (b.commaCount !== a.commaCount) return b.commaCount - a.commaCount
+    return a.index - b.index
+  })
+
+  for (const item of bySpace) {
+    if (remainingSpaces <= 0) break
+    if (item.keepSpaces >= item.commaCount) continue
+    item.keepSpaces += 1
+    remainingSpaces -= 1
+  }
+
+  const byPeriod = [...lineMeta].sort((a, b) => {
+    if (b.periodRemainder !== a.periodRemainder) return b.periodRemainder - a.periodRemainder
+    if (b.commaCount !== a.commaCount) return b.commaCount - a.commaCount
+    return a.index - b.index
+  })
+
+  for (const item of byPeriod) {
+    if (remainingPeriods <= 0) break
+    const available = item.commaCount - item.keepSpaces - item.keepPeriods
+    if (available <= 0) continue
+    item.keepPeriods += 1
+    remainingPeriods -= 1
+  }
+
+  return lineMeta
+    .sort((a, b) => a.index - b.index)
+    .map((item) => rewriteCommaBudget(item.line, item.keepSpaces, item.keepPeriods))
+}
+
 function normalizeFromLines(originalLines: string[], options?: NormalizeOptions): NormalizeResult {
   const dedupe = options?.dedupe ?? true
   const cleanEmpty = options?.cleanEmpty ?? true
+  const emojiRatio = options?.emojiRatio ?? NORMALIZE_DEFAULT_RATIOS.emojiRatio
+  const commaSpaceRatio = options?.commaSpaceRatio ?? NORMALIZE_DEFAULT_RATIOS.commaSpaceRatio
+  const commaPeriodRatio = options?.commaPeriodRatio ?? NORMALIZE_DEFAULT_RATIOS.commaPeriodRatio
 
   let removedEmpty = 0
   let removedInvalid = 0
@@ -191,6 +361,7 @@ function normalizeFromLines(originalLines: string[], options?: NormalizeOptions)
     .map(removePrefix)
     .map(stripMetaLeadIn)
     .map(removePrefix)
+    .map(normalizeBgm)
     .map(normalizeSpaces)
     .map(stripSentenceEndingPeriod)
     .filter((line) => {
@@ -218,6 +389,9 @@ function normalizeFromLines(originalLines: string[], options?: NormalizeOptions)
       return true
     })
   }
+
+  comments = applyEmojiRatio(comments, emojiRatio)
+  comments = applyCommaRatio(comments, commaSpaceRatio, commaPeriodRatio)
 
   return {
     comments,
