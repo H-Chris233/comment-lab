@@ -70,6 +70,7 @@ export function useGenerate() {
   const requestTimeoutId = ref<ReturnType<typeof setTimeout> | null>(null)
   let streamedCommentSet = new Set<string>()
   let requestTimedOut = false
+  const runtimeConfig = useRuntimeConfig()
 
   const lastPayload = ref<GenerateRequestPayload & { file?: File | null } | null>(null)
 
@@ -175,7 +176,7 @@ export function useGenerate() {
 
     try {
       abortController.value = new AbortController()
-      const timeoutMs = 60_000
+      const timeoutMs = Number(runtimeConfig.public?.generateTimeoutMs || runtimeConfig.generateTimeoutMs || 600_000)
       requestTimeoutId.value = setTimeout(() => {
         requestTimedOut = true
         abortController.value?.abort()

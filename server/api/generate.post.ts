@@ -151,7 +151,7 @@ export default defineEventHandler(async (event) => {
       model
     })
 
-    const generationTimeoutMs = 60_000
+    const generationTimeoutMs = Number(useRuntimeConfig().generateTimeoutMs || 600_000)
     let generationTimeoutTimer: ReturnType<typeof setTimeout> | null = null
 
     const clearGenerationTimeout = () => {

@@ -244,19 +244,19 @@ function applyEmojiRatio(lines: string[], ratio: number = NORMALIZE_DEFAULT_RATI
   if (!lines.length) return lines
 
   const lineMeta = lines.map((line, index) => {
-    const textLength = stripEmoji(line).length
     const emojiCount = countEmoji(line)
-    return { line, index, textLength, emojiCount, keep: 0, remainder: 0 }
+    return { line, index, emojiCount, keep: 0, remainder: 0 }
   })
 
-  const totalTextLength = lineMeta.reduce((sum, item) => sum + item.textLength, 0)
-  if (totalTextLength <= 0) return lines.map((line) => stripEmoji(line))
+  const totalEmojiCount = lineMeta.reduce((sum, item) => sum + item.emojiCount, 0)
+  if (totalEmojiCount <= 0) return lines.map((line) => stripEmoji(line))
 
-  const totalBudget = Math.max(0, Math.round(totalTextLength * ratio))
+  const calculatedBudget = Math.max(0, Math.round(lines.length * ratio))
+  const totalBudget = calculatedBudget > 0 ? calculatedBudget : 1
   if (totalBudget <= 0) return lines.map((line) => stripEmoji(line))
 
   for (const item of lineMeta) {
-    const exact = (totalBudget * item.textLength) / totalTextLength
+    const exact = (totalBudget * item.emojiCount) / totalEmojiCount
     const base = Math.floor(exact)
     item.keep = Math.min(item.emojiCount, base)
     item.remainder = exact - base
@@ -266,7 +266,6 @@ function applyEmojiRatio(lines: string[], ratio: number = NORMALIZE_DEFAULT_RATI
   const ranked = [...lineMeta].sort((a, b) => {
     if (b.remainder !== a.remainder) return b.remainder - a.remainder
     if (b.emojiCount !== a.emojiCount) return b.emojiCount - a.emojiCount
-    if (b.textLength !== a.textLength) return b.textLength - a.textLength
     return a.index - b.index
   })
 

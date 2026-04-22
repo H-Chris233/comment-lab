@@ -125,7 +125,7 @@ describe('normalizeComments', () => {
     expect(result.removedInvalid).toBe(6)
   })
 
-  it('会按比例保留少量 emoji，而不是全部清除', () => {
+  it('会按条数硬控 emoji 数量，而不是全部清除', () => {
     const raw = [
       '😎这个真的好看😂',
       '中间放个👍表情也行',
@@ -139,10 +139,22 @@ describe('normalizeComments', () => {
 
     expect(result.comments.some((line) => /\p{Extended_Pictographic}/u.test(line))).toBe(true)
     expect(keptEmojiCount).toBeGreaterThan(0)
-    expect(keptEmojiCount).toBeLessThan(3)
+    expect(keptEmojiCount).toBeLessThanOrEqual(1)
     expect(result.comments.some((line) => line.includes('这个真的好看'))).toBe(true)
     expect(result.comments.some((line) => line.includes('中间放个') && line.includes('表情也行'))).toBe(true)
     expect(result.comments.some((line) => line.includes('纯Emoji'))).toBe(true)
+  })
+
+  it('会把 100 条中的 emoji 数量硬控在 10 个以内', () => {
+    const raw = Array.from({ length: 100 }, (_, i) => `第${i + 1}条😎评论😂`).join('\n')
+    const result = normalizeComments(raw, { dedupe: true, cleanEmpty: true })
+    const keptEmojiCount = result.comments.reduce((sum, line) => {
+      return sum + (line.match(/\p{Extended_Pictographic}/gu)?.length ?? 0)
+    }, 0)
+
+    expect(result.comments.length).toBe(100)
+    expect(keptEmojiCount).toBeGreaterThan(0)
+    expect(keptEmojiCount).toBeLessThanOrEqual(10)
   })
 
   it('会按比例把一部分逗号替换为空格和句末标点', () => {
@@ -160,7 +172,7 @@ describe('normalizeComments', () => {
     const result = normalizeComments(raw, {
       dedupe: true,
       cleanEmpty: true,
-      emojiRatio: 1,
+      emojiRatio: 4,
       commaSpaceRatio: 1,
       commaPeriodRatio: 0
     })
