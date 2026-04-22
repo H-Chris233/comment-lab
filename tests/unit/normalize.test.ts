@@ -125,6 +125,20 @@ describe('normalizeComments', () => {
     expect(result.removedInvalid).toBe(6)
   })
 
+  it('会过滤 bundle 分段标题', () => {
+    const raw = [
+      '【16 字】',
+      '这个长度还挺顺',
+      '【17字】',
+      '再来一条'
+    ].join('\n')
+
+    const result = normalizeComments(raw, { dedupe: true, cleanEmpty: true })
+
+    expect(result.comments).toEqual(['这个长度还挺顺', '再来一条'])
+    expect(result.removedInvalid).toBe(2)
+  })
+
   it('会按条数硬控 emoji 数量，而不是全部清除', () => {
     const raw = [
       '😎这个真的好看😂',

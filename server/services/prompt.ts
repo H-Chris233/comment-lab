@@ -34,6 +34,7 @@ const STYLE_DEFAULT_SUBRANGES: Record<CommentStyle, string> = {
 }
 
 const TEMPLATE_CACHE = new Map<CommentStyle, string>()
+const BUNDLE_TEMPLATE_CACHE = new Map<string, string>()
 
 export type LengthBucketKey =
   | 'short_1'
@@ -77,6 +78,15 @@ export type ExactLengthTarget = {
   target: number
 }
 
+export type ExactLengthBundle = {
+  index: number
+  lengths: ExactLengthTarget[]
+  total: number
+  range: string
+  label: string
+  targetLines: string
+}
+
 function templatePath(style: CommentStyle) {
   return join(process.cwd(), 'prompts', `${style}.txt`)
 }
@@ -87,6 +97,20 @@ async function loadTemplate(style: CommentStyle) {
 
   const template = await readFile(templatePath(style), 'utf8')
   TEMPLATE_CACHE.set(style, template)
+  return template
+}
+
+function bundleTemplatePath() {
+  return join(process.cwd(), 'prompts', 'bundle.txt')
+}
+
+async function loadBundleTemplate() {
+  const cacheKey = 'bundle'
+  const cached = BUNDLE_TEMPLATE_CACHE.get(cacheKey)
+  if (cached) return cached
+
+  const template = await readFile(bundleTemplatePath(), 'utf8')
+  BUNDLE_TEMPLATE_CACHE.set(cacheKey, template)
   return template
 }
 
@@ -269,6 +293,37 @@ export function splitExactLengthTargets(
   return exactEntries.map(({ length, count }) => ({ length, target: count }))
 }
 
+export function splitExactLengthTargetBundles(
+  targets: ExactLengthTarget[],
+  bundleSize = 5
+) {
+  if (!Array.isArray(targets) || !targets.length || bundleSize <= 0) return []
+
+  const sortedTargets = [...targets].sort((a, b) => a.length - b.length)
+  const bundles: ExactLengthBundle[] = []
+
+  for (let index = 0; index < sortedTargets.length; index += bundleSize) {
+    const lengths = sortedTargets.slice(index, index + bundleSize)
+    if (!lengths.length) continue
+
+    const first = lengths[0]?.length || 0
+    const last = lengths[lengths.length - 1]?.length || first
+    const total = lengths.reduce((sum, item) => sum + item.target, 0)
+    const targetLines = lengths.map((item) => `${item.length}字 ${item.target}条`).join('、')
+
+    bundles.push({
+      index: bundles.length + 1,
+      lengths,
+      total,
+      range: first === last ? `${first}字` : `${first}~${last}字`,
+      label: `Bundle ${bundles.length + 1}`,
+      targetLines
+    })
+  }
+
+  return bundles
+}
+
 export async function buildStylePrompt(style: CommentStyle, params: BuildPromptParams, target: number) {
   const template = await loadTemplate(style)
   return renderTemplate(template, {
@@ -307,6 +362,85 @@ export async function buildExactLengthPrompts(
     acc[length] = prompt
     return acc
   }, {})
+}
+
+export async function buildExactLengthBundlePrompt(
+  bundle: ExactLengthBundle,
+  params: BuildPromptParams
+) {
+  const template = await loadBundleTemplate()
+  const basePrompt = params.basePrompt.trim()
+  const promptSection = basePrompt ? `附加提示词：\n${basePrompt}` : ''
+  const title = params.title?.trim()
+  const titleSection = title ? `视频标题：${sanitizePromptText(title)}` : ''
+  const commentSamples = normalizeCommentSamples(params.commentSamples)
+  const sampleSection = commentSamples.length
+    ? `评论样本（仅供模仿语气、句式和节奏，不要照抄）：\n${commentSamples.map((sample) => `- ${sample}`).join('\n')}`
+    : ''
+  const contextSection = [titleSection, sampleSection, promptSection].filter(Boolean).join('\n')
+  const targetLines = bundle.targetLines
+  return template
+    .replaceAll('{{PROMPT_SECTION}}', contextSection)
+    .replaceAll('{{BUNDLE_LABEL}}', bundle.label)
+    .replaceAll('{{BUNDLE_RANGE}}', bundle.range)
+    .replaceAll('{{BUNDLE_TARGETS}}', targetLines)
+    .replaceAll('{{BUNDLE_OUTPUT_FORMAT}}', bundle.lengths.map((item) => `【${item.length}字】`).join('\n'))
+    .replaceAll('{{STYLE_TARGET}}', String(bundle.total))
+}
+
+export async function buildExactLengthBundlePrompts(
+  params: BuildPromptParams,
+  bundles: ExactLengthBundle[]
+) {
+  const entries = await Promise.all(
+    bundles
+      .filter((bundle) => bundle.total > 0)
+      .map(async (bundle) => ({
+        bundle,
+        prompt: await buildExactLengthBundlePrompt(bundle, params)
+      }))
+  )
+
+  return entries
+}
+
+export function parseExactLengthBundleOutput(
+  rawText: string,
+  targets: ExactLengthTarget[]
+) {
+  const targetLengths = new Set(targets.map((item) => item.length))
+  const sections = new Map<number, string[]>()
+
+  for (const target of targets) {
+    sections.set(target.length, [])
+  }
+
+  const lines = rawText.split(/\r?\n/)
+  let currentLength: number | null = null
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim()
+    if (!line) continue
+
+    const headingMatch = line.match(/^[【\[\(]?\s*(\d+)\s*字(?:\s*[】\]\)])?\s*[:：-]?\s*(.*)$/)
+    if (headingMatch) {
+      const length = Number(headingMatch[1])
+      if (targetLengths.has(length)) {
+        currentLength = length
+        const rest = headingMatch[2]?.trim()
+        if (rest) {
+          sections.get(length)?.push(rest)
+        }
+        continue
+      }
+    }
+
+    if (currentLength != null) {
+      sections.get(currentLength)?.push(line)
+    }
+  }
+
+  return Object.fromEntries(sections.entries()) as Record<number, string[]>
 }
 
 export async function buildStylePrompts(

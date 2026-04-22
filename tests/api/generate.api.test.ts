@@ -32,6 +32,12 @@ import { fetchDouyinCommentSamplesByAwemeId, parseDouyinLink } from '../../serve
 import generateHandler from '../../server/api/generate.post'
 
 function bucketLengthFromPrompt(prompt: string) {
+  const bundleMatches = Array.from(prompt.matchAll(/(\d+)字\s+(\d+)条/g), (match) => ({
+    length: Number(match[1]),
+    count: Number(match[2])
+  }))
+  if (bundleMatches.length) return bundleMatches
+
   const exactMatch = prompt.match(/精确长度\s*(\d+)\s*字/) || prompt.match(/本轮只生成\s*(\d+)\s*字/)
   if (exactMatch?.[1]) return Number(exactMatch[1])
 
@@ -41,15 +47,25 @@ function bucketLengthFromPrompt(prompt: string) {
   return 3
 }
 
+function buildLengthLine(targetLength: number, index: number) {
+  const suffix = String(index + 1).padStart(2, '0')
+  const prefixLength = Math.max(targetLength - suffix.length, 1)
+  return `${'a'.repeat(prefixLength)}${suffix}`.slice(0, targetLength)
+}
+
 function buildBucketRawText(prompt: string, count?: number) {
-  const targetLength = bucketLengthFromPrompt(prompt)
+  const bundleTargets = bucketLengthFromPrompt(prompt)
+  if (Array.isArray(bundleTargets)) {
+    return bundleTargets.map(({ length, count: targetCount }) => {
+      const itemCount = Math.max(Number(targetCount || 0), 1)
+      return [`【${length}字】`, ...Array.from({ length: itemCount }, (_, index) => buildLengthLine(length, index))].join('\n')
+    }).join('\n')
+  }
+
+  const targetLength = bundleTargets
   const itemCount = Math.max(Number(count || 0), 1)
 
-  return Array.from({ length: itemCount }, (_, index) => {
-    const suffix = String(index + 1).padStart(2, '0')
-    const prefixLength = Math.max(targetLength - suffix.length, 1)
-    return `${'a'.repeat(prefixLength)}${suffix}`.slice(0, targetLength)
-  }).join('\n')
+  return Array.from({ length: itemCount }, (_, index) => buildLengthLine(targetLength, index)).join('\n')
 }
 
 
@@ -104,7 +120,7 @@ describe('POST /api/generate', () => {
     expect(res.body.code).toBe('FILE_TOO_LARGE')
   }, 30_000)
 
-  it('单轮会按 3~27 字并行调用精确长度并合并结果', async () => {
+  it('单轮会按 5 个字数组 bundle 并行调用并合并结果', async () => {
     const app = createApp()
     app.use('/api/generate', generateHandler)
 
@@ -118,10 +134,10 @@ describe('POST /api/generate', () => {
     expect(res.status).toBe(200)
     expect(res.body.ok).toBe(true)
     expect(res.body.data.finalCount).toBe(100)
-    expect(vi.mocked(generateFromVideoFile)).toHaveBeenCalledTimes(25)
+    expect(vi.mocked(generateFromVideoFile)).toHaveBeenCalledTimes(5)
 
     const stopAfterItems = vi.mocked(generateFromVideoFile).mock.calls.map((call) => (call[0] as any).stopAfterItems)
-    expect(stopAfterItems).toEqual(Array.from({ length: 25 }, () => 4))
+    expect(stopAfterItems).toEqual(Array.from({ length: 5 }, () => 20))
   })
 
   it('link 模式在 inputMode=url 时直接传视频 URL 给模型', async () => {
@@ -138,7 +154,7 @@ describe('POST /api/generate', () => {
 
     expect(res.status).toBe(200)
     expect(res.body.ok).toBe(true)
-    expect(generateFromVideoUrl).toHaveBeenCalledTimes(2)
+    expect(generateFromVideoUrl).toHaveBeenCalledTimes(1)
     expect(downloadVideoUrlToTempFile).not.toHaveBeenCalled()
     expect(generateFromVideoFile).not.toHaveBeenCalled()
   })
@@ -277,7 +293,7 @@ describe('POST /api/generate', () => {
     expect(res.status).toBe(200)
     expect(res.body.ok).toBe(true)
     expect(downloadVideoUrlToTempFile).toHaveBeenCalledTimes(1)
-    expect(generateFromVideoFile).toHaveBeenCalledTimes(2)
+    expect(generateFromVideoFile).toHaveBeenCalledTimes(1)
   })
 
   it('upload 模式会先保存到本地临时文件再交给 DashScope SDK', async () => {
@@ -299,7 +315,7 @@ describe('POST /api/generate', () => {
     expect(res.status).toBe(200)
     expect(res.body.ok).toBe(true)
     expect(saveVideoUploadToTempFile).toHaveBeenCalledTimes(1)
-    expect(generateFromVideoFile).toHaveBeenCalledTimes(2)
+    expect(generateFromVideoFile).toHaveBeenCalledTimes(1)
     const firstCallArgs = vi.mocked(generateFromVideoFile).mock.calls[0]?.[0] as any
     expect(firstCallArgs.videoPath).toBe('/tmp/uploaded.mp4')
   })

@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
+  buildExactLengthBundlePrompts,
   buildExactLengthPrompts,
   buildStylePrompts,
+  parseExactLengthBundleOutput,
+  splitExactLengthTargetBundles,
   splitExactLengthTargets,
   splitStyleTargets
 } from '../../server/services/prompt'
@@ -93,6 +96,50 @@ describe('buildStylePrompts', () => {
 
     expect(splitExactLengthTargets(100, 3, 27)).toHaveLength(25)
     expect(splitExactLengthTargets(100, 3, 27).every((entry) => entry.target === 4)).toBe(true)
+  })
+
+  it('按 5 个精确字数拆成 5 个 bundle', () => {
+    const bundles = splitExactLengthTargetBundles(splitExactLengthTargets(100, 3, 27), 5)
+
+    expect(bundles).toHaveLength(5)
+    expect(bundles.map((bundle) => bundle.lengths.map((item) => item.length))).toEqual([
+      [3, 4, 5, 6, 7],
+      [8, 9, 10, 11, 12],
+      [13, 14, 15, 16, 17],
+      [18, 19, 20, 21, 22],
+      [23, 24, 25, 26, 27]
+    ])
+    expect(bundles.every((bundle) => bundle.total === 20)).toBe(true)
+  })
+
+  it('bundle prompt 会把多个精确字数合并到同一次调用中', async () => {
+    const bundles = splitExactLengthTargetBundles(splitExactLengthTargets(100, 3, 27), 5)
+    const result = await buildExactLengthBundlePrompts({
+      basePrompt: '请偏口语化',
+      title: '这个夏天最治愈的一段'
+    }, bundles)
+
+    expect(result).toHaveLength(5)
+    expect(result[0].prompt).toContain('当前长度组：3~7字')
+    expect(result[0].prompt).toContain('本组目标：3字 4条、4字 4条、5字 4条、6字 4条、7字 4条')
+    expect(result[0].prompt).toContain('【3字】')
+    expect(result[0].prompt).toContain('【7字】')
+  })
+
+  it('能解析 bundle 输出里的各个精确字数分段', () => {
+    const parsed = parseExactLengthBundleOutput(`【3字】
+abc
+abd
+【4字】
+abcd
+abce
+`, [
+      { length: 3, target: 2 },
+      { length: 4, target: 2 }
+    ])
+
+    expect(parsed[3]).toEqual(['abc', 'abd'])
+    expect(parsed[4]).toEqual(['abcd', 'abce'])
   })
 
   it('精确字数 prompt 会注入精确长度', async () => {

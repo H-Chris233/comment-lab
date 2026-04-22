@@ -218,6 +218,10 @@ function hasBannedPhrase(line: string) {
   return BANNED_PHRASES.some((phrase) => line.includes(phrase))
 }
 
+function isBundleHeading(line: string) {
+  return /^[【\[\(]\s*\d+\s*字\s*[】\]\)]$/.test(line)
+}
+
 function isInvalidLength(line: string) {
   return line.length < 2 || line.length > 60
 }
@@ -370,7 +374,7 @@ function normalizeFromLines(originalLines: string[], options?: NormalizeOptions)
       return keep
     })
     .filter((line) => {
-      const invalid = isBoilerplate(line) || hasBannedPhrase(line) || isInvalidLength(line)
+      const invalid = isBoilerplate(line) || hasBannedPhrase(line) || isBundleHeading(line) || isInvalidLength(line)
       if (invalid) removedInvalid += 1
       return !invalid
     })
