@@ -44,6 +44,16 @@ function isAllowedEmoji(match: string) {
   return ALLOWED_EMOJI_SET.has(match)
 }
 
+export function findAllowedEmojiMatches(line: string) {
+  return Array.from(line.matchAll(EMOJI_SEQUENCE_RE))
+    .filter((match) => isAllowedEmoji(match[0]))
+    .map((match) => ({
+      value: match[0],
+      index: match.index ?? 0,
+      length: match[0].length
+    }))
+}
+
 export function stripDisallowedEmoji(line: string) {
   return line.replace(EMOJI_SEQUENCE_RE, (match) => (isAllowedEmoji(match) ? match : ''))
 }

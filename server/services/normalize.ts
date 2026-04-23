@@ -1,5 +1,6 @@
 import {
   countAllowedEmoji,
+  findAllowedEmojiMatches,
   keepAllowedEmojiBudget,
   stripAllEmoji
 } from './emoji'
@@ -19,12 +20,14 @@ export type NormalizeOptions = {
   emojiRatio?: number
   commaSpaceRatio?: number
   commaPeriodRatio?: number
+  commaEmojiSwapRatio?: number
 }
 
 export const NORMALIZE_DEFAULT_RATIOS = {
   emojiRatio: 0.1,
   commaSpaceRatio: 0.3,
-  commaPeriodRatio: 0.1
+  commaPeriodRatio: 0.1,
+  commaEmojiSwapRatio: 0.1
 } as const
 
 function removePrefix(line: string) {
@@ -41,6 +44,43 @@ function normalizeBgm(line: string) {
 
 function countCommas(line: string) {
   return (line.match(/，/g) || []).length
+}
+
+function findCommaIndices(line: string) {
+  return Array.from(line.matchAll(/，/g), (match) => match.index ?? 0)
+}
+
+function swapOneCommaWithEmoji(line: string) {
+  const emojiMatches = findAllowedEmojiMatches(line)
+  const commaIndices = findCommaIndices(line)
+  if (!emojiMatches.length || !commaIndices.length) return line
+
+  const commaIndex = commaIndices[0]
+  const emojiMatch = emojiMatches.reduce((best, current) => {
+    if (!best) return current
+    const bestDistance = Math.abs(best.index - commaIndex)
+    const currentDistance = Math.abs(current.index - commaIndex)
+    if (currentDistance !== bestDistance) return currentDistance < bestDistance ? current : best
+    return current.index < best.index ? current : best
+  }, null as (typeof emojiMatches)[number] | null)
+
+  if (!emojiMatch) return line
+
+  const removals = [
+    { start: commaIndex, end: commaIndex + 1 },
+    {
+      start: emojiMatch.index,
+      end: emojiMatch.index + emojiMatch.length
+    }
+  ].sort((a, b) => b.start - a.start)
+
+  let output = line
+  for (const removal of removals) {
+    output = output.slice(0, removal.start) + output.slice(removal.end)
+  }
+
+  const insertPos = commaIndex - (emojiMatch.index < commaIndex ? emojiMatch.length : 0)
+  return output.slice(0, insertPos) + emojiMatch.value + output.slice(insertPos)
 }
 
 function rewriteCommaBudget(line: string, keepSpaces: number, keepPeriods: number) {
@@ -334,12 +374,48 @@ function applyCommaRatio(
     .map((item) => rewriteCommaBudget(item.line, item.keepSpaces, item.keepPeriods))
 }
 
+function applyEmojiCommaSwap(
+  lines: string[],
+  ratio: number = NORMALIZE_DEFAULT_RATIOS.commaEmojiSwapRatio
+) {
+  if (!lines.length) return lines
+
+  const eligible = lines
+    .map((line, index) => ({
+      line,
+      index,
+      emojiCount: countAllowedEmoji(line),
+      commaCount: countCommas(line)
+    }))
+    .filter((item) => item.emojiCount > 0 && item.commaCount > 0)
+
+  if (!eligible.length) return lines
+
+  const budget = Math.max(0, Math.round(eligible.length * ratio))
+  if (budget <= 0) return lines
+
+  const selected = new Set<number>()
+  const sorted = [...eligible].sort((a, b) => {
+    if (b.commaCount !== a.commaCount) return b.commaCount - a.commaCount
+    if (b.emojiCount !== a.emojiCount) return b.emojiCount - a.emojiCount
+    return a.index - b.index
+  })
+
+  for (const item of sorted) {
+    if (selected.size >= budget) break
+    selected.add(item.index)
+  }
+
+  return lines.map((line, index) => (selected.has(index) ? swapOneCommaWithEmoji(line) : line))
+}
+
 function normalizeFromLines(originalLines: string[], options?: NormalizeOptions): NormalizeResult {
   const dedupe = options?.dedupe ?? true
   const cleanEmpty = options?.cleanEmpty ?? true
   const emojiRatio = options?.emojiRatio ?? NORMALIZE_DEFAULT_RATIOS.emojiRatio
   const commaSpaceRatio = options?.commaSpaceRatio ?? NORMALIZE_DEFAULT_RATIOS.commaSpaceRatio
   const commaPeriodRatio = options?.commaPeriodRatio ?? NORMALIZE_DEFAULT_RATIOS.commaPeriodRatio
+  const commaEmojiSwapRatio = options?.commaEmojiSwapRatio ?? NORMALIZE_DEFAULT_RATIOS.commaEmojiSwapRatio
 
   let removedEmpty = 0
   let removedInvalid = 0
@@ -380,6 +456,7 @@ function normalizeFromLines(originalLines: string[], options?: NormalizeOptions)
   }
 
   comments = applyEmojiRatio(comments, emojiRatio)
+  comments = applyEmojiCommaSwap(comments, commaEmojiSwapRatio)
   comments = applyCommaRatio(comments, commaSpaceRatio, commaPeriodRatio)
 
   return {

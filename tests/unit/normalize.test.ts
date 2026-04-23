@@ -192,6 +192,25 @@ describe('normalizeComments', () => {
     expect(joined.includes('，')).toBe(true)
   })
 
+  it('会按比例把一部分含 emoji 且含逗号的句子改成 emoji 替换逗号', () => {
+    const raw = Array.from({ length: 10 }, (_, i) => `第${i + 1}条😄这个真的不错，挺喜欢`).join('\n')
+    const result = normalizeComments(
+      raw,
+      {
+        dedupe: true,
+        cleanEmpty: true,
+        emojiRatio: 100,
+        commaSpaceRatio: 0,
+        commaPeriodRatio: 0,
+        commaEmojiSwapRatio: 0.1
+      }
+    )
+
+    expect(result.comments[0]).toBe('第1条这个真的不错😄挺喜欢')
+    expect(result.comments.filter((line) => line === '第1条这个真的不错😄挺喜欢')).toHaveLength(1)
+    expect(result.comments.filter((line) => line.includes('，') && line.includes('😄'))).toHaveLength(9)
+  })
+
   it('可以通过参数覆盖 emoji 和逗号比例', () => {
     const raw = '🌹这个真的好看😂，中间放个👍表情也行，纯Emoji😅'
     const result = normalizeComments(raw, {

@@ -9,7 +9,8 @@ import {
   buildExactLengthBundlePrompts,
   parseExactLengthBundleOutput,
   splitExactLengthTargetBundles,
-  splitExactLengthTargets
+  splitExactLengthTargets,
+  stripExactLengthBundleHeadings
 } from '../services/prompt'
 import { createAppError, isAppError, toApiError } from '../utils/errors'
 import { createRequestId, failure, success } from '../utils/response'
@@ -468,7 +469,7 @@ export default defineEventHandler(async (event) => {
 
         beforeNormalizeCount += normalizedResults.reduce((sum, item) => sum + item.normalized.reduce((acc, entry) => acc + entry.normalized.beforeCount, 0), 0)
         afterNormalizeCount += roundComments.length
-        const batchRawText = aiResults.map((result) => result.rawText).join('\n')
+        const batchRawText = stripExactLengthBundleHeadings(aiResults.map((result) => result.rawText).join('\n'))
         rawTextCombined = rawTextCombined ? `${rawTextCombined}\n${batchRawText}` : batchRawText
 
         const beforeLen = finalComments.length

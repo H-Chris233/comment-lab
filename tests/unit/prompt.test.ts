@@ -35,6 +35,9 @@ describe('buildStylePrompts', () => {
     expect(result.long).toContain('总量约10%，分散在句首、中间、句尾都可以')
     expect(result.medium).toContain('总量约10%，分散在句首、中间、句尾都可以')
     expect(result.short).toContain('总量约10%，分散在句首、中间、句尾都可以')
+    expect(result.long).toContain('不要复述视频内容')
+    expect(result.medium).toContain('不要复述视频内容')
+    expect(result.short).toContain('不要复述视频内容')
     expect(result.long).toContain('尾巴标点可不带，也可用。！？')
     expect(result.medium).toContain('尾巴标点可不带，也可用。！？')
     expect(result.short).toContain('尾巴标点可不带，也可用。！？')
@@ -125,6 +128,7 @@ describe('buildStylePrompts', () => {
     expect(result[0].prompt).toContain('本组目标：5字 5条、6字 5条、7字 5条、8字 5条、9字 5条')
     expect(result[0].prompt).toContain('【5字】')
     expect(result[0].prompt).toContain('【9字】')
+    expect(result[0].prompt).toContain('不要复述视频内容')
   })
 
   it('能解析 bundle 输出里的各个精确字数分段', () => {
