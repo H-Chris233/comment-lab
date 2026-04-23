@@ -38,6 +38,19 @@ npm run python:dev
 
 `python:dev` 会通过 `uv` 自动创建/复用 Python 环境并启动侧车服务。
 
+## 本机生产启动
+
+如果你不使用 Docker，可以直接：
+
+```bash
+cp .env.example .env
+npm run start:prod
+```
+
+这会先执行 Nuxt build，再同时启动：
+- Python DashScope 侧车
+- Nuxt 生产预览
+
 ## 生产部署
 
 仓库已提供 `docker-compose.yml`，生产环境可以一条命令直接拉起：
