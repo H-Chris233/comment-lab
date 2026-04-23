@@ -450,7 +450,14 @@ export function stripExactLengthBundleHeadings(rawText: string) {
   if (!rawText) return rawText
 
   const lines = rawText.split(/\r?\n/)
-  const filtered = lines.filter((line) => !/^[【\[\(]\s*\d+\s*字\s*[】\]\)]$/.test(line.trim()))
+  const filtered = lines.flatMap((line) => {
+    const trimmed = line.trim()
+    const headingMatch = trimmed.match(/^[【\[\(]\s*(\d+)\s*字\s*[】\]\)]\s*[:：-]?\s*(.*)$/)
+    if (!headingMatch) return [line]
+
+    const rest = headingMatch[2]?.trim()
+    return rest ? [rest] : []
+  })
   return filtered.join('\n').replace(/\n{3,}/g, '\n\n').trim()
 }
 

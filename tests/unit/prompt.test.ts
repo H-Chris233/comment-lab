@@ -158,6 +158,15 @@ bbbbbb
     expect(cleaned).toBe('aaaaa\nbbbbbb')
   })
 
+  it('会去掉同一行里粘连的 bundle 段头', () => {
+    const cleaned = stripExactLengthBundleHeadings(`【27字】这行正文还在
+【28字】：这行也要保留
+【29字】- 这行同样保留
+`)
+
+    expect(cleaned).toBe('这行正文还在\n这行也要保留\n这行同样保留')
+  })
+
   it('精确字数 prompt 会注入精确长度', async () => {
     const result = await buildExactLengthPrompts({
       basePrompt: '请偏口语化',
