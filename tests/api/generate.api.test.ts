@@ -120,7 +120,7 @@ describe('POST /api/generate', () => {
     expect(res.body.code).toBe('FILE_TOO_LARGE')
   }, 30_000)
 
-  it('单轮会按 5 个字数组 bundle 并行调用并合并结果', async () => {
+  it('单轮会按 6 个字数组 bundle 并行调用并合并结果', async () => {
     const app = createApp()
     app.use('/api/generate', generateHandler)
 
@@ -134,12 +134,12 @@ describe('POST /api/generate', () => {
     expect(res.status).toBe(200)
     expect(res.body.ok).toBe(true)
     expect(res.body.data.finalCount).toBe(100)
-    expect(res.body.data.rawText).not.toContain('【5字】')
-    expect(res.body.data.rawText).not.toContain('【25字】')
-    expect(vi.mocked(generateFromVideoFile)).toHaveBeenCalledTimes(5)
+    expect(res.body.data.rawText).not.toContain('【6字】')
+    expect(res.body.data.rawText).not.toContain('【33字】')
+    expect(vi.mocked(generateFromVideoFile)).toHaveBeenCalledTimes(6)
 
     const stopAfterItems = vi.mocked(generateFromVideoFile).mock.calls.map((call) => (call[0] as any).stopAfterItems)
-    expect(stopAfterItems).toEqual([25, 23, 20, 20, 12])
+    expect(stopAfterItems).toEqual([20, 20, 20, 16, 15, 9])
   })
 
   it('link 模式在 inputMode=url 时直接传视频 URL 给模型', async () => {

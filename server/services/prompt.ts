@@ -71,8 +71,8 @@ export const LENGTH_BUCKETS: Record<LengthBucketKey, LengthBucketConfig> = {
   long_2: { key: 'long_2', style: 'long', label: '长评论桶 B', range: '28~35字', subranges: '28~31、32~35 这两个子区间都要尽量覆盖，避免只集中在 31/32 这类常见字数' }
 }
 
-export const EXACT_LENGTH_MIN = 5
-export const EXACT_LENGTH_MAX = 27
+export const EXACT_LENGTH_MIN = 6
+export const EXACT_LENGTH_MAX = 33
 
 export type ExactLengthTarget = {
   length: number
