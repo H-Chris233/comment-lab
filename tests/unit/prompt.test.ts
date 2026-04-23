@@ -6,8 +6,10 @@ import {
   parseExactLengthBundleOutput,
   splitExactLengthTargetBundles,
   splitExactLengthTargets,
+  stripExactLengthBundleHeadings,
   splitStyleTargets
 } from '../../server/services/prompt'
+import { ALLOWED_EMOJI_TEXT } from '../../server/services/emoji'
 
 describe('buildStylePrompts', () => {
   it('应从三份独立 txt 模板生成三种风格 prompt', async () => {
@@ -27,9 +29,9 @@ describe('buildStylePrompts', () => {
     expect(result.long).toContain('整体字数按系统分配的精确长度执行')
     expect(result.medium).toContain('整体字数按系统分配的精确长度执行')
     expect(result.short).toContain('整体字数按系统分配的精确长度执行')
-    expect(result.long).toContain('限定Emoji为 😎🌹😡👋😅😂😲👍😣🤣🥀')
-    expect(result.medium).toContain('限定Emoji为 😎🌹😡👋😅😂😲👍😣🤣🥀')
-    expect(result.short).toContain('限定Emoji为 😎🌹😡👋😅😂😲👍😣🤣🥀')
+    expect(result.long).toContain(`限定Emoji为 ${ALLOWED_EMOJI_TEXT}`)
+    expect(result.medium).toContain(`限定Emoji为 ${ALLOWED_EMOJI_TEXT}`)
+    expect(result.short).toContain(`限定Emoji为 ${ALLOWED_EMOJI_TEXT}`)
     expect(result.long).toContain('总量约10%，分散在句首、中间、句尾都可以')
     expect(result.medium).toContain('总量约10%，分散在句首、中间、句尾都可以')
     expect(result.short).toContain('总量约10%，分散在句首、中间、句尾都可以')
@@ -86,60 +88,69 @@ describe('buildStylePrompts', () => {
     expect(splitStyleTargets(300)).toEqual({ short: 120, medium: 120, long: 60 })
   })
 
-  it('按 3~27 字精确拆分目标条数', () => {
-    expect(splitExactLengthTargets(4, 3, 6)).toEqual([
-      { length: 3, target: 1 },
-      { length: 4, target: 1 },
-      { length: 5, target: 1 },
-      { length: 6, target: 1 }
+  it('按 5~27 字精确拆分目标条数', () => {
+    expect(splitExactLengthTargets(4, 5, 6)).toEqual([
+      { length: 5, target: 2 },
+      { length: 6, target: 2 }
     ])
 
-    expect(splitExactLengthTargets(100, 3, 27)).toHaveLength(25)
-    expect(splitExactLengthTargets(100, 3, 27).every((entry) => entry.target === 4)).toBe(true)
+    expect(splitExactLengthTargets(100, 5, 27)).toHaveLength(23)
+    expect(splitExactLengthTargets(100, 5, 27).reduce((sum, entry) => sum + entry.target, 0)).toBe(100)
+    expect(splitExactLengthTargets(100, 5, 27).every((entry) => entry.target >= 4)).toBe(true)
   })
 
   it('按 5 个精确字数拆成 5 个 bundle', () => {
-    const bundles = splitExactLengthTargetBundles(splitExactLengthTargets(100, 3, 27), 5)
+    const bundles = splitExactLengthTargetBundles(splitExactLengthTargets(100, 5, 27), 5)
 
     expect(bundles).toHaveLength(5)
     expect(bundles.map((bundle) => bundle.lengths.map((item) => item.length))).toEqual([
-      [3, 4, 5, 6, 7],
-      [8, 9, 10, 11, 12],
-      [13, 14, 15, 16, 17],
-      [18, 19, 20, 21, 22],
-      [23, 24, 25, 26, 27]
+      [5, 6, 7, 8, 9],
+      [10, 11, 12, 13, 14],
+      [15, 16, 17, 18, 19],
+      [20, 21, 22, 23, 24],
+      [25, 26, 27]
     ])
-    expect(bundles.every((bundle) => bundle.total === 20)).toBe(true)
+    expect(bundles.map((bundle) => bundle.total)).toEqual([25, 23, 20, 20, 12])
   })
 
   it('bundle prompt 会把多个精确字数合并到同一次调用中', async () => {
-    const bundles = splitExactLengthTargetBundles(splitExactLengthTargets(100, 3, 27), 5)
+    const bundles = splitExactLengthTargetBundles(splitExactLengthTargets(100, 5, 27), 5)
     const result = await buildExactLengthBundlePrompts({
       basePrompt: '请偏口语化',
       title: '这个夏天最治愈的一段'
     }, bundles)
 
     expect(result).toHaveLength(5)
-    expect(result[0].prompt).toContain('当前长度组：3~7字')
-    expect(result[0].prompt).toContain('本组目标：3字 4条、4字 4条、5字 4条、6字 4条、7字 4条')
-    expect(result[0].prompt).toContain('【3字】')
-    expect(result[0].prompt).toContain('【7字】')
+    expect(result[0].prompt).toContain('当前长度组：5~9字')
+    expect(result[0].prompt).toContain('本组目标：5字 5条、6字 5条、7字 5条、8字 5条、9字 5条')
+    expect(result[0].prompt).toContain('【5字】')
+    expect(result[0].prompt).toContain('【9字】')
   })
 
   it('能解析 bundle 输出里的各个精确字数分段', () => {
-    const parsed = parseExactLengthBundleOutput(`【3字】
+    const parsed = parseExactLengthBundleOutput(`【5字】
 abc
 abd
-【4字】
+【6字】
 abcd
 abce
 `, [
-      { length: 3, target: 2 },
-      { length: 4, target: 2 }
+      { length: 5, target: 2 },
+      { length: 6, target: 2 }
     ])
 
-    expect(parsed[3]).toEqual(['abc', 'abd'])
-    expect(parsed[4]).toEqual(['abcd', 'abce'])
+    expect(parsed[5]).toEqual(['abc', 'abd'])
+    expect(parsed[6]).toEqual(['abcd', 'abce'])
+  })
+
+  it('会清理 bundle 段头但保留正文', () => {
+    const cleaned = stripExactLengthBundleHeadings(`【5字】
+aaaaa
+【6字】
+bbbbbb
+`)
+
+    expect(cleaned).toBe('aaaaa\nbbbbbb')
   })
 
   it('精确字数 prompt 会注入精确长度', async () => {
@@ -147,13 +158,13 @@ abce
       basePrompt: '请偏口语化',
       title: '这个夏天最治愈的一段'
     }, [
-      { length: 3, target: 1 },
+      { length: 5, target: 1 },
       { length: 18, target: 1 },
       { length: 27, target: 1 }
     ])
 
-    expect(result[3]).toContain('当前长度桶：精确长度 3 字')
-    expect(result[3]).toContain('本轮只生成 3字 的评论')
+    expect(result[5]).toContain('当前长度桶：精确长度 5 字')
+    expect(result[5]).toContain('本轮只生成 5字 的评论')
     expect(result[18]).toContain('当前长度桶：精确长度 18 字')
     expect(result[27]).toContain('当前长度桶：精确长度 27 字')
   })

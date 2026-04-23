@@ -1,3 +1,9 @@
+import {
+  countAllowedEmoji,
+  keepAllowedEmojiBudget,
+  stripAllEmoji
+} from './emoji'
+
 export interface NormalizeResult {
   comments: string[]
   beforeCount: number
@@ -31,26 +37,6 @@ function normalizeSpaces(line: string) {
 
 function normalizeBgm(line: string) {
   return line.replace(/BGM/gi, 'bgm')
-}
-
-const EMOJI_SEQUENCE_RE = /(?:[😎🌹😡👋😅😂😲👍😣🤣🥀]|\p{Extended_Pictographic}(?:\uFE0F|\u200D\p{Extended_Pictographic})*)/gu
-
-function stripEmoji(line: string) {
-  return line.replace(EMOJI_SEQUENCE_RE, '')
-}
-
-function countEmoji(line: string) {
-  return line.match(EMOJI_SEQUENCE_RE)?.length ?? 0
-}
-
-function keepEmojiBudget(line: string, keepCount: number) {
-  if (keepCount <= 0) return stripEmoji(line)
-
-  let seen = 0
-  return line.replace(EMOJI_SEQUENCE_RE, (match) => {
-    seen += 1
-    return seen <= keepCount ? match : ''
-  })
 }
 
 function countCommas(line: string) {
@@ -248,16 +234,16 @@ function applyEmojiRatio(lines: string[], ratio: number = NORMALIZE_DEFAULT_RATI
   if (!lines.length) return lines
 
   const lineMeta = lines.map((line, index) => {
-    const emojiCount = countEmoji(line)
+    const emojiCount = countAllowedEmoji(line)
     return { line, index, emojiCount, keep: 0, remainder: 0 }
   })
 
   const totalEmojiCount = lineMeta.reduce((sum, item) => sum + item.emojiCount, 0)
-  if (totalEmojiCount <= 0) return lines.map((line) => stripEmoji(line))
+  if (totalEmojiCount <= 0) return lines.map((line) => stripAllEmoji(line))
 
   const calculatedBudget = Math.max(0, Math.round(lines.length * ratio))
   const totalBudget = calculatedBudget > 0 ? calculatedBudget : 1
-  if (totalBudget <= 0) return lines.map((line) => stripEmoji(line))
+  if (totalBudget <= 0) return lines.map((line) => stripAllEmoji(line))
 
   for (const item of lineMeta) {
     const exact = (totalBudget * item.emojiCount) / totalEmojiCount
@@ -282,7 +268,7 @@ function applyEmojiRatio(lines: string[], ratio: number = NORMALIZE_DEFAULT_RATI
 
   return lineMeta
     .sort((a, b) => a.index - b.index)
-    .map((item) => keepEmojiBudget(item.line, item.keep))
+    .map((item) => keepAllowedEmojiBudget(item.line, item.keep))
 }
 
 function applyCommaRatio(

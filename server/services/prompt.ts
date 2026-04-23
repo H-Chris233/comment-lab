@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { BuildPromptParams } from '../../types/prompt'
+import { ALLOWED_EMOJI_TEXT } from './emoji'
 
 export type CommentStyle = 'long' | 'medium' | 'short'
 
@@ -70,7 +71,7 @@ export const LENGTH_BUCKETS: Record<LengthBucketKey, LengthBucketConfig> = {
   long_2: { key: 'long_2', style: 'long', label: '长评论桶 B', range: '28~35字', subranges: '28~31、32~35 这两个子区间都要尽量覆盖，避免只集中在 31/32 这类常见字数' }
 }
 
-export const EXACT_LENGTH_MIN = 3
+export const EXACT_LENGTH_MIN = 5
 export const EXACT_LENGTH_MAX = 27
 
 export type ExactLengthTarget = {
@@ -143,6 +144,7 @@ function renderTemplate(template: string, params: BuildPromptParams, target: num
     .replaceAll('{{BUCKET_RANGE}}', bucketRange || '')
     .replaceAll('{{BUCKET_SUBRANGES}}', bucketSubranges)
     .replaceAll('{{BUCKET_RULE_TEXT}}', bucketRuleText)
+    .replaceAll('{{EMOJI_LIST}}', ALLOWED_EMOJI_TEXT)
     .replaceAll('{{STYLE_TARGET}}', String(target))
 }
 
@@ -385,6 +387,7 @@ export async function buildExactLengthBundlePrompt(
     .replaceAll('{{BUNDLE_RANGE}}', bundle.range)
     .replaceAll('{{BUNDLE_TARGETS}}', targetLines)
     .replaceAll('{{BUNDLE_OUTPUT_FORMAT}}', bundle.lengths.map((item) => `【${item.length}字】`).join('\n'))
+    .replaceAll('{{EMOJI_LIST}}', ALLOWED_EMOJI_TEXT)
     .replaceAll('{{STYLE_TARGET}}', String(bundle.total))
 }
 
@@ -441,6 +444,14 @@ export function parseExactLengthBundleOutput(
   }
 
   return Object.fromEntries(sections.entries()) as Record<number, string[]>
+}
+
+export function stripExactLengthBundleHeadings(rawText: string) {
+  if (!rawText) return rawText
+
+  const lines = rawText.split(/\r?\n/)
+  const filtered = lines.filter((line) => !/^[【\[\(]\s*\d+\s*字\s*[】\]\)]$/.test(line.trim()))
+  return filtered.join('\n').replace(/\n{3,}/g, '\n\n').trim()
 }
 
 export async function buildStylePrompts(

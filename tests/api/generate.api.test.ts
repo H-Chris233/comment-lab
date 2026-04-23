@@ -134,10 +134,12 @@ describe('POST /api/generate', () => {
     expect(res.status).toBe(200)
     expect(res.body.ok).toBe(true)
     expect(res.body.data.finalCount).toBe(100)
+    expect(res.body.data.rawText).not.toContain('【5字】')
+    expect(res.body.data.rawText).not.toContain('【25字】')
     expect(vi.mocked(generateFromVideoFile)).toHaveBeenCalledTimes(5)
 
     const stopAfterItems = vi.mocked(generateFromVideoFile).mock.calls.map((call) => (call[0] as any).stopAfterItems)
-    expect(stopAfterItems).toEqual(Array.from({ length: 5 }, () => 20))
+    expect(stopAfterItems).toEqual([25, 23, 20, 20, 12])
   })
 
   it('link 模式在 inputMode=url 时直接传视频 URL 给模型', async () => {
