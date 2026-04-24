@@ -1,5 +1,7 @@
 import {
   countAllowedEmoji,
+  countEmojiSequences,
+  countTextLengthWithoutEmoji,
   findAllowedEmojiMatches,
   keepAllowedEmojiBudget,
   stripAllEmoji
@@ -262,7 +264,14 @@ function isBundleHeading(line: string) {
 }
 
 function isInvalidLength(line: string) {
-  return line.length < 2 || line.length > 60
+  const visibleLength = countTextLengthWithoutEmoji(line)
+  return visibleLength < 2 || visibleLength > 60
+}
+
+function isSingleEmojiLine(line: string) {
+  if (countEmojiSequences(line) !== 1) return false
+  const remainder = stripAllEmoji(line).replace(/[\s\u3000。．.!！？?、,，：:；;…·\-—~～"'“”‘’（）()【】\[\]<>《》]/g, '')
+  return remainder.length === 0
 }
 
 function splitMergedLine(line: string) {
@@ -522,7 +531,7 @@ function normalizeFromLines(originalLines: string[], options?: NormalizeOptions)
       return keep
     })
     .filter((line) => {
-      const invalid = isBoilerplate(line.line) || hasBannedPhrase(line.line) || isBundleHeading(line.line) || isInvalidLength(line.line)
+      const invalid = isBoilerplate(line.line) || hasBannedPhrase(line.line) || isBundleHeading(line.line) || isInvalidLength(line.line) || isSingleEmojiLine(line.line)
       if (invalid) removedInvalid += 1
       return !invalid
     })

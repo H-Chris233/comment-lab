@@ -192,6 +192,30 @@ describe('normalizeComments', () => {
     expect(keptEmojiCount).toBeLessThanOrEqual(10)
   })
 
+  it('长度判定会忽略 emoji 本身', () => {
+    const raw = `纯中文内容😄😄😄${'啊'.repeat(55)}`
+    const result = normalizeComments(raw, {
+      dedupe: true,
+      cleanEmpty: true,
+      emojiRatio: 100,
+      commaSpaceRatio: 0,
+      commaPeriodRatio: 0,
+      commaEmojiSwapRatio: 0
+    })
+
+    expect(result.comments).toHaveLength(1)
+    expect(result.comments[0]).toContain('纯中文内容')
+    expect(result.comments[0]).toContain('啊'.repeat(55))
+  })
+
+  it('会直接去除只有一个 emoji 的整行', () => {
+    const raw = ['😄', '哈哈😄', '😂。', '纯文字'].join('\n')
+    const result = normalizeComments(raw, { dedupe: true, cleanEmpty: true })
+
+    expect(result.comments).toEqual(['哈哈😄', '纯文字'])
+    expect(result.removedInvalid).toBe(2)
+  })
+
   it('会按比例把一部分逗号替换为双空格和句末标点', () => {
     const raw = Array.from({ length: 10 }, (_, i) => `第${i + 1}条，前半句，后半句，结尾部分`).join('\n')
     const result = normalizeComments(raw, { dedupe: true, cleanEmpty: true })

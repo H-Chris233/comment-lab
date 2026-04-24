@@ -62,6 +62,14 @@ export function stripAllEmoji(line: string) {
   return line.replace(EMOJI_SEQUENCE_RE, '')
 }
 
+export function countEmojiSequences(line: string) {
+  return line.match(EMOJI_SEQUENCE_RE)?.length ?? 0
+}
+
+export function countTextLengthWithoutEmoji(line: string) {
+  return stripAllEmoji(line).length
+}
+
 export function countAllowedEmoji(line: string) {
   return (line.match(EMOJI_SEQUENCE_RE) || []).filter(isAllowedEmoji).length
 }
