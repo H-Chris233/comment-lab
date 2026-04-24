@@ -6,7 +6,7 @@ describe('normalizeComments', () => {
     const raw = ['1. 这个真有点上头', '', '评论如下', '这个真有点上头', '好', '   太长'.repeat(30)].join('\n')
     const result = normalizeComments(raw, { dedupe: true, cleanEmpty: true })
 
-    expect(result.comments).toEqual(['这个真有点上头'])
+    expect(result.comments).toEqual(['这个真有点上头。'])
     expect(result.beforeCount).toBeGreaterThan(0)
     expect(result.afterCount).toBe(1)
     expect(result.removedEmpty).toBeGreaterThanOrEqual(1)
@@ -16,27 +16,28 @@ describe('normalizeComments', () => {
 
   it('文本模式可以清洗重复与废话行', () => {
     const result = normalizeComments('  1. 真的好看  \n评论如下\n真的好看\n哈哈', { dedupe: true, cleanEmpty: true })
-    expect(result.comments).toEqual(['真的好看', '哈哈'])
+    expect(result.comments).toEqual(['真的好看。', '哈哈'])
   })
 
-  it('会按概率保留或去掉句末标点', () => {
-    const random = vi.spyOn(Math, 'random')
-      .mockReturnValueOnce(0.4)
-      .mockReturnValueOnce(0.6)
-    const raw = ['第一条评论。', '第二条评论！'].join('\n')
-    const result = normalizeComments(raw, { dedupe: true, cleanEmpty: true, emojiRatio: 0, commaSpaceRatio: 0, commaPeriodRatio: 0, commaEmojiSwapRatio: 0 })
+  it('会按 70/20/10 分布处理句尾标点与 emoji', () => {
+    const raw = Array.from({ length: 10 }, (_, i) => `第${i + 1}条😄评论`).join('\n')
+    const result = normalizeComments(raw, { dedupe: true, cleanEmpty: true, emojiRatio: 100, commaSpaceRatio: 0, commaPeriodRatio: 0, commaEmojiSwapRatio: 0 })
 
-    expect(result.comments).toEqual(['第一条评论。', '第二条评论'])
-    random.mockRestore()
+    const emojiLines = result.comments.filter((line) => /\p{Extended_Pictographic}/u.test(line))
+    const punctLines = result.comments.filter((line) => /[。．.!！？?]$/.test(line))
+    const plainLines = result.comments.filter((line) => !/\p{Extended_Pictographic}/u.test(line) && !/[。．.!！？?]$/.test(line))
+
+    expect(emojiLines).toHaveLength(1)
+    expect(punctLines).toHaveLength(7)
+    expect(plainLines).toHaveLength(2)
+    expect(emojiLines.every((line) => !/[。．.!！？?]$/.test(line))).toBe(true)
   })
 
   it('去掉句末句号后仍会正确去重', () => {
-    const random = vi.spyOn(Math, 'random').mockReturnValue(0.6)
     const result = normalizeComments('哈哈。\n哈哈', { dedupe: true, cleanEmpty: true })
 
-    expect(result.comments).toEqual(['哈哈'])
+    expect(result.comments).toEqual(['哈哈。'])
     expect(result.removedDuplicate).toBe(1)
-    random.mockRestore()
   })
 
   it('会把同一行里被句末符号分隔的多个评论拆开', () => {
@@ -67,8 +68,8 @@ describe('normalizeComments', () => {
     const result = normalizeComments(raw, { dedupe: true, cleanEmpty: true })
 
     expect(result.comments).toEqual([
-      '这个画面真的稳，越看越舒服',
-      '节奏也太丝滑了',
+      '这个画面真的稳，越看越舒服。',
+      '节奏也太丝滑了。',
       '这个氛围感真的拉满了'
     ])
   })
@@ -85,7 +86,7 @@ describe('normalizeComments', () => {
 
     const result = normalizeComments(raw, { dedupe: true, cleanEmpty: true })
 
-    expect(result.comments).toEqual(['这个节奏很丝滑', '主包这段挺自然'])
+    expect(result.comments).toEqual(['这个节奏很丝滑。', '主包这段挺自然'])
     expect(result.removedInvalid).toBe(4)
   })
 
@@ -99,7 +100,7 @@ describe('normalizeComments', () => {
 
     const result = normalizeComments(raw, { dedupe: true, cleanEmpty: true })
 
-    expect(result.comments).toEqual(['这个感觉还是挺自然'])
+    expect(result.comments).toEqual(['这个感觉还是挺自然。'])
     expect(result.removedInvalid).toBe(3)
   })
 
@@ -113,7 +114,7 @@ describe('normalizeComments', () => {
 
     const result = normalizeComments(raw, { dedupe: true, cleanEmpty: true })
 
-    expect(result.comments).toEqual(['这个感觉还是很自然'])
+    expect(result.comments).toEqual(['这个感觉还是很自然。'])
     expect(result.removedInvalid).toBe(3)
   })
 
@@ -131,7 +132,7 @@ describe('normalizeComments', () => {
 
     const result = normalizeComments(raw, { dedupe: true, cleanEmpty: true })
 
-    expect(result.comments).toEqual(['有点上头啊', '这个评论还是挺自然'])
+    expect(result.comments).toEqual(['有点上头啊。', '这个评论还是挺自然'])
     expect(result.removedInvalid).toBe(6)
   })
 
@@ -145,7 +146,7 @@ describe('normalizeComments', () => {
 
     const result = normalizeComments(raw, { dedupe: true, cleanEmpty: true })
 
-    expect(result.comments).toEqual(['这个长度还挺顺', '再来一条'])
+    expect(result.comments).toEqual(['这个长度还挺顺。', '再来一条'])
     expect(result.removedInvalid).toBe(2)
   })
 
@@ -161,12 +162,7 @@ describe('normalizeComments', () => {
       return sum + (line.match(/\p{Extended_Pictographic}/gu)?.length ?? 0)
     }, 0)
 
-    expect(result.comments.some((line) => /\p{Extended_Pictographic}/u.test(line))).toBe(true)
-    expect(keptEmojiCount).toBeGreaterThan(0)
-    expect(keptEmojiCount).toBe(1)
-    expect(result.comments.some((line) => line.includes('这个真的好看'))).toBe(true)
-    expect(result.comments.some((line) => line.includes('中间放个') && line.includes('表情也行'))).toBe(true)
-    expect(result.comments.some((line) => line.includes('纯Emoji'))).toBe(true)
+    expect(result.comments).toEqual(['这个真的好看。', '中间放个表情也行。', '纯Emoji'])
   })
 
   it('会清除白名单之外的 emoji，即使开启高保留比例', () => {
@@ -177,7 +173,7 @@ describe('normalizeComments', () => {
       emojiRatio: 100
     })
 
-    expect(result.comments).toEqual(['这个真的好看'])
+    expect(result.comments).toEqual(['这个真的好看。'])
   })
 
   it('会把 100 条中的 emoji 数量硬控在 10 个以内', () => {
@@ -190,6 +186,9 @@ describe('normalizeComments', () => {
     expect(result.comments.length).toBe(100)
     expect(keptEmojiCount).toBeGreaterThan(0)
     expect(keptEmojiCount).toBeLessThanOrEqual(10)
+    expect(result.comments.filter((line) => /^\p{Extended_Pictographic}/u.test(line))).toHaveLength(3)
+    expect(result.comments.filter((line) => /\p{Extended_Pictographic}/u.test(line) && !/^\p{Extended_Pictographic}/u.test(line) && !/\p{Extended_Pictographic}$/u.test(line))).toHaveLength(2)
+    expect(result.comments.filter((line) => /\p{Extended_Pictographic}$/u.test(line))).toHaveLength(5)
   })
 
   it('长度判定会忽略 emoji 本身', () => {
@@ -206,13 +205,14 @@ describe('normalizeComments', () => {
     expect(result.comments).toHaveLength(1)
     expect(result.comments[0]).toContain('纯中文内容')
     expect(result.comments[0]).toContain('啊'.repeat(55))
+    expect(result.comments[0]).toMatch(/。$/)
   })
 
   it('会直接去除只有一个 emoji 的整行', () => {
     const raw = ['😄', '哈哈😄', '😂。', '纯文字'].join('\n')
     const result = normalizeComments(raw, { dedupe: true, cleanEmpty: true })
 
-    expect(result.comments).toEqual(['哈哈😄', '纯文字'])
+    expect(result.comments).toEqual(['哈哈。', '纯文字'])
     expect(result.removedInvalid).toBe(2)
   })
 
@@ -240,9 +240,9 @@ describe('normalizeComments', () => {
       }
     )
 
-    expect(result.comments[0]).toBe('第1条这个真的不错😄挺喜欢')
-    expect(result.comments.filter((line) => line === '第1条这个真的不错😄挺喜欢')).toHaveLength(1)
-    expect(result.comments.filter((line) => line.includes('，') && line.includes('😄'))).toHaveLength(9)
+    expect(result.comments[0]).toBe('第1条这个真的不错挺喜欢😄')
+    expect(result.comments.filter((line) => line === '第1条这个真的不错挺喜欢😄')).toHaveLength(1)
+    expect(result.comments.filter((line) => line.includes('，') && line.includes('😄'))).toHaveLength(0)
   })
 
   it('可以通过参数覆盖 emoji 和逗号比例', () => {
@@ -255,11 +255,11 @@ describe('normalizeComments', () => {
       commaPeriodRatio: 0
     })
 
-    expect(result.comments.join('')).toContain('🌹')
-    expect(result.comments.join('')).toContain('😂')
-    expect(result.comments.join('')).toContain('😅')
+    expect(result.comments.join('')).not.toContain('🌹')
+    expect(result.comments.join('')).not.toContain('😂')
+    expect(result.comments.join('')).not.toContain('😅')
     expect(result.comments.join('')).not.toContain('，')
-    expect(result.comments.join('')).not.toContain('。')
+    expect(result.comments.join('')).toContain('  ')
   })
 
   it('不会因为 trim 丢掉句中双空格', () => {
@@ -272,11 +272,10 @@ describe('normalizeComments', () => {
       commaEmojiSwapRatio: 0
     })
 
-    expect(result.comments[0]).toBe('前半句  后半句')
+    expect(result.comments[0]).toBe('前半句  后半句。')
   })
 
-  it('去重后再随机处理句末标点，不会把同文案不同标点当成不同评论', () => {
-    const random = vi.spyOn(Math, 'random').mockReturnValue(0.6)
+  it('去重后句末标点会按分布统一处理，不会把同文案不同标点当成不同评论', () => {
     const raw = ['哈哈。', '哈哈！', '哈哈'].join('\n')
     const result = normalizeComments(raw, {
       dedupe: true,
@@ -288,8 +287,7 @@ describe('normalizeComments', () => {
     })
 
     expect(result.comments).toHaveLength(1)
-    expect(result.comments[0]).toBe('哈哈')
-    random.mockRestore()
+    expect(result.comments[0]).toBe('哈哈。')
   })
 
   it('会按前两个字尽量打散相邻重复开头', () => {

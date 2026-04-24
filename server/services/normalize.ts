@@ -1,4 +1,5 @@
 import {
+  ALLOWED_EMOJI_LIST,
   countAllowedEmoji,
   countEmojiSequences,
   countTextLengthWithoutEmoji,
@@ -122,8 +123,112 @@ function rewriteCommaBudget(line: string, keepSpaces: number, keepPeriods: numbe
 
 function restoreSentenceEndingPunctuation(line: string, ending: string) {
   if (!ending) return line
-  if (Math.random() < 0.5) return `${line}${ending}`
-  return line
+  return `${line}${ending}`
+}
+
+function stripTerminalPunctuation(line: string) {
+  return line.replace(/[。．.!！？?]+$/u, '')
+}
+
+function splitByRatio(total: number, ratios: number[]) {
+  if (total <= 0 || !ratios.length) return ratios.map(() => 0)
+
+  const normalizedTotal = ratios.reduce((sum, ratio) => sum + ratio, 0)
+  const exactEntries = ratios.map((ratio, index) => {
+    const exact = (total * ratio) / normalizedTotal
+    const count = Math.floor(exact)
+    return { index, count, remainder: exact - count }
+  })
+
+  let remaining = total - exactEntries.reduce((sum, entry) => sum + entry.count, 0)
+  const ranked = [...exactEntries].sort((a, b) => {
+    if (b.remainder !== a.remainder) return b.remainder - a.remainder
+    return a.index - b.index
+  })
+
+  for (const entry of ranked) {
+    if (remaining <= 0) break
+    entry.count += 1
+    remaining -= 1
+  }
+
+  return exactEntries.map((entry) => entry.count)
+}
+
+function pickEmojiForLine(line: string, fallbackIndex: number) {
+  const emojiMatches = findAllowedEmojiMatches(line)
+  return emojiMatches[0]?.value || ALLOWED_EMOJI_LIST[fallbackIndex % ALLOWED_EMOJI_LIST.length]
+}
+
+function placeEmoji(line: string, emoji: string, position: 'start' | 'middle' | 'end') {
+  const text = stripTerminalPunctuation(stripAllEmoji(line)).trim()
+  if (!text) return emoji
+
+  if (position === 'start') return `${emoji}${text}`
+  if (position === 'end') return `${text}${emoji}`
+
+  const midpoint = Math.max(0, Math.floor(text.length / 2))
+  return `${text.slice(0, midpoint)}${emoji}${text.slice(midpoint)}`
+}
+
+function applyTerminalDistribution(
+  lines: string[],
+  endings: string[],
+  punctuationRatio: number = 0.7
+) {
+  if (!lines.length) return lines
+
+  const total = lines.length
+  const [emojiTarget, punctuationTarget, plainTarget] = splitByRatio(total, [
+    0.1,
+    punctuationRatio,
+    Math.max(0, 1 - 0.1 - punctuationRatio)
+  ])
+
+  const emojiCandidates = lines
+    .map((line, index) => ({
+      line,
+      index,
+      emojiCount: countAllowedEmoji(line),
+      punctuationCount: (line.match(/[。．.!！？?]+$/gu) || []).length
+    }))
+    .sort((a, b) => {
+      if (b.emojiCount !== a.emojiCount) return b.emojiCount - a.emojiCount
+      if (b.punctuationCount !== a.punctuationCount) return b.punctuationCount - a.punctuationCount
+      return a.index - b.index
+    })
+    .slice(0, emojiTarget)
+    .map((item) => item.index)
+
+  const emojiIndexSet = new Set<number>(emojiCandidates)
+  const remainingForPunctuation = lines
+    .map((line, index) => ({ line, index }))
+    .filter((item) => !emojiIndexSet.has(item.index))
+
+  const punctuationIndices = remainingForPunctuation.slice(0, punctuationTarget).map((item) => item.index)
+  const punctuationIndexSet = new Set<number>(punctuationIndices)
+
+  return lines.map((line, index) => {
+    if (emojiIndexSet.has(index)) {
+      const emoji = pickEmojiForLine(line, index)
+      const emojiRank = emojiCandidates.indexOf(index)
+      const [startCount, middleCount] = splitByRatio(emojiCandidates.length, [0.3, 0.2, 0.5])
+      const position = emojiRank < startCount
+        ? 'start'
+        : emojiRank < startCount + middleCount
+          ? 'middle'
+          : 'end'
+      return placeEmoji(line, emoji, position)
+    }
+
+    if (punctuationIndexSet.has(index)) {
+      const base = stripAllEmoji(line).trim()
+      const ending = endings[index] || '。'
+      return restoreSentenceEndingPunctuation(stripTerminalPunctuation(base), ending)
+    }
+
+    return stripTerminalPunctuation(stripAllEmoji(line)).trim()
+  }).slice(0, plainTarget + punctuationTarget + emojiTarget)
 }
 
 const BANNED_PHRASES = [
@@ -554,13 +659,11 @@ function normalizeFromLines(originalLines: string[], options?: NormalizeOptions)
   commentLines = applyEmojiRatio(commentLines, emojiRatio)
   commentLines = applyEmojiCommaSwap(commentLines, commaEmojiSwapRatio)
   commentLines = applyCommaRatio(commentLines, commaSpaceRatio, commaPeriodRatio)
+  const endings = comments.map((item) => item.ending)
+  commentLines = applyTerminalDistribution(commentLines, endings, 0.7)
   comments = comments.map((item, index) => ({
     ...item,
     line: commentLines[index] || item.line
-  }))
-  comments = comments.map((item) => ({
-    ...item,
-    line: restoreSentenceEndingPunctuation(item.line, item.ending)
   }))
 
   return {
