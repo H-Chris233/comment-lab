@@ -26,6 +26,9 @@ describe('buildStylePrompts', () => {
     expect(result.long).toContain('输出 20 条')
     expect(result.medium).toContain('输出 40 条')
     expect(result.short).toContain('输出 40 条')
+    expect(result.long).toContain('多样化表达，避免重复开头')
+    expect(result.medium).toContain('多样化表达，避免重复开头')
+    expect(result.short).toContain('多样化表达，避免重复开头')
     expect(result.long).toContain('整体字数按系统分配的精确长度执行')
     expect(result.medium).toContain('整体字数按系统分配的精确长度执行')
     expect(result.short).toContain('整体字数按系统分配的精确长度执行')
@@ -125,6 +128,7 @@ describe('buildStylePrompts', () => {
     }, bundles)
 
     expect(result).toHaveLength(6)
+    expect(result[0].prompt).toContain('多样化表达，避免重复开头')
     expect(result[0].prompt).toContain('当前长度组：6~10字')
     expect(result[0].prompt).toContain('本组目标：6字 4条、7字 4条、8字 4条、9字 4条、10字 4条')
     expect(result[0].prompt).toContain('【6字】')

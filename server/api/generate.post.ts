@@ -16,6 +16,7 @@ import { createAppError, isAppError, toApiError } from '../utils/errors'
 import { createRequestId, failure, success } from '../utils/response'
 import { parseBoolean, validateCount, validateInputMode, validateModel, validateMode, validatePromptLength, validateUrl, validateVideoFile } from '../utils/validators'
 import { assertAuthenticated } from '../services/auth'
+import { spreadCommentsByPrefix } from '../services/normalize'
 
 const MAX_ROUNDS_BUFFER = 2
 const SSE_HEARTBEAT_INTERVAL_MS = 15_000
@@ -519,7 +520,8 @@ export default defineEventHandler(async (event) => {
       if (cleanupVideoSource) await cleanupVideoSource()
     }
 
-    const trimmedComments = finalComments.slice(0, count)
+    const arrangedComments = spreadCommentsByPrefix(finalComments, 2)
+    const trimmedComments = arrangedComments.slice(0, count)
     ensureClientConnected('post-process')
     console.info('[api.generate] step:post-process', {
       requestId,
