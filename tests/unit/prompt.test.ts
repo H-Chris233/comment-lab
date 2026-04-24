@@ -134,12 +134,12 @@ describe('buildStylePrompts', () => {
     }, bundles)
 
     expect(result).toHaveLength(6)
-    expect(result[0].prompt).toContain('【角色铁律——永远记住】')
-    expect(result[0].prompt).toContain('每条评论的「前两个字」不能重复')
-    expect(result[0].prompt).toContain('你的任务就是生成')
+    expect(result[0].prompt).toContain('多样化表达，减少重复的开头和结尾')
+    expect(result[0].prompt).toContain('当前长度组：6~10字')
+    expect(result[0].prompt).toContain('本组目标：6字 4条、7字 4条、8字 4条、9字 4条、10字 4条')
     expect(result[0].prompt).toContain('【6字】')
     expect(result[0].prompt).toContain('【10字】')
-    expect(result[0].prompt).toContain('禁止复述画面、动作、剧情、台词、镜头')
+    expect(result[0].prompt).toContain('不要复述视频内容')
   })
 
   it('能解析 bundle 输出里的各个精确字数分段', () => {
