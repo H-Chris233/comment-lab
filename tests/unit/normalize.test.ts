@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { normalizeComments } from '../../server/services/normalize'
+import { describe, expect, it, vi } from 'vitest'
+import { normalizeComments, spreadCommentsByPrefix } from '../../server/services/normalize'
 
 describe('normalizeComments', () => {
   it('应清洗无效行并统计', () => {
@@ -19,30 +19,40 @@ describe('normalizeComments', () => {
     expect(result.comments).toEqual(['真的好看', '哈哈'])
   })
 
-  it('会去除所有句末句号', () => {
-    const raw = Array.from({ length: 20 }, (_, i) => `第${i + 1}条评论。`).join('\n')
-    const result = normalizeComments(raw, { dedupe: true, cleanEmpty: true })
+  it('会按概率保留或去掉句末标点', () => {
+    const random = vi.spyOn(Math, 'random')
+      .mockReturnValueOnce(0.4)
+      .mockReturnValueOnce(0.6)
+    const raw = ['第一条评论。', '第二条评论！'].join('\n')
+    const result = normalizeComments(raw, { dedupe: true, cleanEmpty: true, emojiRatio: 0, commaSpaceRatio: 0, commaPeriodRatio: 0, commaEmojiSwapRatio: 0 })
 
-    expect(result.comments.every((line) => !/[。．.]$/.test(line))).toBe(true)
-    expect(result.comments[19]).toBe('第20条评论')
+    expect(result.comments).toEqual(['第一条评论。', '第二条评论'])
+    random.mockRestore()
   })
 
   it('去掉句末句号后仍会正确去重', () => {
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0.6)
     const result = normalizeComments('哈哈。\n哈哈', { dedupe: true, cleanEmpty: true })
 
     expect(result.comments).toEqual(['哈哈'])
     expect(result.removedDuplicate).toBe(1)
+    random.mockRestore()
   })
 
   it('会把同一行里被句末符号分隔的多个评论拆开', () => {
+    const random = vi.spyOn(Math, 'random')
+      .mockReturnValueOnce(0.4)
+      .mockReturnValueOnce(0.4)
+      .mockReturnValueOnce(0.6)
     const raw = '1. 这个画面真的顺，越看越舒服。这个节奏也很丝滑！\n3. 结尾稍微仓促了点？'
     const result = normalizeComments(raw, { dedupe: true, cleanEmpty: true })
 
     expect(result.comments).toEqual([
-      '这个画面真的顺，越看越舒服',
+      '这个画面真的顺，越看越舒服。',
       '这个节奏也很丝滑！',
-      '结尾稍微仓促了点？'
+      '结尾稍微仓促了点'
     ])
+    random.mockRestore()
   })
 
   it('会忽略模型常见的前言并保留真正的评论', () => {
@@ -182,12 +192,12 @@ describe('normalizeComments', () => {
     expect(keptEmojiCount).toBeLessThanOrEqual(10)
   })
 
-  it('会按比例把一部分逗号替换为空格和句末标点', () => {
+  it('会按比例把一部分逗号替换为双空格和句末标点', () => {
     const raw = Array.from({ length: 10 }, (_, i) => `第${i + 1}条，前半句，后半句，结尾部分`).join('\n')
     const result = normalizeComments(raw, { dedupe: true, cleanEmpty: true })
     const joined = result.comments.join('\n')
 
-    expect(joined).toContain(' ')
+    expect(joined).toContain('  ')
     expect(/[。！？]/.test(joined)).toBe(true)
     expect(joined.includes('，')).toBe(true)
   })
@@ -226,5 +236,56 @@ describe('normalizeComments', () => {
     expect(result.comments.join('')).toContain('😅')
     expect(result.comments.join('')).not.toContain('，')
     expect(result.comments.join('')).not.toContain('。')
+  })
+
+  it('不会因为 trim 丢掉句中双空格', () => {
+    const raw = '前半句，后半句'
+    const result = normalizeComments(raw, {
+      dedupe: true,
+      cleanEmpty: true,
+      commaSpaceRatio: 1,
+      commaPeriodRatio: 0,
+      commaEmojiSwapRatio: 0
+    })
+
+    expect(result.comments[0]).toBe('前半句  后半句')
+  })
+
+  it('去重后再随机处理句末标点，不会把同文案不同标点当成不同评论', () => {
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0.6)
+    const raw = ['哈哈。', '哈哈！', '哈哈'].join('\n')
+    const result = normalizeComments(raw, {
+      dedupe: true,
+      cleanEmpty: true,
+      emojiRatio: 0,
+      commaSpaceRatio: 0,
+      commaPeriodRatio: 0,
+      commaEmojiSwapRatio: 0
+    })
+
+    expect(result.comments).toHaveLength(1)
+    expect(result.comments[0]).toBe('哈哈')
+    random.mockRestore()
+  })
+
+  it('会按前两个字尽量打散相邻重复开头', () => {
+    const result = spreadCommentsByPrefix([
+      '我喜欢这个',
+      '我喜欢那个',
+      '太好看了',
+      '太好用了',
+      '我喜欢继续',
+      '太好笑了'
+    ], 2)
+
+    expect(result).toEqual([
+      '我喜欢这个',
+      '太好看了',
+      '我喜欢那个',
+      '太好用了',
+      '我喜欢继续',
+      '太好笑了'
+    ])
+    expect(result.every((item, index) => index === 0 || item.slice(0, 2) !== result[index - 1].slice(0, 2))).toBe(true)
   })
 })

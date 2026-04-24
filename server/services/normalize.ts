@@ -42,6 +42,18 @@ function normalizeBgm(line: string) {
   return line.replace(/BGM/gi, 'bgm')
 }
 
+function stripSentenceEndingPunctuation(line: string) {
+  const ending = line.match(/[。．.!！？?]+$/)
+  if (!ending) {
+    return { line, ending: '' }
+  }
+
+  return {
+    line: line.slice(0, -ending[0].length),
+    ending: ending[0]
+  }
+}
+
 function countCommas(line: string) {
   return (line.match(/，/g) || []).length
 }
@@ -92,7 +104,7 @@ function rewriteCommaBudget(line: string, keepSpaces: number, keepPeriods: numbe
   return line.replace(/，/g, () => {
     if (spacesLeft > 0) {
       spacesLeft -= 1
-      return ' '
+      return '  '
     }
 
     if (periodsLeft > 0) {
@@ -106,9 +118,10 @@ function rewriteCommaBudget(line: string, keepSpaces: number, keepPeriods: numbe
   })
 }
 
-function stripSentenceEndingPeriod(line: string) {
-  if (!/[。．.]$/.test(line)) return line
-  return line.replace(/[。．.]+$/, '')
+function restoreSentenceEndingPunctuation(line: string, ending: string) {
+  if (!ending) return line
+  if (Math.random() < 0.5) return `${line}${ending}`
+  return line
 }
 
 const BANNED_PHRASES = [
@@ -257,6 +270,79 @@ function splitMergedLine(line: string) {
     .split(/(?<=[。！？!?；;])(?=[^\s。！？!?；;])/u)
     .map((part) => part.trim())
     .filter(Boolean)
+}
+
+export function spreadCommentsByPrefix(comments: string[], prefixLength = 2) {
+  if (!Array.isArray(comments) || comments.length <= 2 || prefixLength <= 0) {
+    return Array.isArray(comments) ? [...comments] : []
+  }
+
+  const buckets: Array<{
+    prefix: string
+    items: string[]
+    firstIndex: number
+    cursor: number
+  }> = []
+  const bucketIndexByPrefix = new Map<string, number>()
+
+  comments.forEach((comment, index) => {
+    const text = String(comment)
+    const prefix = text.trim().slice(0, prefixLength)
+    const bucketIndex = bucketIndexByPrefix.get(prefix)
+
+    if (bucketIndex == null) {
+      bucketIndexByPrefix.set(prefix, buckets.length)
+      buckets.push({
+        prefix,
+        items: [text],
+        firstIndex: index,
+        cursor: 0
+      })
+      return
+    }
+
+    buckets[bucketIndex].items.push(text)
+  })
+
+  if (buckets.length <= 1) return [...comments]
+
+  const remaining = buckets.map((bucket) => bucket.items.length)
+  const result: string[] = []
+  let lastPrefix = ''
+
+  const pickBestBucket = (allowLastPrefix: boolean) => {
+    let bestIndex = -1
+
+    for (let index = 0; index < buckets.length; index += 1) {
+      if (remaining[index] <= 0) continue
+      if (!allowLastPrefix && buckets[index].prefix === lastPrefix) continue
+
+      if (
+        bestIndex === -1 ||
+        remaining[index] > remaining[bestIndex] ||
+        (remaining[index] === remaining[bestIndex] && buckets[index].firstIndex < buckets[bestIndex].firstIndex)
+      ) {
+        bestIndex = index
+      }
+    }
+
+    return bestIndex
+  }
+
+  while (result.length < comments.length) {
+    let bucketIndex = pickBestBucket(false)
+    if (bucketIndex === -1) bucketIndex = pickBestBucket(true)
+    if (bucketIndex === -1) break
+
+    const bucket = buckets[bucketIndex]
+    const item = bucket.items[bucket.cursor]
+    bucket.cursor += 1
+    remaining[bucketIndex] -= 1
+    result.push(item)
+    lastPrefix = bucket.prefix
+  }
+
+  return result.length === comments.length ? result : [...comments]
 }
 
 function expandRawLines(raw: string) {
@@ -428,15 +514,15 @@ function normalizeFromLines(originalLines: string[], options?: NormalizeOptions)
     .map(removePrefix)
     .map(normalizeBgm)
     .map(normalizeSpaces)
-    .map(stripSentenceEndingPeriod)
+    .map(stripSentenceEndingPunctuation)
     .filter((line) => {
       if (!cleanEmpty) return true
-      const keep = Boolean(line)
+      const keep = Boolean(line.line)
       if (!keep) removedEmpty += 1
       return keep
     })
     .filter((line) => {
-      const invalid = isBoilerplate(line) || hasBannedPhrase(line) || isBundleHeading(line) || isInvalidLength(line)
+      const invalid = isBoilerplate(line.line) || hasBannedPhrase(line.line) || isBundleHeading(line.line) || isInvalidLength(line.line)
       if (invalid) removedInvalid += 1
       return !invalid
     })
@@ -446,21 +532,30 @@ function normalizeFromLines(originalLines: string[], options?: NormalizeOptions)
   if (dedupe) {
     const seen = new Set<string>()
     comments = normalized.filter((line) => {
-      if (seen.has(line)) {
+      if (seen.has(line.line)) {
         removedDuplicate += 1
         return false
       }
-      seen.add(line)
+      seen.add(line.line)
       return true
     })
   }
 
-  comments = applyEmojiRatio(comments, emojiRatio)
-  comments = applyEmojiCommaSwap(comments, commaEmojiSwapRatio)
-  comments = applyCommaRatio(comments, commaSpaceRatio, commaPeriodRatio)
+  let commentLines = comments.map((item) => item.line)
+  commentLines = applyEmojiRatio(commentLines, emojiRatio)
+  commentLines = applyEmojiCommaSwap(commentLines, commaEmojiSwapRatio)
+  commentLines = applyCommaRatio(commentLines, commaSpaceRatio, commaPeriodRatio)
+  comments = comments.map((item, index) => ({
+    ...item,
+    line: commentLines[index] || item.line
+  }))
+  comments = comments.map((item) => ({
+    ...item,
+    line: restoreSentenceEndingPunctuation(item.line, item.ending)
+  }))
 
   return {
-    comments,
+    comments: comments.map((item) => item.line),
     beforeCount: originalLines.length,
     afterCount: comments.length,
     removedEmpty,
