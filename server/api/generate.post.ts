@@ -6,10 +6,9 @@ import { ALLOWED_VIDEO_MIME_TYPES, downloadVideoUrlToTempFile, getMaxVideoBytes,
 import { normalizeComments } from '../services/normalize'
 import { fetchDouyinCommentSamplesByAwemeId, parseDouyinLink } from '../services/douyin'
 import {
-  buildExactLengthBundlePrompts,
-  parseExactLengthBundleOutput,
-  splitExactLengthTargetBundles,
-  splitExactLengthTargets,
+  STYLE_ORDER,
+  buildStylePrompts,
+  splitStyleTargets,
   stripExactLengthBundleHeadings
 } from '../services/prompt'
 import { createAppError, isAppError, toApiError } from '../utils/errors'
@@ -323,7 +322,7 @@ export default defineEventHandler(async (event) => {
       })
     }
 
-    // 4)~7) 分批并行调用模型（按精确字数拆分），直到补足需求
+    // 4)~7) 分批并行调用模型（按风格桶拆分），直到补足需求
     const finalComments: string[] = []
     let rawTextCombined = ''
     const promptTrace: string[] = []
@@ -341,22 +340,16 @@ export default defineEventHandler(async (event) => {
         if (finalComments.length >= count) break
 
         const remaining = count - finalComments.length
-        const roundLengthTargets = splitExactLengthTargets(remaining)
-        const roundLengths = roundLengthTargets.filter(({ target }) => target > 0)
-        const roundBundles = splitExactLengthTargetBundles(roundLengths, 5)
+        const roundStyleTargets = splitStyleTargets(remaining)
+        const activeStyles = STYLE_ORDER.filter((style) => roundStyleTargets[style] > 0)
         console.info('[api.generate] step:round:start', {
           requestId,
           round,
           maxRounds,
           currentCount: finalComments.length,
           remaining,
-          targets: roundLengthTargets,
-          bundles: roundBundles.map((bundle) => ({
-            index: bundle.index,
-            range: bundle.range,
-            total: bundle.total,
-            lengths: bundle.lengths.map((item) => item.length)
-          }))
+          targets: roundStyleTargets,
+          styles: activeStyles
         })
 
         emitProgress('round', {
@@ -365,48 +358,49 @@ export default defineEventHandler(async (event) => {
           maxRounds,
           currentCount: finalComments.length,
           remaining,
-          targets: roundLengthTargets,
-          bundles: roundBundles.map((bundle) => ({
-            index: bundle.index,
-            range: bundle.range,
-            total: bundle.total,
-            lengths: bundle.lengths.map((item) => item.length)
-          }))
+          targets: roundStyleTargets,
+          styles: activeStyles
         })
 
-        const promptSet = await buildExactLengthBundlePrompts({
+        const promptSet = await buildStylePrompts({
           basePrompt: promptData.basePrompt,
           title: videoTitle,
           commentSamples
-        }, roundBundles)
+        }, roundStyleTargets)
 
-        const batchPrompts = promptSet.map(({ prompt }) => prompt)
+        const promptEntries = activeStyles.map((style) => ({
+          style,
+          target: roundStyleTargets[style],
+          prompt: promptSet[style]
+        }))
+
+        const batchPrompts = promptEntries.map(({ prompt }) => prompt)
         promptTrace.push(...batchPrompts)
         console.info('[api.generate] step:round:prompt', {
           requestId,
           round,
-          prompts: promptSet.reduce<Record<string, string>>((acc, { bundle, prompt }) => {
-            acc[bundle.range] = prompt
+          prompts: promptEntries.reduce<Record<string, string>>((acc, { style, prompt }) => {
+            acc[style] = prompt
             return acc
           }, {})
         })
 
         const aiResults = await Promise.all(
-          promptSet.map(({ bundle, prompt }) => {
+          promptEntries.map(({ style, target, prompt }) => {
             const commonParams = {
               model,
               prompt,
               requestId,
               fps: 1,
-              stopAfterItems: bundle.total,
+              stopAfterItems: target,
               onLine: (comment: string) => {
                 if (streamedItemCount >= count) return
                 streamedItemCount += 1
                 emitProgress('item', {
                   requestId,
                   round,
-                  bucket: bundle.range,
-                  lengths: bundle.lengths.map((item) => item.length),
+                  bucket: style,
+                  target,
                   comment
                 })
               },
@@ -435,40 +429,26 @@ export default defineEventHandler(async (event) => {
         })
 
         const normalizedResults = aiResults.map((result, index) => {
-          const bundle = promptSet[index]?.bundle
-          const parsedSections = bundle
-            ? parseExactLengthBundleOutput(result.rawText, bundle.lengths)
-            : {}
-
-          const sectionResults = (bundle?.lengths || []).map((target) => {
-            const sectionText = (parsedSections[target.length] || []).join('\n')
-            const normalized = normalizeComments(sectionText, { dedupe, cleanEmpty })
-            return {
-              target,
-              normalized,
-              comments: normalized.comments.slice(0, target.target)
-            }
-          })
-
           return {
-            normalized: sectionResults,
+            target: promptEntries[index]?.target || 0,
+            normalized: normalizeComments(result.rawText, { dedupe, cleanEmpty }),
             rawText: result.rawText
           }
         })
 
-        const roundComments = normalizedResults.flatMap(({ normalized }) => normalized.flatMap((entry) => entry.comments))
+        const roundComments = normalizedResults.flatMap(({ normalized, target }) => normalized.comments.slice(0, target))
         console.info('[api.generate] step:round:normalized', {
           requestId,
           round,
-          beforeCount: normalizedResults.reduce((sum, item) => sum + item.normalized.reduce((acc, entry) => acc + entry.normalized.beforeCount, 0), 0),
-          afterCount: normalizedResults.reduce((sum, item) => sum + item.normalized.reduce((acc, entry) => acc + entry.normalized.afterCount, 0), 0),
-          removedEmpty: normalizedResults.reduce((sum, item) => sum + item.normalized.reduce((acc, entry) => acc + entry.normalized.removedEmpty, 0), 0),
-          removedDuplicate: normalizedResults.reduce((sum, item) => sum + item.normalized.reduce((acc, entry) => acc + entry.normalized.removedDuplicate, 0), 0),
-          removedInvalid: normalizedResults.reduce((sum, item) => sum + item.normalized.reduce((acc, entry) => acc + entry.normalized.removedInvalid, 0), 0),
+          beforeCount: normalizedResults.reduce((sum, item) => sum + item.normalized.beforeCount, 0),
+          afterCount: normalizedResults.reduce((sum, item) => sum + item.normalized.afterCount, 0),
+          removedEmpty: normalizedResults.reduce((sum, item) => sum + item.normalized.removedEmpty, 0),
+          removedDuplicate: normalizedResults.reduce((sum, item) => sum + item.normalized.removedDuplicate, 0),
+          removedInvalid: normalizedResults.reduce((sum, item) => sum + item.normalized.removedInvalid, 0),
           cappedRoundCount: roundComments.length
         })
 
-        beforeNormalizeCount += normalizedResults.reduce((sum, item) => sum + item.normalized.reduce((acc, entry) => acc + entry.normalized.beforeCount, 0), 0)
+        beforeNormalizeCount += normalizedResults.reduce((sum, item) => sum + item.normalized.beforeCount, 0)
         afterNormalizeCount += roundComments.length
         const batchRawText = stripExactLengthBundleHeadings(aiResults.map((result) => result.rawText).join('\n'))
         rawTextCombined = rawTextCombined ? `${rawTextCombined}\n${batchRawText}` : batchRawText

@@ -129,11 +129,11 @@ function renderTemplate(template: string, params: BuildPromptParams, target: num
   const bucketSubranges = params.lengthSubranges?.trim() || ''
   const bucketRuleText = bucketRange
     ? (/[~～\-—]/.test(bucketRange)
-        ? `每条评论字数严格限定在 ${bucketRange} 之间，且需在以下子区间内分布：${bucketSubranges}。长度需自然参差。`
-        : `每条评论字数严格限定在 ${bucketRange}，长度需自然参差。`)
+        ? `每条评论字数尽量落在 ${bucketRange} 之间，且需在以下子区间内自然分布：${bucketSubranges}。长度需自然参差。`
+        : `每条评论字数尽量落在 ${bucketRange} 内，长度需自然参差。`)
     : ''
   const bucketSection = bucketLabel && bucketRange
-    ? `当前长度桶：${bucketLabel}\n本轮只生成 ${bucketRange} 的评论，长度要在该桶内分散，不要挤在常见字数点。`
+    ? `当前长度桶：${bucketLabel}\n本轮以 ${bucketRange} 的评论为主，长度要在该桶内自然分散，不要挤在常见字数点。`
     : ''
   const contextSection = [titleSection, bucketSection, sampleSection, promptSection].filter(Boolean).join('\n')
 
@@ -330,6 +330,11 @@ export async function buildStylePrompt(style: CommentStyle, params: BuildPromptP
   const template = await loadTemplate(style)
   return renderTemplate(template, {
     ...params,
+    lengthBucket: {
+      short: '短评论组',
+      medium: '中评论组',
+      long: '长评论组'
+    }[style],
     lengthRange: params.lengthRange || STYLE_DEFAULT_RANGES[style],
     lengthSubranges: params.lengthSubranges || STYLE_DEFAULT_SUBRANGES[style]
   }, target)
