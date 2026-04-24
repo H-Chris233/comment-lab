@@ -23,13 +23,13 @@ describe('buildStylePrompts', () => {
     expect(result.medium).toContain('输出 40 条')
     expect(result.short).toContain('输出 40 条')
 
-    expect(result.long).toContain('多样化表达，减少重复的开头和结尾')
-    expect(result.medium).toContain('多样化表达，减少重复的开头和结尾')
-    expect(result.short).toContain('多样化表达，减少重复的开头和结尾')
+    expect(result.long).toContain('被产品强烈触动，有情绪想表达，愿意多写几句')
+    expect(result.medium).toContain('被某个点触动后，愿意多打一行字说说你的感受或理由')
+    expect(result.short).toContain('被某个点吸引或触动，随手留下一句即时反应')
 
-    expect(result.long).toContain('整体字数按系统分配的区间执行')
-    expect(result.medium).toContain('整体字数按系统分配的区间执行')
-    expect(result.short).toContain('整体字数按系统分配的区间执行')
+    expect(result.long).toContain('整体字数按长评论区间均匀分布')
+    expect(result.medium).toContain('整体字数按中评论区间均匀分布')
+    expect(result.short).toContain('整体字数控制在短评论区间内均匀分布')
 
     expect(result.long).toContain('当前长度桶：长评论组')
     expect(result.medium).toContain('当前长度桶：中评论组')
@@ -41,15 +41,11 @@ describe('buildStylePrompts', () => {
 
     expect(result.long).toContain(`限定Emoji为 ${ALLOWED_EMOJI_TEXT}`)
     expect(result.medium).toContain(`限定Emoji为 ${ALLOWED_EMOJI_TEXT}`)
-    expect(result.short).toContain(`限定Emoji为 ${ALLOWED_EMOJI_TEXT}`)
+    expect(result.short).toContain('Emoji 使用规则（鼓励多用）')
 
     expect(result.long).toContain('Emoji 不计入字数')
     expect(result.medium).toContain('Emoji 不计入字数')
     expect(result.short).toContain('Emoji 不计入字数')
-
-    expect(result.long).toContain('70% 句尾带标点、20% 句尾不带标点、10% 用 Emoji')
-    expect(result.medium).toContain('70% 句尾带标点、20% 句尾不带标点、10% 用 Emoji')
-    expect(result.short).toContain('70% 句尾带标点、20% 句尾不带标点、10% 用 Emoji')
 
     expect(result.long).toContain('Emoji 和句尾标点不可同时出现')
     expect(result.medium).toContain('Emoji 和句尾标点不可同时出现')
@@ -59,13 +55,8 @@ describe('buildStylePrompts', () => {
     expect(result.medium).toContain('不要复述视频内容')
     expect(result.short).toContain('不要复述视频内容')
 
-    expect(result.long).toContain('10% 的 Emoji 里，3 条放开头、2 条放中间、5 条放结尾')
-    expect(result.medium).toContain('10% 的 Emoji 里，3 条放开头、2 条放中间、5 条放结尾')
-    expect(result.short).toContain('10% 的 Emoji 里，3 条放开头、2 条放中间、5 条放结尾')
-
-    expect(result.long).toContain('每个区间都尽量覆盖')
-    expect(result.medium).toContain('每个区间都尽量覆盖')
-    expect(result.short).toContain('每个区间都尽量覆盖')
+    expect(result.long).toContain('每个区间都覆盖到')
+    expect(result.medium).toContain('每个区间都覆盖到')
 
     expect(result.long).toContain('附加提示词：')
     expect(result.long).toContain('请偏口语化')
@@ -123,8 +114,8 @@ describe('buildStylePrompts', () => {
       basePrompt: '请偏口语化'
     }, splitStyleTargets(100))
 
-    expect(result.short).toContain('严格禁止出现以下词汇或表达：博主、种草、笑死我了')
-    expect(result.medium).toContain('严格禁止出现以下词汇或表达：博主、种草、笑死我了')
-    expect(result.long).toContain('严格禁止出现以下词汇或表达：博主、种草、笑死我了')
+    expect(result.short).toContain('严格禁止使用以下词汇或表达：博主、种草、笑死我了')
+    expect(result.medium).toContain('严格禁止使用以下词汇或表达：博主、种草、笑死我了')
+    expect(result.long).toContain('严格禁止使用以下词汇或表达：博主、种草、笑死我了')
   })
 })

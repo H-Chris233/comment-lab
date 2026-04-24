@@ -160,6 +160,34 @@ function pickEmojiForLine(line: string, fallbackIndex: number) {
   return emojiMatches[0]?.value || ALLOWED_EMOJI_LIST[fallbackIndex % ALLOWED_EMOJI_LIST.length]
 }
 
+function replaceMiddlePunctuationWithEmoji(line: string, emoji: string) {
+  const text = stripTerminalPunctuation(stripAllEmoji(line)).trim()
+  if (!text) return emoji
+
+  const preferredMatches = Array.from(text.matchAll(/[，,、；;：:]/gu))
+  const fallbackMatches = preferredMatches.length ? preferredMatches : Array.from(text.matchAll(/[。．.!！？?]/gu))
+  if (!fallbackMatches.length) {
+    return text
+  }
+
+  const midpoint = text.length / 2
+  const bestMatch = fallbackMatches.reduce((best, current) => {
+    if (!best) return current
+
+    const bestIndex = best.index ?? 0
+    const currentIndex = current.index ?? 0
+    const bestDistance = Math.abs(bestIndex - midpoint)
+    const currentDistance = Math.abs(currentIndex - midpoint)
+
+    if (currentDistance !== bestDistance) return currentDistance < bestDistance ? current : best
+    return currentIndex < bestIndex ? current : best
+  }, null as RegExpMatchArray | null)
+
+  const index = bestMatch?.index ?? 0
+  const length = bestMatch?.[0].length ?? 1
+  return `${text.slice(0, index)}${emoji}${text.slice(index + length)}`
+}
+
 function placeEmoji(line: string, emoji: string, position: 'start' | 'middle' | 'end') {
   const text = stripTerminalPunctuation(stripAllEmoji(line)).trim()
   if (!text) return emoji
@@ -167,8 +195,7 @@ function placeEmoji(line: string, emoji: string, position: 'start' | 'middle' | 
   if (position === 'start') return `${emoji}${text}`
   if (position === 'end') return `${text}${emoji}`
 
-  const midpoint = Math.max(0, Math.floor(text.length / 2))
-  return `${text.slice(0, midpoint)}${emoji}${text.slice(midpoint)}`
+  return replaceMiddlePunctuationWithEmoji(text, emoji)
 }
 
 function applyTerminalDistribution(

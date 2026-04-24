@@ -187,8 +187,25 @@ describe('normalizeComments', () => {
     expect(keptEmojiCount).toBeGreaterThan(0)
     expect(keptEmojiCount).toBeLessThanOrEqual(10)
     expect(result.comments.filter((line) => /^\p{Extended_Pictographic}/u.test(line))).toHaveLength(3)
-    expect(result.comments.filter((line) => /\p{Extended_Pictographic}/u.test(line) && !/^\p{Extended_Pictographic}/u.test(line) && !/\p{Extended_Pictographic}$/u.test(line))).toHaveLength(2)
+    expect(result.comments.filter((line) => /\p{Extended_Pictographic}/u.test(line) && !/^\p{Extended_Pictographic}/u.test(line) && !/\p{Extended_Pictographic}$/u.test(line))).toHaveLength(0)
     expect(result.comments.filter((line) => /\p{Extended_Pictographic}$/u.test(line))).toHaveLength(5)
+  })
+
+  it('中间位置的 emoji 会优先替换句中标点，而不是硬插到字符中间', () => {
+    const raw = Array.from({ length: 100 }, () => '前半句很自然，后半句也自然😄').join('\n')
+    const result = normalizeComments(raw, {
+      dedupe: false,
+      cleanEmpty: true,
+      emojiRatio: 100,
+      commaSpaceRatio: 0,
+      commaPeriodRatio: 0,
+      commaEmojiSwapRatio: 0
+    })
+
+    expect(result.comments[3]).toBe('前半句很自然😄后半句也自然')
+    expect(result.comments[4]).toBe('前半句很自然😄后半句也自然')
+    expect(result.comments[3]).not.toContain('，')
+    expect(result.comments[4]).not.toContain('，')
   })
 
   it('长度判定会忽略 emoji 本身', () => {
