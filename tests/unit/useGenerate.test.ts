@@ -39,16 +39,27 @@ describe('useGenerate', () => {
     expect(model).toBe('qwen3.6-plus')
   })
 
-  it('会原地打乱数组顺序', () => {
-    const values = ['a', 'b', 'c', 'd']
+  it('会按短中长轮转重排数组顺序', () => {
+    const values = [
+      '这个真的比我想的还要细很多，细节也更完整，越看越舒服',
+      '太强了',
+      '这个真的很不错，而且挺顺眼的',
+      '从开头到结尾都挺顺的，细节也比我想的更完整',
+      '哈哈',
+      '感觉比想象中顺眼很多，而且挺自然的'
+    ]
     const original = values
-    const random = vi.spyOn(Math, 'random').mockReturnValue(0)
 
     const result = shuffleInPlace(values)
 
     expect(result).toBe(original)
-    expect(result).toEqual(['b', 'c', 'd', 'a'])
-
-    random.mockRestore()
+    expect(result).toEqual([
+      '太强了',
+      '这个真的很不错，而且挺顺眼的',
+      '这个真的比我想的还要细很多，细节也更完整，越看越舒服',
+      '哈哈',
+      '感觉比想象中顺眼很多，而且挺自然的',
+      '从开头到结尾都挺顺的，细节也比我想的更完整'
+    ])
   })
 })

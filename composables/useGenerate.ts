@@ -6,11 +6,39 @@ type StreamEvent = {
   data: any
 }
 
-export function shuffleInPlace<T>(items: T[]) {
-  for (let i = items.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1))
-    ;[items[i], items[j]] = [items[j], items[i]]
+const EMOJI_SEQUENCE_RE = /(?:\p{Extended_Pictographic}(?:\uFE0F|\u200D\p{Extended_Pictographic})*|[#*0-9]\uFE0F?\u20E3|\p{Regional_Indicator}{2})/gu
+const LENGTH_IGNORE_RE = /[\s\u3000。．.!！？?、,，：:；;…·\-—~～"'“”‘’（）()【】\[\]<>《》]/g
+
+function countVisibleLengthWithoutEmojiAndPunctuation(line: string) {
+  return line.replace(EMOJI_SEQUENCE_RE, '').replace(LENGTH_IGNORE_RE, '').length
+}
+
+function getShuffleBucket(text: string) {
+  const length = countVisibleLengthWithoutEmojiAndPunctuation(text)
+  if (length <= 10) return 'short'
+  if (length <= 18) return 'medium'
+  return 'long'
+}
+
+export function shuffleInPlace<T extends string>(items: T[]) {
+  const buckets: Record<'short' | 'medium' | 'long', T[]> = {
+    short: [],
+    medium: [],
+    long: []
   }
+
+  for (const item of items) {
+    buckets[getShuffleBucket(item)].push(item)
+  }
+
+  const ordered: T[] = []
+  while (buckets.short.length || buckets.medium.length || buckets.long.length) {
+    if (buckets.short.length) ordered.push(buckets.short.shift()!)
+    if (buckets.medium.length) ordered.push(buckets.medium.shift()!)
+    if (buckets.long.length) ordered.push(buckets.long.shift()!)
+  }
+
+  items.splice(0, items.length, ...ordered)
 
   return items
 }
