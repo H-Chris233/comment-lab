@@ -159,7 +159,7 @@ describe('normalizeComments', () => {
       return sum + (line.match(/\p{Extended_Pictographic}/gu)?.length ?? 0)
     }, 0)
 
-    expect(result.comments).toEqual(['🌹这个真的好看😂。', '中间放个👍表情也行。', '纯Emoji😅'])
+    expect(result.comments).toEqual(['🌹这个真的好看😂', '中间放个👍表情也行。', '纯Emoji😅'])
   })
 
   it('会保留任意 emoji，不再依赖固定白名单', () => {
@@ -194,6 +194,20 @@ describe('normalizeComments', () => {
     expect(result.comments.every((line) => /\p{Extended_Pictographic}/u.test(line))).toBe(true)
   })
 
+  it('会保留句中 emoji，但句末 emoji 不会再带句末标点', () => {
+    const raw = '这个很好😄。'
+    const result = normalizeComments(raw, {
+      dedupe: true,
+      cleanEmpty: true,
+      emojiRatio: 100,
+      commaSpaceRatio: 0,
+      commaPeriodRatio: 0,
+      commaEmojiSwapRatio: 0
+    })
+
+    expect(result.comments).toEqual(['这个很好😄'])
+  })
+
   it('会保留句中 emoji，不再把它硬挪到标点位置', () => {
     const raw = Array.from({ length: 100 }, () => '前半句很自然，后半句也自然😄').join('\n')
     const result = normalizeComments(raw, {
@@ -205,8 +219,10 @@ describe('normalizeComments', () => {
       commaEmojiSwapRatio: 0
     })
 
-    expect(result.comments[3]).toBe('前半句很自然，后半句也自然😄。')
-    expect(result.comments[4]).toBe('前半句很自然，后半句也自然😄。')
+    expect(result.comments[3]).toBe('前半句很自然，后半句也自然😄')
+    expect(result.comments[4]).toBe('前半句很自然，后半句也自然😄')
+    expect(result.comments.every((line) => line.endsWith('😄'))).toBe(true)
+    expect(result.comments.some((line) => /[。．.!！？?]$/.test(line))).toBe(false)
   })
 
   it('长度判定会忽略 emoji 本身', () => {
@@ -230,7 +246,7 @@ describe('normalizeComments', () => {
     const raw = ['😄', '哈哈😄', '😂。', '纯文字'].join('\n')
     const result = normalizeComments(raw, { dedupe: true, cleanEmpty: true })
 
-    expect(result.comments).toEqual(['哈哈😄。', '纯文字'])
+    expect(result.comments).toEqual(['哈哈😄', '纯文字'])
     expect(result.removedInvalid).toBe(2)
   })
 

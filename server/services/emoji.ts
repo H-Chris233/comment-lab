@@ -16,6 +16,14 @@ export function countEmojiSequences(line: string) {
   return line.match(EMOJI_SEQUENCE_RE)?.length ?? 0
 }
 
+export function endsWithEmojiSequence(line: string) {
+  const matches = findEmojiMatches(line)
+  if (!matches.length) return false
+
+  const lastMatch = matches[matches.length - 1]
+  return lastMatch.index + lastMatch.length === line.length
+}
+
 export function countTextLengthWithoutEmoji(line: string) {
   return stripAllEmoji(line).length
 }

@@ -1,5 +1,6 @@
 import {
   countEmojiSequences,
+  endsWithEmojiSequence,
   countVisibleLengthWithoutEmojiAndPunctuation,
   stripAllEmoji
 } from './emoji'
@@ -470,6 +471,14 @@ function applyEmojiCommaSwap(lines: string[]) {
   return lines
 }
 
+function stripSentenceEndingPunctuationWhenEndingWithEmoji(line: string) {
+  const { line: strippedLine, ending } = stripSentenceEndingPunctuation(line)
+  if (!ending) return line
+  if (!endsWithEmojiSequence(strippedLine.trim())) return line
+
+  return strippedLine.trim()
+}
+
 function normalizeFromLines(originalLines: string[], options?: NormalizeOptions): NormalizeResult {
   const dedupe = options?.dedupe ?? true
   const cleanEmpty = options?.cleanEmpty ?? true
@@ -520,6 +529,7 @@ function normalizeFromLines(originalLines: string[], options?: NormalizeOptions)
   commentLines = applyCommaRatio(commentLines, commaSpaceRatio, commaPeriodRatio)
   const endings = comments.map((item) => item.ending)
   commentLines = applyTerminalDistribution(commentLines, endings, 0.7)
+  commentLines = commentLines.map((line) => stripSentenceEndingPunctuationWhenEndingWithEmoji(line))
   comments = comments.map((item, index) => ({
     ...item,
     line: commentLines[index] || item.line
