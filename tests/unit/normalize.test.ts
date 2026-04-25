@@ -19,18 +19,15 @@ describe('normalizeComments', () => {
     expect(result.comments).toEqual(['真的好看。', '哈哈'])
   })
 
-  it('会按 70/20/10 分布处理句尾标点与 emoji', () => {
+  it('会保留原始 emoji，不再强制重排到固定位置', () => {
     const raw = Array.from({ length: 10 }, (_, i) => `第${i + 1}条😄评论`).join('\n')
     const result = normalizeComments(raw, { dedupe: true, cleanEmpty: true, emojiRatio: 100, commaSpaceRatio: 0, commaPeriodRatio: 0, commaEmojiSwapRatio: 0 })
 
     const emojiLines = result.comments.filter((line) => /\p{Extended_Pictographic}/u.test(line))
     const punctLines = result.comments.filter((line) => /[。．.!！？?]$/.test(line))
-    const plainLines = result.comments.filter((line) => !/\p{Extended_Pictographic}/u.test(line) && !/[。．.!！？?]$/.test(line))
 
-    expect(emojiLines).toHaveLength(1)
+    expect(emojiLines).toHaveLength(10)
     expect(punctLines).toHaveLength(7)
-    expect(plainLines).toHaveLength(2)
-    expect(emojiLines.every((line) => !/[。．.!！？?]$/.test(line))).toBe(true)
   })
 
   it('去掉句末句号后仍会正确去重', () => {
@@ -150,7 +147,7 @@ describe('normalizeComments', () => {
     expect(result.removedInvalid).toBe(2)
   })
 
-  it('会按条数硬控 emoji 数量，而不是全部清除', () => {
+  it('会保留输入里的 emoji，不再做固定清洗', () => {
     const raw = [
       '🌹这个真的好看😂',
       '中间放个👍表情也行',
@@ -162,21 +159,30 @@ describe('normalizeComments', () => {
       return sum + (line.match(/\p{Extended_Pictographic}/gu)?.length ?? 0)
     }, 0)
 
-    expect(result.comments).toEqual(['这个真的好看。', '中间放个表情也行。', '纯Emoji'])
+    expect(result.comments).toEqual(['🌹这个真的好看😂。', '中间放个👍表情也行。', '纯Emoji😅'])
   })
 
-  it('会清除白名单之外的 emoji，即使开启高保留比例', () => {
-    const raw = '😎这个真的好看🤡'
+  it('会保留任意 emoji，不再依赖固定白名单', () => {
+    const raw = [
+      '😎这个真的好看🤡',
+      '第二条纯文字',
+      '第三条纯文字'
+    ].join('\n')
     const result = normalizeComments(raw, {
       dedupe: true,
       cleanEmpty: true,
-      emojiRatio: 100
+      emojiRatio: 100,
+      commaSpaceRatio: 0,
+      commaPeriodRatio: 0,
+      commaEmojiSwapRatio: 0
     })
 
-    expect(result.comments).toEqual(['这个真的好看。'])
+    expect(result.comments.join('')).toContain('😎')
+    expect(result.comments.join('')).toContain('🤡')
+    expect(result.comments.join('')).not.toContain('🌹')
   })
 
-  it('会把 100 条中的 emoji 数量硬控在 10 个以内', () => {
+  it('会保留 100 条中的 emoji，而不是把它们压到固定上限', () => {
     const raw = Array.from({ length: 100 }, (_, i) => `第${i + 1}条😎评论😂`).join('\n')
     const result = normalizeComments(raw, { dedupe: true, cleanEmpty: true })
     const keptEmojiCount = result.comments.reduce((sum, line) => {
@@ -184,14 +190,11 @@ describe('normalizeComments', () => {
     }, 0)
 
     expect(result.comments.length).toBe(100)
-    expect(keptEmojiCount).toBeGreaterThan(0)
-    expect(keptEmojiCount).toBeLessThanOrEqual(10)
-    expect(result.comments.filter((line) => /^\p{Extended_Pictographic}/u.test(line))).toHaveLength(3)
-    expect(result.comments.filter((line) => /\p{Extended_Pictographic}/u.test(line) && !/^\p{Extended_Pictographic}/u.test(line) && !/\p{Extended_Pictographic}$/u.test(line))).toHaveLength(0)
-    expect(result.comments.filter((line) => /\p{Extended_Pictographic}$/u.test(line))).toHaveLength(5)
+    expect(keptEmojiCount).toBe(200)
+    expect(result.comments.every((line) => /\p{Extended_Pictographic}/u.test(line))).toBe(true)
   })
 
-  it('中间位置的 emoji 会优先替换句中标点，而不是硬插到字符中间', () => {
+  it('会保留句中 emoji，不再把它硬挪到标点位置', () => {
     const raw = Array.from({ length: 100 }, () => '前半句很自然，后半句也自然😄').join('\n')
     const result = normalizeComments(raw, {
       dedupe: false,
@@ -202,10 +205,8 @@ describe('normalizeComments', () => {
       commaEmojiSwapRatio: 0
     })
 
-    expect(result.comments[3]).toBe('前半句很自然😄后半句也自然')
-    expect(result.comments[4]).toBe('前半句很自然😄后半句也自然')
-    expect(result.comments[3]).not.toContain('，')
-    expect(result.comments[4]).not.toContain('，')
+    expect(result.comments[3]).toBe('前半句很自然，后半句也自然😄。')
+    expect(result.comments[4]).toBe('前半句很自然，后半句也自然😄。')
   })
 
   it('长度判定会忽略 emoji 本身', () => {
@@ -229,7 +230,7 @@ describe('normalizeComments', () => {
     const raw = ['😄', '哈哈😄', '😂。', '纯文字'].join('\n')
     const result = normalizeComments(raw, { dedupe: true, cleanEmpty: true })
 
-    expect(result.comments).toEqual(['哈哈。', '纯文字'])
+    expect(result.comments).toEqual(['哈哈😄。', '纯文字'])
     expect(result.removedInvalid).toBe(2)
   })
 
@@ -243,7 +244,7 @@ describe('normalizeComments', () => {
     expect(joined.includes('，')).toBe(true)
   })
 
-  it('会按比例把一部分含 emoji 且含逗号的句子改成 emoji 替换逗号', () => {
+  it('不会再把逗号和 emoji 互换，但仍会补句末标点', () => {
     const raw = Array.from({ length: 10 }, (_, i) => `第${i + 1}条😄这个真的不错，挺喜欢`).join('\n')
     const result = normalizeComments(
       raw,
@@ -257,12 +258,11 @@ describe('normalizeComments', () => {
       }
     )
 
-    expect(result.comments[0]).toBe('第1条这个真的不错挺喜欢😄')
-    expect(result.comments.filter((line) => line === '第1条这个真的不错挺喜欢😄')).toHaveLength(1)
-    expect(result.comments.filter((line) => line.includes('，') && line.includes('😄'))).toHaveLength(0)
+    expect(result.comments[0]).toBe('第1条😄这个真的不错，挺喜欢。')
+    expect(result.comments.filter((line) => line.includes('，') && line.includes('😄'))).toHaveLength(10)
   })
 
-  it('可以通过参数覆盖 emoji 和逗号比例', () => {
+  it('可以通过参数覆盖逗号比例，同时保留 emoji', () => {
     const raw = '🌹这个真的好看😂，中间放个👍表情也行，纯Emoji😅'
     const result = normalizeComments(raw, {
       dedupe: true,
@@ -272,9 +272,9 @@ describe('normalizeComments', () => {
       commaPeriodRatio: 0
     })
 
-    expect(result.comments.join('')).not.toContain('🌹')
-    expect(result.comments.join('')).not.toContain('😂')
-    expect(result.comments.join('')).not.toContain('😅')
+    expect(result.comments.join('')).toContain('🌹')
+    expect(result.comments.join('')).toContain('😂')
+    expect(result.comments.join('')).toContain('😅')
     expect(result.comments.join('')).not.toContain('，')
     expect(result.comments.join('')).toContain('  ')
   })
@@ -326,5 +326,25 @@ describe('normalizeComments', () => {
       '太好笑了'
     ])
     expect(result.every((item, index) => index === 0 || item.slice(0, 2) !== result[index - 1].slice(0, 2))).toBe(true)
+  })
+
+  it('分桶时会忽略开头 emoji 和标点，避免同开头被误分桶', () => {
+    const result = spreadCommentsByPrefix([
+      '😄我喜欢这个',
+      '😂我喜欢那个',
+      '我喜欢继续',
+      '太好看了',
+      '😅太好用了',
+      '太好笑了'
+    ], 2)
+
+    expect(result).toEqual([
+      '😄我喜欢这个',
+      '太好看了',
+      '😂我喜欢那个',
+      '😅太好用了',
+      '我喜欢继续',
+      '太好笑了'
+    ])
   })
 })

@@ -32,7 +32,7 @@ import { fetchDouyinCommentSamplesByAwemeId, parseDouyinLink } from '../../serve
 import generateHandler from '../../server/api/generate.post'
 
 function styleTargetFromPrompt(prompt: string) {
-  const styleMatch = prompt.match(/输出\s+(\d+)\s+条模拟真实路人看到某件产品后的(短评论|中评论|长评论)/)
+  const styleMatch = prompt.match(/输出\s+(\d+)\s+条(短评论|中评论|长评论)/)
   if (styleMatch?.[1] && styleMatch[2]) {
     return {
       count: Number(styleMatch[1]),

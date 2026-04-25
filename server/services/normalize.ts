@@ -1,10 +1,6 @@
 import {
-  ALLOWED_EMOJI_LIST,
-  countAllowedEmoji,
   countEmojiSequences,
   countTextLengthWithoutEmoji,
-  findAllowedEmojiMatches,
-  keepAllowedEmojiBudget,
   stripAllEmoji
 } from './emoji'
 
@@ -59,43 +55,6 @@ function stripSentenceEndingPunctuation(line: string) {
 
 function countCommas(line: string) {
   return (line.match(/，/g) || []).length
-}
-
-function findCommaIndices(line: string) {
-  return Array.from(line.matchAll(/，/g), (match) => match.index ?? 0)
-}
-
-function swapOneCommaWithEmoji(line: string) {
-  const emojiMatches = findAllowedEmojiMatches(line)
-  const commaIndices = findCommaIndices(line)
-  if (!emojiMatches.length || !commaIndices.length) return line
-
-  const commaIndex = commaIndices[0]
-  const emojiMatch = emojiMatches.reduce((best, current) => {
-    if (!best) return current
-    const bestDistance = Math.abs(best.index - commaIndex)
-    const currentDistance = Math.abs(current.index - commaIndex)
-    if (currentDistance !== bestDistance) return currentDistance < bestDistance ? current : best
-    return current.index < best.index ? current : best
-  }, null as (typeof emojiMatches)[number] | null)
-
-  if (!emojiMatch) return line
-
-  const removals = [
-    { start: commaIndex, end: commaIndex + 1 },
-    {
-      start: emojiMatch.index,
-      end: emojiMatch.index + emojiMatch.length
-    }
-  ].sort((a, b) => b.start - a.start)
-
-  let output = line
-  for (const removal of removals) {
-    output = output.slice(0, removal.start) + output.slice(removal.end)
-  }
-
-  const insertPos = commaIndex - (emojiMatch.index < commaIndex ? emojiMatch.length : 0)
-  return output.slice(0, insertPos) + emojiMatch.value + output.slice(insertPos)
 }
 
 function rewriteCommaBudget(line: string, keepSpaces: number, keepPeriods: number) {
@@ -155,49 +114,6 @@ function splitByRatio(total: number, ratios: number[]) {
   return exactEntries.map((entry) => entry.count)
 }
 
-function pickEmojiForLine(line: string, fallbackIndex: number) {
-  const emojiMatches = findAllowedEmojiMatches(line)
-  return emojiMatches[0]?.value || ALLOWED_EMOJI_LIST[fallbackIndex % ALLOWED_EMOJI_LIST.length]
-}
-
-function replaceMiddlePunctuationWithEmoji(line: string, emoji: string) {
-  const text = stripTerminalPunctuation(stripAllEmoji(line)).trim()
-  if (!text) return emoji
-
-  const preferredMatches = Array.from(text.matchAll(/[，,、；;：:]/gu))
-  const fallbackMatches = preferredMatches.length ? preferredMatches : Array.from(text.matchAll(/[。．.!！？?]/gu))
-  if (!fallbackMatches.length) {
-    return text
-  }
-
-  const midpoint = text.length / 2
-  const bestMatch = fallbackMatches.reduce((best, current) => {
-    if (!best) return current
-
-    const bestIndex = best.index ?? 0
-    const currentIndex = current.index ?? 0
-    const bestDistance = Math.abs(bestIndex - midpoint)
-    const currentDistance = Math.abs(currentIndex - midpoint)
-
-    if (currentDistance !== bestDistance) return currentDistance < bestDistance ? current : best
-    return currentIndex < bestIndex ? current : best
-  }, null as RegExpMatchArray | null)
-
-  const index = bestMatch?.index ?? 0
-  const length = bestMatch?.[0].length ?? 1
-  return `${text.slice(0, index)}${emoji}${text.slice(index + length)}`
-}
-
-function placeEmoji(line: string, emoji: string, position: 'start' | 'middle' | 'end') {
-  const text = stripTerminalPunctuation(stripAllEmoji(line)).trim()
-  if (!text) return emoji
-
-  if (position === 'start') return `${emoji}${text}`
-  if (position === 'end') return `${text}${emoji}`
-
-  return replaceMiddlePunctuationWithEmoji(text, emoji)
-}
-
 function applyTerminalDistribution(
   lines: string[],
   endings: string[],
@@ -206,56 +122,36 @@ function applyTerminalDistribution(
   if (!lines.length) return lines
 
   const total = lines.length
-  const [emojiTarget, punctuationTarget, plainTarget] = splitByRatio(total, [
-    0.1,
+  const [_, punctuationTarget, plainTarget] = splitByRatio(total, [
+    0,
     punctuationRatio,
-    Math.max(0, 1 - 0.1 - punctuationRatio)
+    Math.max(0, 1 - punctuationRatio)
   ])
 
-  const emojiCandidates = lines
+  const punctuationIndices = lines
     .map((line, index) => ({
       line,
       index,
-      emojiCount: countAllowedEmoji(line),
       punctuationCount: (line.match(/[。．.!！？?]+$/gu) || []).length
     }))
     .sort((a, b) => {
-      if (b.emojiCount !== a.emojiCount) return b.emojiCount - a.emojiCount
       if (b.punctuationCount !== a.punctuationCount) return b.punctuationCount - a.punctuationCount
       return a.index - b.index
     })
-    .slice(0, emojiTarget)
+    .slice(0, punctuationTarget)
     .map((item) => item.index)
 
-  const emojiIndexSet = new Set<number>(emojiCandidates)
-  const remainingForPunctuation = lines
-    .map((line, index) => ({ line, index }))
-    .filter((item) => !emojiIndexSet.has(item.index))
-
-  const punctuationIndices = remainingForPunctuation.slice(0, punctuationTarget).map((item) => item.index)
   const punctuationIndexSet = new Set<number>(punctuationIndices)
 
   return lines.map((line, index) => {
-    if (emojiIndexSet.has(index)) {
-      const emoji = pickEmojiForLine(line, index)
-      const emojiRank = emojiCandidates.indexOf(index)
-      const [startCount, middleCount] = splitByRatio(emojiCandidates.length, [0.3, 0.2, 0.5])
-      const position = emojiRank < startCount
-        ? 'start'
-        : emojiRank < startCount + middleCount
-          ? 'middle'
-          : 'end'
-      return placeEmoji(line, emoji, position)
-    }
-
     if (punctuationIndexSet.has(index)) {
-      const base = stripAllEmoji(line).trim()
+      const base = stripTerminalPunctuation(line).trim()
       const ending = endings[index] || '。'
-      return restoreSentenceEndingPunctuation(stripTerminalPunctuation(base), ending)
+      return restoreSentenceEndingPunctuation(base, ending)
     }
 
-    return stripTerminalPunctuation(stripAllEmoji(line)).trim()
-  }).slice(0, plainTarget + punctuationTarget + emojiTarget)
+    return stripTerminalPunctuation(line).trim()
+  }).slice(0, plainTarget + punctuationTarget)
 }
 
 const BANNED_PHRASES = [
@@ -418,6 +314,12 @@ export function spreadCommentsByPrefix(comments: string[], prefixLength = 2) {
     return Array.isArray(comments) ? [...comments] : []
   }
 
+  const normalizePrefixSource = (value: string) => {
+    return stripAllEmoji(String(value).trim())
+      .replace(/^[\s\u3000。．.!！？?、,，：:；;…·\-—~～"'“”‘’（）()【】\[\]<>《》/\\]+/gu, '')
+      .trim()
+  }
+
   const buckets: Array<{
     prefix: string
     items: string[]
@@ -428,7 +330,7 @@ export function spreadCommentsByPrefix(comments: string[], prefixLength = 2) {
 
   comments.forEach((comment, index) => {
     const text = String(comment)
-    const prefix = text.trim().slice(0, prefixLength)
+    const prefix = normalizePrefixSource(text).slice(0, prefixLength)
     const bucketIndex = bucketIndexByPrefix.get(prefix)
 
     if (bucketIndex == null) {
@@ -497,45 +399,8 @@ function expandRawLines(raw: string) {
     })
 }
 
-function applyEmojiRatio(lines: string[], ratio: number = NORMALIZE_DEFAULT_RATIOS.emojiRatio) {
-  if (!lines.length) return lines
-
-  const lineMeta = lines.map((line, index) => {
-    const emojiCount = countAllowedEmoji(line)
-    return { line, index, emojiCount, keep: 0, remainder: 0 }
-  })
-
-  const totalEmojiCount = lineMeta.reduce((sum, item) => sum + item.emojiCount, 0)
-  if (totalEmojiCount <= 0) return lines.map((line) => stripAllEmoji(line))
-
-  const calculatedBudget = Math.max(0, Math.round(lines.length * ratio))
-  const totalBudget = calculatedBudget > 0 ? calculatedBudget : 1
-  if (totalBudget <= 0) return lines.map((line) => stripAllEmoji(line))
-
-  for (const item of lineMeta) {
-    const exact = (totalBudget * item.emojiCount) / totalEmojiCount
-    const base = Math.floor(exact)
-    item.keep = Math.min(item.emojiCount, base)
-    item.remainder = exact - base
-  }
-
-  let remaining = totalBudget - lineMeta.reduce((sum, item) => sum + item.keep, 0)
-  const ranked = [...lineMeta].sort((a, b) => {
-    if (b.remainder !== a.remainder) return b.remainder - a.remainder
-    if (b.emojiCount !== a.emojiCount) return b.emojiCount - a.emojiCount
-    return a.index - b.index
-  })
-
-  for (const item of ranked) {
-    if (remaining <= 0) break
-    if (item.keep >= item.emojiCount) continue
-    item.keep += 1
-    remaining -= 1
-  }
-
-  return lineMeta
-    .sort((a, b) => a.index - b.index)
-    .map((item) => keepAllowedEmojiBudget(item.line, item.keep))
+function applyEmojiRatio(lines: string[]) {
+  return lines
 }
 
 function applyCommaRatio(
@@ -601,48 +466,15 @@ function applyCommaRatio(
     .map((item) => rewriteCommaBudget(item.line, item.keepSpaces, item.keepPeriods))
 }
 
-function applyEmojiCommaSwap(
-  lines: string[],
-  ratio: number = NORMALIZE_DEFAULT_RATIOS.commaEmojiSwapRatio
-) {
-  if (!lines.length) return lines
-
-  const eligible = lines
-    .map((line, index) => ({
-      line,
-      index,
-      emojiCount: countAllowedEmoji(line),
-      commaCount: countCommas(line)
-    }))
-    .filter((item) => item.emojiCount > 0 && item.commaCount > 0)
-
-  if (!eligible.length) return lines
-
-  const budget = Math.max(0, Math.round(eligible.length * ratio))
-  if (budget <= 0) return lines
-
-  const selected = new Set<number>()
-  const sorted = [...eligible].sort((a, b) => {
-    if (b.commaCount !== a.commaCount) return b.commaCount - a.commaCount
-    if (b.emojiCount !== a.emojiCount) return b.emojiCount - a.emojiCount
-    return a.index - b.index
-  })
-
-  for (const item of sorted) {
-    if (selected.size >= budget) break
-    selected.add(item.index)
-  }
-
-  return lines.map((line, index) => (selected.has(index) ? swapOneCommaWithEmoji(line) : line))
+function applyEmojiCommaSwap(lines: string[]) {
+  return lines
 }
 
 function normalizeFromLines(originalLines: string[], options?: NormalizeOptions): NormalizeResult {
   const dedupe = options?.dedupe ?? true
   const cleanEmpty = options?.cleanEmpty ?? true
-  const emojiRatio = options?.emojiRatio ?? NORMALIZE_DEFAULT_RATIOS.emojiRatio
   const commaSpaceRatio = options?.commaSpaceRatio ?? NORMALIZE_DEFAULT_RATIOS.commaSpaceRatio
   const commaPeriodRatio = options?.commaPeriodRatio ?? NORMALIZE_DEFAULT_RATIOS.commaPeriodRatio
-  const commaEmojiSwapRatio = options?.commaEmojiSwapRatio ?? NORMALIZE_DEFAULT_RATIOS.commaEmojiSwapRatio
 
   let removedEmpty = 0
   let removedInvalid = 0
@@ -683,8 +515,8 @@ function normalizeFromLines(originalLines: string[], options?: NormalizeOptions)
   }
 
   let commentLines = comments.map((item) => item.line)
-  commentLines = applyEmojiRatio(commentLines, emojiRatio)
-  commentLines = applyEmojiCommaSwap(commentLines, commaEmojiSwapRatio)
+  commentLines = applyEmojiRatio(commentLines)
+  commentLines = applyEmojiCommaSwap(commentLines)
   commentLines = applyCommaRatio(commentLines, commaSpaceRatio, commaPeriodRatio)
   const endings = comments.map((item) => item.ending)
   commentLines = applyTerminalDistribution(commentLines, endings, 0.7)

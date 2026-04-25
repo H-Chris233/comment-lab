@@ -1,7 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { BuildPromptParams } from '../../types/prompt'
-import { ALLOWED_EMOJI_TEXT } from './emoji'
 
 export type CommentStyle = 'long' | 'medium' | 'short'
 
@@ -144,7 +143,6 @@ function renderTemplate(template: string, params: BuildPromptParams, target: num
     .replaceAll('{{BUCKET_RANGE}}', bucketRange || '')
     .replaceAll('{{BUCKET_SUBRANGES}}', bucketSubranges)
     .replaceAll('{{BUCKET_RULE_TEXT}}', bucketRuleText)
-    .replaceAll('{{EMOJI_LIST}}', ALLOWED_EMOJI_TEXT)
     .replaceAll('{{STYLE_TARGET}}', String(target))
 }
 
@@ -392,7 +390,6 @@ export async function buildExactLengthBundlePrompt(
     .replaceAll('{{BUNDLE_RANGE}}', bundle.range)
     .replaceAll('{{BUNDLE_TARGETS}}', targetLines)
     .replaceAll('{{BUNDLE_OUTPUT_FORMAT}}', bundle.lengths.map((item) => `【${item.length}字】`).join('\n'))
-    .replaceAll('{{EMOJI_LIST}}', ALLOWED_EMOJI_TEXT)
     .replaceAll('{{STYLE_TARGET}}', String(bundle.total))
 }
 

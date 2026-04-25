@@ -3,7 +3,6 @@ import {
   buildStylePrompts,
   splitStyleTargets
 } from '../../server/services/prompt'
-import { ALLOWED_EMOJI_TEXT } from '../../server/services/emoji'
 
 describe('buildStylePrompts', () => {
   it('应从三份独立 txt 模板生成三种风格 prompt', async () => {
@@ -24,7 +23,7 @@ describe('buildStylePrompts', () => {
     expect(result.short).toContain('输出 40 条')
 
     expect(result.long).toContain('被产品强烈触动，有情绪想表达，愿意多写几句')
-    expect(result.medium).toContain('被某个点触动后，愿意多打一行字说说你的感受或理由')
+    expect(result.medium).toContain('被产品吸引后愿意多打一两行字聊聊自己的感受')
     expect(result.short).toContain('被某个点吸引或触动，随手留下一句即时反应')
 
     expect(result.long).toContain('整体字数按长评论区间均匀分布')
@@ -39,13 +38,17 @@ describe('buildStylePrompts', () => {
     expect(result.medium).toContain('本轮以 10~25字 的评论为主')
     expect(result.short).toContain('本轮以 3~10字 的评论为主')
 
-    expect(result.long).toContain(`限定Emoji为 ${ALLOWED_EMOJI_TEXT}`)
-    expect(result.medium).toContain(`限定Emoji为 ${ALLOWED_EMOJI_TEXT}`)
-    expect(result.short).toContain('Emoji 使用规则（鼓励多用）')
+    expect(result.long).toContain('可适当使用 Emoji')
+    expect(result.medium).toContain('可适当使用 Emoji')
+    expect(result.short).toContain('可适当使用 Emoji')
 
     expect(result.long).toContain('Emoji 不计入字数')
     expect(result.medium).toContain('Emoji 不计入字数')
     expect(result.short).toContain('Emoji 不计入字数')
+
+    expect(result.long).not.toContain('{{EMOJI_LIST}}')
+    expect(result.medium).not.toContain('{{EMOJI_LIST}}')
+    expect(result.short).not.toContain('{{EMOJI_LIST}}')
 
     expect(result.long).toContain('Emoji 和句尾标点不可同时出现')
     expect(result.medium).toContain('Emoji 和句尾标点不可同时出现')
