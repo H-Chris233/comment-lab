@@ -26,9 +26,10 @@ describe('buildStylePrompts', () => {
     expect(result.medium).toContain('被产品吸引后愿意多打一两行字聊聊自己的感受')
     expect(result.short).toContain('被某个点吸引或触动，随手留下一句即时反应')
 
+    expect(result.long).toContain('字数双重限制')
     expect(result.long).toContain('不超过30字')
-    expect(result.medium).toContain('整体字数按中评论区间均匀分布')
-    expect(result.short).toContain('整体字数控制在短评论区间内均匀分布')
+    expect(result.medium).toContain('字数要求：每条评论字数随机分布')
+    expect(result.short).toContain('字数要求：每条评论字数随机分布')
 
     expect(result.long).toContain('当前长度桶：长评论组')
     expect(result.medium).toContain('当前长度桶：中评论组')
@@ -61,8 +62,8 @@ describe('buildStylePrompts', () => {
     expect(result.medium).toContain('不要复述视频内容')
     expect(result.short).toContain('不要复述视频内容')
 
-    expect(result.long).toContain('字数硬性限制')
-    expect(result.medium).toContain('每个区间都覆盖到')
+    expect(result.long).toContain('字数双重限制')
+    expect(result.medium).toContain('字数要求：每条评论字数随机分布')
 
     expect(result.long).toContain('附加提示词：')
     expect(result.long).toContain('请偏口语化')
