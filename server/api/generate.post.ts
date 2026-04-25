@@ -4,6 +4,7 @@ import { DEFAULT_MODEL } from '../../types/prompt'
 import { generateFromVideoFile, generateFromVideoUrl } from '../services/ai'
 import { ALLOWED_VIDEO_MIME_TYPES, downloadVideoUrlToTempFile, getMaxVideoBytes, readMultipart, saveVideoUploadToTempFile } from '../services/file'
 import { normalizeComments } from '../services/normalize'
+import { countVisibleLengthWithoutEmojiAndPunctuation } from '../services/emoji'
 import { fetchDouyinCommentSamplesByAwemeId, parseDouyinLink } from '../services/douyin'
 import {
   STYLE_ORDER,
@@ -394,6 +395,7 @@ export default defineEventHandler(async (event) => {
               fps: 1,
               stopAfterItems: target,
               onLine: (comment: string) => {
+                if (countVisibleLengthWithoutEmojiAndPunctuation(comment) > 30) return
                 if (streamedItemCount >= count) return
                 streamedItemCount += 1
                 emitProgress('item', {

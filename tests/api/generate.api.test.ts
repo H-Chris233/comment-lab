@@ -210,7 +210,7 @@ describe('POST /api/generate', () => {
   it('流式模式会在每条评论完成时推送 item 事件', async () => {
     vi.mocked(generateFromVideoFile).mockImplementation(async (params: any) => {
       params.onLine?.('即时-1-1')
-      params.onLine?.('即时-1-2')
+      params.onLine?.('这是一条超过三十个字符的长长评论内容应该被跳过这是一条超过三十个字符的长长评论内容应该被跳过')
       params.onLine?.('即时-1-3')
       return {
         rawText: '第1条\n第2条\n第3条',
@@ -235,8 +235,8 @@ describe('POST /api/generate', () => {
     expect(res.headers['content-type']).toContain('text/event-stream')
     expect((res.text.match(/event: item/g) || []).length).toBe(2)
     expect(res.text).toContain('即时-1-1')
-    expect(res.text).toContain('即时-1-2')
-    expect(res.text).not.toContain('即时-1-3')
+    expect(res.text).toContain('即时-1-3')
+    expect(res.text).not.toContain('超过三十个字符的长长评论内容应该被跳过')
   })
 
   it('link 解析失败时返回 PARSE_LINK_FAILED', async () => {

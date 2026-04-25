@@ -22,11 +22,11 @@ describe('buildStylePrompts', () => {
     expect(result.medium).toContain('输出 40 条')
     expect(result.short).toContain('输出 40 条')
 
-    expect(result.long).toContain('被产品强烈触动，有情绪想表达，愿意多写几句')
+    expect(result.long).toContain('被产品触动想表达两句，但仍然是评论区的随手口吻')
     expect(result.medium).toContain('被产品吸引后愿意多打一两行字聊聊自己的感受')
     expect(result.short).toContain('被某个点吸引或触动，随手留下一句即时反应')
 
-    expect(result.long).toContain('整体字数按长评论区间均匀分布')
+    expect(result.long).toContain('不超过30字')
     expect(result.medium).toContain('整体字数按中评论区间均匀分布')
     expect(result.short).toContain('整体字数控制在短评论区间内均匀分布')
 
@@ -61,7 +61,7 @@ describe('buildStylePrompts', () => {
     expect(result.medium).toContain('不要复述视频内容')
     expect(result.short).toContain('不要复述视频内容')
 
-    expect(result.long).toContain('每个区间都覆盖到')
+    expect(result.long).toContain('字数硬性限制')
     expect(result.medium).toContain('每个区间都覆盖到')
 
     expect(result.long).toContain('附加提示词：')

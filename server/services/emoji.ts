@@ -20,6 +20,12 @@ export function countTextLengthWithoutEmoji(line: string) {
   return stripAllEmoji(line).length
 }
 
+const LENGTH_IGNORE_RE = /[\s\u3000。．.!！？?、,，：:；;…·\-—~～"'“”‘’（）()【】\[\]<>《》]/g
+
+export function countVisibleLengthWithoutEmojiAndPunctuation(line: string) {
+  return stripAllEmoji(line).replace(LENGTH_IGNORE_RE, '').length
+}
+
 export function keepEmojiBudget(line: string, keepCount: number) {
   if (keepCount <= 0) return stripAllEmoji(line)
 

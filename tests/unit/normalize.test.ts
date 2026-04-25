@@ -210,7 +210,7 @@ describe('normalizeComments', () => {
   })
 
   it('长度判定会忽略 emoji 本身', () => {
-    const raw = `纯中文内容😄😄😄${'啊'.repeat(55)}`
+    const raw = `纯中文内容😄😄😄${'啊'.repeat(25)}`
     const result = normalizeComments(raw, {
       dedupe: true,
       cleanEmpty: true,
@@ -222,7 +222,7 @@ describe('normalizeComments', () => {
 
     expect(result.comments).toHaveLength(1)
     expect(result.comments[0]).toContain('纯中文内容')
-    expect(result.comments[0]).toContain('啊'.repeat(55))
+    expect(result.comments[0]).toContain('啊'.repeat(25))
     expect(result.comments[0]).toMatch(/。$/)
   })
 
