@@ -38,12 +38,12 @@ describe('buildStylePrompts', () => {
     expect(result.medium).toContain('本轮以 10~25字 的评论为主')
     expect(result.short).toContain('本轮以 3~10字 的评论为主')
 
-    expect(result.long).toContain('15%')
-    expect(result.medium).toContain('15%')
-    expect(result.short).toContain('15%')
-    expect(result.long).toContain('5 条放开头、5 条放中间、5 条放结尾')
-    expect(result.medium).toContain('5 条放开头、5 条放中间、5 条放结尾')
-    expect(result.short).toContain('5 条放开头、5 条放中间、5 条放结尾')
+    expect(result.long).toContain('20–25%')
+    expect(result.medium).toContain('20–25%')
+    expect(result.short).toContain('20–25%')
+    expect(result.long).toContain('1/3 放开头')
+    expect(result.medium).toContain('1/3 放开头')
+    expect(result.short).toContain('1/3 放开头')
 
     expect(result.long).toContain('Emoji 不计入字数')
     expect(result.medium).toContain('Emoji 不计入字数')
