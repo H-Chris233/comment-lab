@@ -33,6 +33,23 @@ function randomizeArrayInPlace<T>(items: T[]) {
   return items
 }
 
+function reinsertTailIntoHead<T>(items: T[]) {
+  if (items.length <= 3) {
+    return items
+  }
+
+  const tailSize = Math.max(1, Math.floor(items.length / 3))
+  const tail = randomizeArrayInPlace(items.splice(items.length - tailSize, tailSize))
+  const frontWindow = Math.max(1, Math.floor(items.length / 2))
+
+  for (const item of tail) {
+    const insertAt = Math.floor(Math.random() * (frontWindow + 1))
+    items.splice(insertAt, 0, item)
+  }
+
+  return items
+}
+
 export function shuffleInPlace<T extends string>(items: T[], cycleIndex = 0) {
   const randomizedItems = randomizeArrayInPlace(items.slice())
   const buckets: Record<'short' | 'medium' | 'long', T[]> = {
@@ -54,6 +71,7 @@ export function shuffleInPlace<T extends string>(items: T[], cycleIndex = 0) {
     }
   }
 
+  reinsertTailIntoHead(ordered)
   items.splice(0, items.length, ...ordered)
 
   return items

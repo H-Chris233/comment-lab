@@ -55,20 +55,20 @@ describe('useGenerate', () => {
     const second = shuffleInPlace(values.slice(), 1)
 
     expect(first).toEqual([
-      '太强了',
-      '这个真的很不错，而且挺顺眼的',
-      '从开头到结尾都挺顺的，细节也比我想的更完整',
-      '哈哈',
-      '感觉比想象中顺眼很多，而且挺自然的',
-      '这个真的比我想的还要细很多，细节也更完整，越看越舒服'
-    ])
-    expect(second).toEqual([
-      '这个真的很不错，而且挺顺眼的',
-      '从开头到结尾都挺顺的，细节也比我想的更完整',
-      '太强了',
       '感觉比想象中顺眼很多，而且挺自然的',
       '这个真的比我想的还要细很多，细节也更完整，越看越舒服',
+      '太强了',
+      '这个真的很不错，而且挺顺眼的',
+      '从开头到结尾都挺顺的，细节也比我想的更完整',
       '哈哈'
+    ])
+    expect(second).toEqual([
+      '这个真的比我想的还要细很多，细节也更完整，越看越舒服',
+      '哈哈',
+      '这个真的很不错，而且挺顺眼的',
+      '从开头到结尾都挺顺的，细节也比我想的更完整',
+      '太强了',
+      '感觉比想象中顺眼很多，而且挺自然的'
     ])
     expect(first).not.toEqual(second)
     expect(values).toEqual(original)
@@ -83,11 +83,46 @@ describe('useGenerate', () => {
       .mockReturnValueOnce(0)
       .mockReturnValueOnce(0.5)
       .mockReturnValueOnce(0.5)
+      .mockReturnValueOnce(0)
+      .mockReturnValueOnce(0)
 
     const result = shuffleInPlace(values.slice(), 0)
 
-    expect(result).toEqual(['丁', '丙', '乙', '甲'])
+    expect(result).toEqual(['甲', '丁', '丙', '乙'])
     expect(values).toEqual(original)
+
+    randomSpy.mockRestore()
+  })
+
+  it('会把尾部剩余项随机打散后插回前面', () => {
+    const values = [
+      '这个真的比我想的还要细很多，细节也更完整，越看越舒服',
+      '太强了',
+      '这个真的很不错，而且挺顺眼的',
+      '从开头到结尾都挺顺的，细节也比我想的更完整',
+      '哈哈',
+      '感觉比想象中顺眼很多，而且挺自然的'
+    ]
+    const randomSpy = vi.spyOn(Math, 'random')
+      .mockReturnValueOnce(0.99)
+      .mockReturnValueOnce(0.99)
+      .mockReturnValueOnce(0.99)
+      .mockReturnValueOnce(0.99)
+      .mockReturnValueOnce(0.99)
+      .mockReturnValueOnce(0)
+      .mockReturnValueOnce(0)
+      .mockReturnValueOnce(0)
+
+    const result = shuffleInPlace(values.slice(), 0)
+
+    expect(result).toEqual([
+      '感觉比想象中顺眼很多，而且挺自然的',
+      '从开头到结尾都挺顺的，细节也比我想的更完整',
+      '太强了',
+      '这个真的很不错，而且挺顺眼的',
+      '这个真的比我想的还要细很多，细节也更完整，越看越舒服',
+      '哈哈'
+    ])
 
     randomSpy.mockRestore()
   })
@@ -111,20 +146,20 @@ describe('useGenerate', () => {
     const second = [...comments.value]
 
     expect(first).toEqual([
+      '感觉比想象中顺眼很多，而且挺自然的',
+      '这个真的比我想的还要细很多，细节也更完整，越看越舒服',
       '太强了',
       '这个真的很不错，而且挺顺眼的',
       '从开头到结尾都挺顺的，细节也比我想的更完整',
-      '哈哈',
-      '感觉比想象中顺眼很多，而且挺自然的',
-      '这个真的比我想的还要细很多，细节也更完整，越看越舒服'
+      '哈哈'
     ])
     expect(second).toEqual([
-      '这个真的很不错，而且挺顺眼的',
       '从开头到结尾都挺顺的，细节也比我想的更完整',
       '哈哈',
-      '感觉比想象中顺眼很多，而且挺自然的',
+      '这个真的很不错，而且挺顺眼的',
       '这个真的比我想的还要细很多，细节也更完整，越看越舒服',
-      '太强了'
+      '太强了',
+      '感觉比想象中顺眼很多，而且挺自然的'
     ])
     expect(first).not.toEqual(second)
 
