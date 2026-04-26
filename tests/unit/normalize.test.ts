@@ -301,6 +301,49 @@ describe('normalizeComments', () => {
     expect(result.removedInvalid).toBe(2)
   })
 
+  it('会把“那个”开头控制在 3%，超出的行会去掉“那个”', () => {
+    const raw = [
+      '那个真不错1',
+      '那个真不错2',
+      '那个真不错3',
+      '那个真不错4',
+      '那个真不错5',
+      '普通内容6',
+      '普通内容7',
+      '普通内容8',
+      '普通内容9',
+      '普通内容10',
+      '普通内容11',
+      '普通内容12',
+      '普通内容13',
+      '普通内容14',
+      '普通内容15',
+      '普通内容16',
+      '普通内容17',
+      '普通内容18',
+      '普通内容19',
+      '普通内容20'
+    ].join('\n')
+
+    const result = normalizeComments(raw, {
+      dedupe: false,
+      cleanEmpty: true,
+      emojiRatio: 0,
+      commaSpaceRatio: 0,
+      commaPeriodRatio: 0,
+      commaEmojiSwapRatio: 0
+    })
+
+    const leadingNage = result.comments.filter((line) => line.startsWith('那个'))
+
+    expect(result.comments).toHaveLength(20)
+    expect(leadingNage).toHaveLength(1)
+    expect(result.comments).toContain('真不错2。')
+    expect(result.comments).toContain('真不错3。')
+    expect(result.comments).toContain('真不错4。')
+    expect(result.comments).toContain('真不错5。')
+  })
+
   it('会按比例把一部分逗号替换为双空格和句末标点', () => {
     const raw = Array.from({ length: 10 }, (_, i) => `第${i + 1}条，前半句，后半句，结尾部分`).join('\n')
     const result = normalizeComments(raw, { dedupe: true, cleanEmpty: true })

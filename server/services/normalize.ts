@@ -97,6 +97,32 @@ function normalizeRatio(ratio: number) {
   return Math.min(1, Math.max(0, normalized))
 }
 
+const LEADING_PUNCTUATION_RE = /^[\s\u3000。．.!！？?、,，：:；;…·\-—~～"'“”‘’（）()【】\[\]<>《》/\\]+/u
+
+function splitLeadingDecorators(line: string) {
+  let value = line.trim()
+  let prefix = ''
+
+  while (true) {
+    const before = value
+    const punctuation = value.match(LEADING_PUNCTUATION_RE)
+    if (punctuation) {
+      prefix += punctuation[0]
+      value = value.slice(punctuation[0].length)
+    }
+
+    const emoji = findEmojiMatches(value)[0]
+    if (emoji && emoji.index === 0) {
+      prefix += emoji.value
+      value = value.slice(emoji.length)
+    }
+
+    if (value === before) break
+  }
+
+  return { prefix, core: value }
+}
+
 function splitByRatio(total: number, ratios: number[]) {
   if (total <= 0 || !ratios.length) return ratios.map(() => 0)
 
@@ -567,6 +593,39 @@ function applyEmojiDistribution(lines: string[], emojiRatio: number = NORMALIZE_
   return transformed
 }
 
+function applyLeadingNageBudget(lines: string[], ratio: number = 0.03) {
+  if (!lines.length) return lines
+
+  const normalizedRatio = normalizeRatio(ratio)
+  const allowedCount = Math.min(lines.length, Math.max(0, Math.round(lines.length * normalizedRatio)))
+  if (allowedCount <= 0) {
+    return lines.map((line) => {
+      const { prefix, core } = splitLeadingDecorators(line)
+      if (!core.startsWith('那个')) return line
+      return `${prefix}${core.slice(2).replace(LEADING_PUNCTUATION_RE, '')}`.trim()
+    })
+  }
+
+  const decorated = lines.map((line, index) => {
+    const parts = splitLeadingDecorators(line)
+    return {
+      index,
+      ...parts,
+      hasNage: parts.core.startsWith('那个')
+    }
+  })
+
+  const nageIndices = decorated.filter((item) => item.hasNage).map((item) => item.index)
+  if (nageIndices.length <= allowedCount) return lines
+
+  const keepSet = new Set(nageIndices.slice(0, allowedCount))
+
+  return decorated.map((item) => {
+    if (!item.hasNage || keepSet.has(item.index)) return lines[item.index]
+    return `${item.prefix}${item.core.slice(2).replace(LEADING_PUNCTUATION_RE, '')}`.trim()
+  })
+}
+
 function stripSentenceEndingPunctuationWhenEndingWithEmoji(line: string) {
   const { line: strippedLine, ending } = stripSentenceEndingPunctuation(line)
   if (!ending) return line
@@ -626,6 +685,7 @@ function normalizeFromLines(originalLines: string[], options?: NormalizeOptions)
   const endings = comments.map((item) => item.ending)
   commentLines = applyTerminalDistribution(commentLines, endings, 0.7)
   commentLines = applyEmojiDistribution(commentLines, emojiRatio)
+  commentLines = applyLeadingNageBudget(commentLines, 0.03)
   commentLines = commentLines.map((line) => stripSentenceEndingPunctuationWhenEndingWithEmoji(line))
   comments = comments.map((item, index) => ({
     ...item,
