@@ -25,14 +25,23 @@ function getShuffleBucket(text: string) {
   return 'long'
 }
 
+function randomizeArrayInPlace<T>(items: T[]) {
+  for (let i = items.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[items[i], items[j]] = [items[j], items[i]]
+  }
+  return items
+}
+
 export function shuffleInPlace<T extends string>(items: T[], cycleIndex = 0) {
+  const randomizedItems = randomizeArrayInPlace(items.slice())
   const buckets: Record<'short' | 'medium' | 'long', T[]> = {
     short: [],
     medium: [],
     long: []
   }
 
-  for (const item of items) {
+  for (const item of randomizedItems) {
     buckets[getShuffleBucket(item)].push(item)
   }
 

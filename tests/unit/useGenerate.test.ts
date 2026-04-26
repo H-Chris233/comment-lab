@@ -49,6 +49,7 @@ describe('useGenerate', () => {
       '感觉比想象中顺眼很多，而且挺自然的'
     ]
     const original = values.slice()
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0)
 
     const first = shuffleInPlace(values.slice(), 0)
     const second = shuffleInPlace(values.slice(), 1)
@@ -56,25 +57,44 @@ describe('useGenerate', () => {
     expect(first).toEqual([
       '太强了',
       '这个真的很不错，而且挺顺眼的',
-      '这个真的比我想的还要细很多，细节也更完整，越看越舒服',
+      '从开头到结尾都挺顺的，细节也比我想的更完整',
       '哈哈',
       '感觉比想象中顺眼很多，而且挺自然的',
-      '从开头到结尾都挺顺的，细节也比我想的更完整'
+      '这个真的比我想的还要细很多，细节也更完整，越看越舒服'
     ])
     expect(second).toEqual([
       '这个真的很不错，而且挺顺眼的',
-      '这个真的比我想的还要细很多，细节也更完整，越看越舒服',
+      '从开头到结尾都挺顺的，细节也比我想的更完整',
       '太强了',
       '感觉比想象中顺眼很多，而且挺自然的',
-      '从开头到结尾都挺顺的，细节也比我想的更完整',
+      '这个真的比我想的还要细很多，细节也更完整，越看越舒服',
       '哈哈'
     ])
     expect(first).not.toEqual(second)
     expect(values).toEqual(original)
+
+    randomSpy.mockRestore()
+  })
+
+  it('会先随机打散再进入短中长轮转逻辑', () => {
+    const values = ['甲', '乙', '丙', '丁']
+    const original = values.slice()
+    const randomSpy = vi.spyOn(Math, 'random')
+      .mockReturnValueOnce(0)
+      .mockReturnValueOnce(0.5)
+      .mockReturnValueOnce(0.5)
+
+    const result = shuffleInPlace(values.slice(), 0)
+
+    expect(result).toEqual(['丁', '丙', '乙', '甲'])
+    expect(values).toEqual(original)
+
+    randomSpy.mockRestore()
   })
 
   it('连续点击打乱按钮时会轮换起始桶', () => {
     const { comments, shuffleComments } = useGenerate()
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0)
     comments.value = [
       '这个真的比我想的还要细很多，细节也更完整，越看越舒服',
       '太强了',
@@ -93,19 +113,21 @@ describe('useGenerate', () => {
     expect(first).toEqual([
       '太强了',
       '这个真的很不错，而且挺顺眼的',
-      '这个真的比我想的还要细很多，细节也更完整，越看越舒服',
+      '从开头到结尾都挺顺的，细节也比我想的更完整',
       '哈哈',
       '感觉比想象中顺眼很多，而且挺自然的',
-      '从开头到结尾都挺顺的，细节也比我想的更完整'
+      '这个真的比我想的还要细很多，细节也更完整，越看越舒服'
     ])
     expect(second).toEqual([
       '这个真的很不错，而且挺顺眼的',
-      '这个真的比我想的还要细很多，细节也更完整，越看越舒服',
-      '太强了',
-      '感觉比想象中顺眼很多，而且挺自然的',
       '从开头到结尾都挺顺的，细节也比我想的更完整',
-      '哈哈'
+      '哈哈',
+      '感觉比想象中顺眼很多，而且挺自然的',
+      '这个真的比我想的还要细很多，细节也更完整，越看越舒服',
+      '太强了'
     ])
     expect(first).not.toEqual(second)
+
+    randomSpy.mockRestore()
   })
 })
