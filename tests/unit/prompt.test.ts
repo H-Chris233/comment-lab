@@ -28,7 +28,7 @@ describe('buildStylePrompts', () => {
 
     expect(result.long).toContain('字数双重限制')
     expect(result.long).toContain('不超过30字')
-    expect(result.medium).toContain('字数要求：每条评论字数随机分布')
+    expect(result.medium).toContain('字数要求：每条评论控制在10–20字之间')
     expect(result.short).toContain('字数要求：每条评论字数随机分布')
 
     expect(result.long).toContain('当前长度桶：长评论组')
@@ -63,7 +63,7 @@ describe('buildStylePrompts', () => {
     expect(result.short).toContain('不要复述视频内容')
 
     expect(result.long).toContain('字数双重限制')
-    expect(result.medium).toContain('字数要求：每条评论字数随机分布')
+    expect(result.medium).toContain('字数要求：每条评论控制在10–20字之间')
 
     expect(result.long).toContain('附加提示词：')
     expect(result.long).toContain('请偏口语化')
