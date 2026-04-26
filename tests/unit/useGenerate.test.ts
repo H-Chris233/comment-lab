@@ -39,7 +39,7 @@ describe('useGenerate', () => {
     expect(model).toBe('qwen3.6-plus')
   })
 
-  it('会按短中长轮转重排数组顺序', () => {
+  it('会按短中长轮转重排数组顺序，并且不同轮次起始桶不同', () => {
     const values = [
       '这个真的比我想的还要细很多，细节也更完整，越看越舒服',
       '太强了',
@@ -48,12 +48,12 @@ describe('useGenerate', () => {
       '哈哈',
       '感觉比想象中顺眼很多，而且挺自然的'
     ]
-    const original = values
+    const original = values.slice()
 
-    const result = shuffleInPlace(values)
+    const first = shuffleInPlace(values.slice(), 0)
+    const second = shuffleInPlace(values.slice(), 1)
 
-    expect(result).toBe(original)
-    expect(result).toEqual([
+    expect(first).toEqual([
       '太强了',
       '这个真的很不错，而且挺顺眼的',
       '这个真的比我想的还要细很多，细节也更完整，越看越舒服',
@@ -61,5 +61,51 @@ describe('useGenerate', () => {
       '感觉比想象中顺眼很多，而且挺自然的',
       '从开头到结尾都挺顺的，细节也比我想的更完整'
     ])
+    expect(second).toEqual([
+      '这个真的很不错，而且挺顺眼的',
+      '这个真的比我想的还要细很多，细节也更完整，越看越舒服',
+      '太强了',
+      '感觉比想象中顺眼很多，而且挺自然的',
+      '从开头到结尾都挺顺的，细节也比我想的更完整',
+      '哈哈'
+    ])
+    expect(first).not.toEqual(second)
+    expect(values).toEqual(original)
+  })
+
+  it('连续点击打乱按钮时会轮换起始桶', () => {
+    const { comments, shuffleComments } = useGenerate()
+    comments.value = [
+      '这个真的比我想的还要细很多，细节也更完整，越看越舒服',
+      '太强了',
+      '这个真的很不错，而且挺顺眼的',
+      '从开头到结尾都挺顺的，细节也比我想的更完整',
+      '哈哈',
+      '感觉比想象中顺眼很多，而且挺自然的'
+    ]
+
+    shuffleComments()
+    const first = [...comments.value]
+
+    shuffleComments()
+    const second = [...comments.value]
+
+    expect(first).toEqual([
+      '太强了',
+      '这个真的很不错，而且挺顺眼的',
+      '这个真的比我想的还要细很多，细节也更完整，越看越舒服',
+      '哈哈',
+      '感觉比想象中顺眼很多，而且挺自然的',
+      '从开头到结尾都挺顺的，细节也比我想的更完整'
+    ])
+    expect(second).toEqual([
+      '这个真的很不错，而且挺顺眼的',
+      '这个真的比我想的还要细很多，细节也更完整，越看越舒服',
+      '太强了',
+      '感觉比想象中顺眼很多，而且挺自然的',
+      '从开头到结尾都挺顺的，细节也比我想的更完整',
+      '哈哈'
+    ])
+    expect(first).not.toEqual(second)
   })
 })

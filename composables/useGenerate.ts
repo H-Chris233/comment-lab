@@ -8,6 +8,11 @@ type StreamEvent = {
 
 const EMOJI_SEQUENCE_RE = /(?:\p{Extended_Pictographic}(?:\uFE0F|\u200D\p{Extended_Pictographic})*|[#*0-9]\uFE0F?\u20E3|\p{Regional_Indicator}{2})/gu
 const LENGTH_IGNORE_RE = /[\s\u3000。．.!！？?、,，：:；;…·\-—~～"'“”‘’（）()【】\[\]<>《》]/g
+const SHUFFLE_BUCKET_ORDERS = [
+  ['short', 'medium', 'long'],
+  ['medium', 'long', 'short'],
+  ['long', 'short', 'medium']
+] as const
 
 function countVisibleLengthWithoutEmojiAndPunctuation(line: string) {
   return line.replace(EMOJI_SEQUENCE_RE, '').replace(LENGTH_IGNORE_RE, '').length
@@ -20,7 +25,7 @@ function getShuffleBucket(text: string) {
   return 'long'
 }
 
-export function shuffleInPlace<T extends string>(items: T[]) {
+export function shuffleInPlace<T extends string>(items: T[], cycleIndex = 0) {
   const buckets: Record<'short' | 'medium' | 'long', T[]> = {
     short: [],
     medium: [],
@@ -32,10 +37,12 @@ export function shuffleInPlace<T extends string>(items: T[]) {
   }
 
   const ordered: T[] = []
+  const order = SHUFFLE_BUCKET_ORDERS[cycleIndex % SHUFFLE_BUCKET_ORDERS.length]
   while (buckets.short.length || buckets.medium.length || buckets.long.length) {
-    if (buckets.short.length) ordered.push(buckets.short.shift()!)
-    if (buckets.medium.length) ordered.push(buckets.medium.shift()!)
-    if (buckets.long.length) ordered.push(buckets.long.shift()!)
+    for (const bucketName of order) {
+      if (!buckets[bucketName].length) continue
+      ordered.push(buckets[bucketName].shift()!)
+    }
   }
 
   items.splice(0, items.length, ...ordered)
@@ -96,6 +103,7 @@ export function useGenerate() {
   const model = ref('')
   const abortController = ref<AbortController | null>(null)
   const requestTimeoutId = ref<ReturnType<typeof setTimeout> | null>(null)
+  let shuffleCycleIndex = 0
   let streamedCommentSet = new Set<string>()
   let requestTimedOut = false
   const runtimeConfig = useRuntimeConfig()
@@ -201,6 +209,7 @@ export function useGenerate() {
     finalCount.value = 0
     streamedCommentSet = new Set<string>()
     requestTimedOut = false
+    shuffleCycleIndex = 0
 
     try {
       abortController.value = new AbortController()
@@ -384,7 +393,8 @@ export function useGenerate() {
   }
 
   function shuffleComments() {
-    shuffleInPlace(comments.value)
+    shuffleInPlace(comments.value, shuffleCycleIndex)
+    shuffleCycleIndex = (shuffleCycleIndex + 1) % SHUFFLE_BUCKET_ORDERS.length
   }
 
   async function regenerate() {
