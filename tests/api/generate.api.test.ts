@@ -24,17 +24,7 @@ vi.mock('../../server/services/auth', () => ({
 vi.mock('../../server/services/douyin', () => ({
   parseDouyinLink: vi.fn().mockResolvedValue({ ok: true, videoUrl: 'https://www.douyin.com/video/7626738541439099121', awemeId: '7626738541439099121' }),
   fetchDouyinCommentSamplesByAwemeId: vi.fn().mockResolvedValue([]),
-  resolveDouyinDownloadVideoUrl: vi.fn().mockImplementation(async (parsed: any) => {
-    const candidates = parsed?.raw?.data?.aweme_detail?.video?.bit_rate
-    if (Array.isArray(candidates) && candidates.length > 0) {
-      const selected = [...candidates]
-        .sort((left, right) => Number(left?.bit_rate || left?.bitrate || 0) - Number(right?.bit_rate || right?.bitrate || 0))[0]
-      const lowUrl = selected?.play_addr?.url_list?.[0]
-      if (typeof lowUrl === 'string' && lowUrl) return lowUrl
-    }
-
-    return 'https://cdn.example.com/cn-fallback.mp4'
-  })
+  resolveDouyinDownloadVideoUrl: vi.fn().mockResolvedValue('https://cdn.example.com/cn-fallback.mp4')
 }))
 
 import { generateFromVideoUrl, generateFromVideoFile } from '../../server/services/ai'
