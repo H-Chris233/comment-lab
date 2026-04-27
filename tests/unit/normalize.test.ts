@@ -6,7 +6,7 @@ describe('normalizeComments', () => {
     const raw = ['1. 这个真有点上头', '', '评论如下', '这个真有点上头', '好', '   太长'.repeat(30)].join('\n')
     const result = normalizeComments(raw, { dedupe: true, cleanEmpty: true })
 
-    expect(result.comments).toEqual(['这个真有点上头。'])
+    expect(result.comments).toEqual(['真有点上头。'])
     expect(result.beforeCount).toBeGreaterThan(0)
     expect(result.afterCount).toBe(1)
     expect(result.removedEmpty).toBeGreaterThanOrEqual(1)
@@ -45,8 +45,8 @@ describe('normalizeComments', () => {
     const result = normalizeComments(raw, { dedupe: true, cleanEmpty: true })
 
     expect(result.comments).toEqual([
-      '这个画面真的顺，越看越舒服。',
-      '这个节奏也很丝滑！',
+      '画面真的顺，越看越舒服。',
+      '节奏也很丝滑！',
       '结尾稍微仓促了点'
     ])
     random.mockRestore()
@@ -64,9 +64,9 @@ describe('normalizeComments', () => {
     const result = normalizeComments(raw, { dedupe: true, cleanEmpty: true })
 
     expect(result.comments).toEqual([
-      '这个画面真的稳，越看越舒服。',
+      '画面真的稳，越看越舒服。',
       '节奏也太丝滑了。',
-      '这个氛围感真的拉满了'
+      '氛围感真的拉满了'
     ])
   })
 
@@ -82,7 +82,7 @@ describe('normalizeComments', () => {
 
     const result = normalizeComments(raw, { dedupe: true, cleanEmpty: true })
 
-    expect(result.comments).toEqual(['这个节奏很丝滑。', '主包这段挺自然'])
+    expect(result.comments).toEqual(['节奏很丝滑。', '主包这段挺自然'])
     expect(result.removedInvalid).toBe(4)
   })
 
@@ -96,7 +96,7 @@ describe('normalizeComments', () => {
 
     const result = normalizeComments(raw, { dedupe: true, cleanEmpty: true })
 
-    expect(result.comments).toEqual(['这个感觉还是挺自然。'])
+    expect(result.comments).toEqual(['感觉还是挺自然。'])
     expect(result.removedInvalid).toBe(3)
   })
 
@@ -110,7 +110,7 @@ describe('normalizeComments', () => {
 
     const result = normalizeComments(raw, { dedupe: true, cleanEmpty: true })
 
-    expect(result.comments).toEqual(['这个感觉还是很自然。'])
+    expect(result.comments).toEqual(['感觉还是很自然。'])
     expect(result.removedInvalid).toBe(3)
   })
 
@@ -128,7 +128,7 @@ describe('normalizeComments', () => {
 
     const result = normalizeComments(raw, { dedupe: true, cleanEmpty: true })
 
-    expect(result.comments).toEqual(['有点上头啊。', '这个评论还是挺自然'])
+    expect(result.comments).toEqual(['有点上头啊。', '评论还是挺自然'])
     expect(result.removedInvalid).toBe(6)
   })
 
@@ -142,7 +142,7 @@ describe('normalizeComments', () => {
 
     const result = normalizeComments(raw, { dedupe: true, cleanEmpty: true })
 
-    expect(result.comments).toEqual(['这个长度还挺顺。', '再来一条'])
+    expect(result.comments).toEqual(['长度还挺顺。', '再来一条'])
     expect(result.removedInvalid).toBe(2)
   })
 
@@ -257,7 +257,7 @@ describe('normalizeComments', () => {
       commaEmojiSwapRatio: 0
     })
 
-    expect(result.comments).toEqual(['😄这个很好'])
+    expect(result.comments).toEqual(['😄很好'])
   })
 
   it('会保留句中 emoji，不再把它硬挪到标点位置', () => {
