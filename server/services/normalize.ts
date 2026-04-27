@@ -593,17 +593,21 @@ function applyEmojiDistribution(lines: string[], emojiRatio: number = NORMALIZE_
   return transformed
 }
 
-function applyLeadingNageBudget(lines: string[], ratio: number = 0.03) {
+function stripLeadingDiscoursePrefix(line: string, prefixes: string[]) {
+  const { prefix, core } = splitLeadingDecorators(line)
+  const matchedPrefix = prefixes.find((item) => core.startsWith(item))
+  if (!matchedPrefix) return line
+
+  return `${prefix}${core.slice(matchedPrefix.length).replace(LEADING_PUNCTUATION_RE, '')}`.trim()
+}
+
+function applyLeadingDiscoursePrefixBudget(lines: string[], prefixes: string[], ratio: number = 0.03) {
   if (!lines.length) return lines
 
   const normalizedRatio = normalizeRatio(ratio)
   const allowedCount = Math.min(lines.length, Math.max(0, Math.round(lines.length * normalizedRatio)))
   if (allowedCount <= 0) {
-    return lines.map((line) => {
-      const { prefix, core } = splitLeadingDecorators(line)
-      if (!core.startsWith('那个')) return line
-      return `${prefix}${core.slice(2).replace(LEADING_PUNCTUATION_RE, '')}`.trim()
-    })
+    return lines.map((line) => stripLeadingDiscoursePrefix(line, prefixes))
   }
 
   const decorated = lines.map((line, index) => {
@@ -611,18 +615,18 @@ function applyLeadingNageBudget(lines: string[], ratio: number = 0.03) {
     return {
       index,
       ...parts,
-      hasNage: parts.core.startsWith('那个')
+      hasDiscoursePrefix: prefixes.some((item) => parts.core.startsWith(item))
     }
   })
 
-  const nageIndices = decorated.filter((item) => item.hasNage).map((item) => item.index)
-  if (nageIndices.length <= allowedCount) return lines
+  const discoursePrefixIndices = decorated.filter((item) => item.hasDiscoursePrefix).map((item) => item.index)
+  if (discoursePrefixIndices.length <= allowedCount) return lines
 
-  const keepSet = new Set(nageIndices.slice(0, allowedCount))
+  const keepSet = new Set(discoursePrefixIndices.slice(0, allowedCount))
 
   return decorated.map((item) => {
-    if (!item.hasNage || keepSet.has(item.index)) return lines[item.index]
-    return `${item.prefix}${item.core.slice(2).replace(LEADING_PUNCTUATION_RE, '')}`.trim()
+    if (!item.hasDiscoursePrefix || keepSet.has(item.index)) return lines[item.index]
+    return stripLeadingDiscoursePrefix(lines[item.index], prefixes)
   })
 }
 
@@ -685,7 +689,7 @@ function normalizeFromLines(originalLines: string[], options?: NormalizeOptions)
   const endings = comments.map((item) => item.ending)
   commentLines = applyTerminalDistribution(commentLines, endings, 0.7)
   commentLines = applyEmojiDistribution(commentLines, emojiRatio)
-  commentLines = applyLeadingNageBudget(commentLines, 0.03)
+  commentLines = applyLeadingDiscoursePrefixBudget(commentLines, ['那个', '这个'], 0.03)
   commentLines = commentLines.map((line) => stripSentenceEndingPunctuationWhenEndingWithEmoji(line))
   comments = comments.map((item, index) => ({
     ...item,

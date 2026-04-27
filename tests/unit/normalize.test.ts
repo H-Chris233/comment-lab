@@ -301,13 +301,14 @@ describe('normalizeComments', () => {
     expect(result.removedInvalid).toBe(2)
   })
 
-  it('会把“那个”开头控制在 3%，超出的行会去掉“那个”', () => {
+  it('会把“那个/这个”开头控制在 3%，超出的行会去掉前缀', () => {
     const raw = [
       '那个真不错1',
-      '那个真不错2',
+      '这个真不错2',
       '那个真不错3',
-      '那个真不错4',
+      '这个真不错4',
       '那个真不错5',
+      '这个真不错6',
       '普通内容6',
       '普通内容7',
       '普通内容8',
@@ -334,14 +335,15 @@ describe('normalizeComments', () => {
       commaEmojiSwapRatio: 0
     })
 
-    const leadingNage = result.comments.filter((line) => line.startsWith('那个'))
+    const leadingDiscoursePrefix = result.comments.filter((line) => line.startsWith('那个') || line.startsWith('这个'))
 
-    expect(result.comments).toHaveLength(20)
-    expect(leadingNage).toHaveLength(1)
+    expect(result.comments).toHaveLength(21)
+    expect(leadingDiscoursePrefix).toHaveLength(1)
     expect(result.comments).toContain('真不错2。')
     expect(result.comments).toContain('真不错3。')
     expect(result.comments).toContain('真不错4。')
     expect(result.comments).toContain('真不错5。')
+    expect(result.comments).toContain('真不错6。')
   })
 
   it('会按比例把一部分逗号替换为双空格和句末标点', () => {
