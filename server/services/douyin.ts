@@ -429,6 +429,8 @@ export async function resolveDouyinDownloadVideoUrl(
   requestId?: string,
   options?: { region?: string }
 ): Promise<string> {
+  // CN 这里不表示“国家逻辑”，只是把低码率优先作为一次额外尝试；
+  // 如果拿不到低码率候选，再回退到 high-quality / parsed URL。
   if (options?.region === 'CN') {
     const lowestQualityUrl = extractLowestQualityVideoUrlFromTikHub(parsed.raw)
     if (lowestQualityUrl) {
