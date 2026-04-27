@@ -23,14 +23,14 @@ const LENGTH_BUCKET_RATIOS: Record<LengthBucketKey, number> = {
 
 const STYLE_DEFAULT_RANGES: Record<CommentStyle, string> = {
   short: '3~10字',
-  medium: '10~25字',
-  long: '25~35字'
+  medium: '10~20字',
+  long: '20~30字'
 }
 
 const STYLE_DEFAULT_SUBRANGES: Record<CommentStyle, string> = {
   short: '3、4、5、6、7、8、9、10 这些字数点都要尽量覆盖，避免只集中在 6/7 这类常见字数',
-  medium: '10~12、13~15、16~18、19~21、22~25 这些子区间都要尽量覆盖，避免只集中在 13/14 或 16/17 这类常见字数',
-  long: '25~27、28~30、31~33、34~35 这些子区间都要尽量覆盖，避免只集中在 26/27 或 31/32 这类常见字数'
+  medium: '10~12、13~15、16~18、19~20 这些子区间都要尽量覆盖，避免只集中在 13/14 或 16/17 这类常见字数',
+  long: '20~22、23~25、26~28、29~30 这些子区间都要尽量覆盖，避免只集中在 21/22 或 26/27 这类常见字数'
 }
 
 const TEMPLATE_CACHE = new Map<CommentStyle, string>()
@@ -66,12 +66,12 @@ export const LENGTH_BUCKETS: Record<LengthBucketKey, LengthBucketConfig> = {
   short_2: { key: 'short_2', style: 'short', label: '短评论桶 B', range: '6~10字', subranges: '6、7、8、9、10 这几个字数点都要尽量覆盖，避免只集中在 6/7 这类常见字数' },
   medium_1: { key: 'medium_1', style: 'medium', label: '中评论桶 A', range: '10~15字', subranges: '10~12、13~15 这两个子区间都要尽量覆盖，避免只集中在 13/14 这类常见字数' },
   medium_2: { key: 'medium_2', style: 'medium', label: '中评论桶 B', range: '16~20字', subranges: '16~18、19~20 这两个子区间都要尽量覆盖，避免只集中在 16/17 这类常见字数' },
-  long_1: { key: 'long_1', style: 'long', label: '长评论桶 A', range: '21~27字', subranges: '21~24、25~27 这两个子区间都要尽量覆盖，避免只集中在 26/27 这类常见字数' },
-  long_2: { key: 'long_2', style: 'long', label: '长评论桶 B', range: '28~35字', subranges: '28~31、32~35 这两个子区间都要尽量覆盖，避免只集中在 31/32 这类常见字数' }
+  long_1: { key: 'long_1', style: 'long', label: '长评论桶 A', range: '20~25字', subranges: '20~22、23~25 这两个子区间都要尽量覆盖，避免只集中在 21/22 这类常见字数' },
+  long_2: { key: 'long_2', style: 'long', label: '长评论桶 B', range: '26~30字', subranges: '26~28、29~30 这两个子区间都要尽量覆盖，避免只集中在 26/27 这类常见字数' }
 }
 
-export const EXACT_LENGTH_MIN = 6
-export const EXACT_LENGTH_MAX = 33
+export const EXACT_LENGTH_MIN = 3
+export const EXACT_LENGTH_MAX = 30
 
 export type ExactLengthTarget = {
   length: number
@@ -343,7 +343,7 @@ export async function buildExactLengthPrompt(
   params: BuildPromptParams,
   target: number
 ) {
-  const style: CommentStyle = length <= 10 ? 'short' : length <= 18 ? 'medium' : 'long'
+  const style: CommentStyle = length <= 10 ? 'short' : length <= 20 ? 'medium' : 'long'
   const template = await loadTemplate(style)
   return renderTemplate(template, {
     ...params,
