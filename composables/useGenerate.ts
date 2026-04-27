@@ -6,13 +6,12 @@ type StreamEvent = {
   data: any
 }
 
+type ShuffleBucket = 'short' | 'medium' | 'long'
+
 const EMOJI_SEQUENCE_RE = /(?:\p{Extended_Pictographic}(?:\uFE0F|\u200D\p{Extended_Pictographic})*|[#*0-9]\uFE0F?\u20E3|\p{Regional_Indicator}{2})/gu
 const LENGTH_IGNORE_RE = /[\s\u3000。．.!！？?、,，：:；;…·\-—~～"'“”‘’（）()【】\[\]<>《》]/g
-const SHUFFLE_BUCKET_ORDERS = [
-  ['short', 'medium', 'long'],
-  ['medium', 'long', 'short'],
-  ['long', 'short', 'medium']
-] as const
+const MAX_CONSECUTIVE_BUCKET = 3
+const SHUFFLE_BUCKETS: ShuffleBucket[] = ['short', 'medium', 'long']
 
 function countVisibleLengthWithoutEmojiAndPunctuation(line: string) {
   return line.replace(EMOJI_SEQUENCE_RE, '').replace(LENGTH_IGNORE_RE, '').length
@@ -25,6 +24,33 @@ function getShuffleBucket(text: string) {
   return 'long'
 }
 
+const LEADING_DECORATOR_RE = /^[\s\u3000。．.!！？?、,，：:；;…·\-—~～"'“”‘’（）()【】\[\]<>《》]+/u
+
+function stripLeadingDecorators(text: string) {
+  let value = text.trim()
+
+  while (true) {
+    const before = value
+    const punctuation = value.match(LEADING_DECORATOR_RE)
+    if (punctuation) {
+      value = value.slice(punctuation[0].length)
+    }
+
+    const emoji = value.match(EMOJI_SEQUENCE_RE)?.[0]
+    if (emoji && value.startsWith(emoji)) {
+      value = value.slice(emoji.length)
+    }
+
+    if (value === before) break
+  }
+
+  return value
+}
+
+function getOpeningKey(text: string) {
+  return Array.from(stripLeadingDecorators(text)).slice(0, 2).join('')
+}
+
 function randomizeArrayInPlace<T>(items: T[]) {
   for (let i = items.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1))
@@ -33,26 +59,67 @@ function randomizeArrayInPlace<T>(items: T[]) {
   return items
 }
 
-function reinsertTailIntoHead<T>(items: T[]) {
-  if (items.length <= 3) {
-    return items
+function hasAlternativeOpeningKey<T extends string>(items: T[], lastOpeningKey: string | null) {
+  if (!lastOpeningKey) return false
+  return items.some((item) => getOpeningKey(item) !== lastOpeningKey)
+}
+
+function takePreferredItem<T extends string>(items: T[], lastOpeningKey: string | null) {
+  if (!items.length) return null
+  if (!lastOpeningKey) {
+    return items.shift() ?? null
   }
 
-  const tailSize = Math.max(1, Math.floor(items.length / 3))
-  const tail = randomizeArrayInPlace(items.splice(items.length - tailSize, tailSize))
-  const frontWindow = Math.max(1, Math.floor(items.length / 2))
-
-  for (const item of tail) {
-    const insertAt = Math.floor(Math.random() * (frontWindow + 1))
-    items.splice(insertAt, 0, item)
+  const preferredIndex = items.findIndex((item) => getOpeningKey(item) !== lastOpeningKey)
+  if (preferredIndex === -1) {
+    return items.shift() ?? null
   }
 
-  return items
+  return items.splice(preferredIndex, 1)[0] ?? null
+}
+
+function pickWeightedBucket<T extends string>(
+  buckets: Record<ShuffleBucket, T[]>,
+  candidates: ShuffleBucket[],
+  lastBucket: ShuffleBucket | null,
+  runLength: number
+) : ShuffleBucket | null {
+  const scored = candidates
+    .map((bucket) => {
+      const remaining = buckets[bucket].length
+      if (!remaining) return null
+
+      let weight = remaining
+      if (bucket === lastBucket) {
+        if (runLength >= MAX_CONSECUTIVE_BUCKET) {
+          weight = 0
+        } else {
+          weight *= Math.max(0.2, 1 - runLength * 0.25)
+        }
+      }
+
+      return { bucket, weight }
+    })
+    .filter((item): item is { bucket: ShuffleBucket; weight: number } => item !== null && item.weight > 0)
+
+  if (!scored.length) return null
+
+  const totalWeight = scored.reduce((sum, item) => sum + item.weight, 0)
+  const roll = Math.random() * totalWeight
+
+  let acc = 0
+  for (const item of scored) {
+    acc += item.weight
+    if (roll < acc) return item.bucket
+  }
+
+  return scored[scored.length - 1].bucket
 }
 
 export function shuffleInPlace<T extends string>(items: T[], cycleIndex = 0) {
+  void cycleIndex
   const randomizedItems = randomizeArrayInPlace(items.slice())
-  const buckets: Record<'short' | 'medium' | 'long', T[]> = {
+  const buckets: Record<ShuffleBucket, T[]> = {
     short: [],
     medium: [],
     long: []
@@ -63,15 +130,36 @@ export function shuffleInPlace<T extends string>(items: T[], cycleIndex = 0) {
   }
 
   const ordered: T[] = []
-  const order = SHUFFLE_BUCKET_ORDERS[cycleIndex % SHUFFLE_BUCKET_ORDERS.length]
+  let lastBucket: ShuffleBucket | null = null
+  let runLength = 0
+  let lastOpeningKey: string | null = null
+
   while (buckets.short.length || buckets.medium.length || buckets.long.length) {
-    for (const bucketName of order) {
-      if (!buckets[bucketName].length) continue
-      ordered.push(buckets[bucketName].shift()!)
+    const available: ShuffleBucket[] = SHUFFLE_BUCKETS.filter((bucket) => buckets[bucket].length > 0)
+    if (!available.length) break
+
+    const openingFriendly = available.filter((bucket) => hasAlternativeOpeningKey(buckets[bucket], lastOpeningKey))
+    const prefixedAvailable = openingFriendly.length ? openingFriendly : available
+    const candidates: ShuffleBucket[] = lastBucket && runLength >= MAX_CONSECUTIVE_BUCKET && prefixedAvailable.length > 1
+      ? prefixedAvailable.filter((bucket) => bucket !== lastBucket)
+      : prefixedAvailable
+
+    const nextBucket: ShuffleBucket | null = pickWeightedBucket(buckets, candidates.length ? candidates : available, lastBucket, runLength)
+    if (!nextBucket) break
+
+    const nextItem = takePreferredItem(buckets[nextBucket], lastOpeningKey)
+    if (nextItem == null) continue
+
+    ordered.push(nextItem)
+    lastOpeningKey = getOpeningKey(nextItem)
+    if (nextBucket === lastBucket) {
+      runLength += 1
+    } else {
+      lastBucket = nextBucket
+      runLength = 1
     }
   }
 
-  reinsertTailIntoHead(ordered)
   items.splice(0, items.length, ...ordered)
 
   return items
@@ -130,7 +218,6 @@ export function useGenerate() {
   const model = ref('')
   const abortController = ref<AbortController | null>(null)
   const requestTimeoutId = ref<ReturnType<typeof setTimeout> | null>(null)
-  let shuffleCycleIndex = 0
   let streamedCommentSet = new Set<string>()
   let requestTimedOut = false
   const runtimeConfig = useRuntimeConfig()
@@ -236,7 +323,6 @@ export function useGenerate() {
     finalCount.value = 0
     streamedCommentSet = new Set<string>()
     requestTimedOut = false
-    shuffleCycleIndex = 0
 
     try {
       abortController.value = new AbortController()
@@ -420,8 +506,7 @@ export function useGenerate() {
   }
 
   function shuffleComments() {
-    shuffleInPlace(comments.value, shuffleCycleIndex)
-    shuffleCycleIndex = (shuffleCycleIndex + 1) % SHUFFLE_BUCKET_ORDERS.length
+    shuffleInPlace(comments.value)
   }
 
   async function regenerate() {

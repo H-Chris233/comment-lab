@@ -1,6 +1,99 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { shuffleInPlace, useGenerate } from '../../composables/useGenerate'
 
+const EMOJI_SEQUENCE_RE = /(?:\p{Extended_Pictographic}(?:\uFE0F|\u200D\p{Extended_Pictographic})*|[#*0-9]\uFE0F?\u20E3|\p{Regional_Indicator}{2})/gu
+const LENGTH_IGNORE_RE = /[\s\u3000。．.!！？?、,，：:；;…·\-—~～"'“”‘’（）()【】\[\]<>《》]/g
+const LEADING_DECORATOR_RE = /^[\s\u3000。．.!！？?、,，：:；;…·\-—~～"'“”‘’（）()【】\[\]<>《》]+/u
+
+function getBucket(text: string) {
+  const length = text.replace(EMOJI_SEQUENCE_RE, '').replace(LENGTH_IGNORE_RE, '').length
+  if (length <= 10) return 'short'
+  if (length <= 18) return 'medium'
+  return 'long'
+}
+
+function stripLeadingDecorators(text: string) {
+  let value = text.trim()
+
+  while (true) {
+    const before = value
+    const punctuation = value.match(LEADING_DECORATOR_RE)
+    if (punctuation) {
+      value = value.slice(punctuation[0].length)
+    }
+
+    const emoji = value.match(EMOJI_SEQUENCE_RE)?.[0]
+    if (emoji && value.startsWith(emoji)) {
+      value = value.slice(emoji.length)
+    }
+
+    if (value === before) break
+  }
+
+  return value
+}
+
+function getOpeningKey(text: string) {
+  return Array.from(stripLeadingDecorators(text)).slice(0, 2).join('')
+}
+
+function maxConsecutiveBucketRun(values: string[]) {
+  if (!values.length) return 0
+
+  let maxRun = 1
+  let currentRun = 1
+  let lastBucket = getBucket(values[0])
+
+  for (const value of values.slice(1)) {
+    const bucket = getBucket(value)
+    if (bucket === lastBucket) {
+      currentRun += 1
+    } else {
+      maxRun = Math.max(maxRun, currentRun)
+      currentRun = 1
+      lastBucket = bucket
+    }
+  }
+
+  return Math.max(maxRun, currentRun)
+}
+
+function maxConsecutiveOpeningKeyRun(values: string[]) {
+  if (!values.length) return 0
+
+  let maxRun = 1
+  let currentRun = 1
+  let lastKey = getOpeningKey(values[0])
+
+  for (const value of values.slice(1)) {
+    const key = getOpeningKey(value)
+    if (key === lastKey) {
+      currentRun += 1
+    } else {
+      maxRun = Math.max(maxRun, currentRun)
+      currentRun = 1
+      lastKey = key
+    }
+  }
+
+  return Math.max(maxRun, currentRun)
+}
+
+const SHUFFLE_SAMPLE_VALUES = [
+  '那个真稳',
+  '这个真稳',
+  '我看真稳',
+  '感觉真稳',
+  '那个真的挺稳当',
+  '这个真的挺稳当',
+  '我看真的挺稳当',
+  '感觉真的挺稳当',
+  '那个真的挺稳当，而且越看越顺',
+  '这个真的挺稳当，而且越看越顺',
+  '我看真的挺稳当，而且越看越顺',
+  '感觉真的挺稳当，而且越看越顺'
+]
+
 describe('useGenerate', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
@@ -39,129 +132,75 @@ describe('useGenerate', () => {
     expect(model).toBe('qwen3.6-plus')
   })
 
-  it('会按短中长轮转重排数组顺序，并且不同轮次起始桶不同', () => {
-    const values = [
-      '这个真的比我想的还要细很多，细节也更完整，越看越舒服',
-      '太强了',
-      '这个真的很不错，而且挺顺眼的',
-      '从开头到结尾都挺顺的，细节也比我想的更完整',
-      '哈哈',
-      '感觉比想象中顺眼很多，而且挺自然的'
-    ]
+  it('会避免同一长度桶连续超过 3 条', () => {
+    const values = SHUFFLE_SAMPLE_VALUES
     const original = values.slice()
     const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0)
 
-    const first = shuffleInPlace(values.slice(), 0)
-    const second = shuffleInPlace(values.slice(), 1)
+    const result = shuffleInPlace(values.slice(), 0)
 
-    expect(first).toEqual([
-      '感觉比想象中顺眼很多，而且挺自然的',
-      '这个真的比我想的还要细很多，细节也更完整，越看越舒服',
-      '太强了',
-      '这个真的很不错，而且挺顺眼的',
-      '从开头到结尾都挺顺的，细节也比我想的更完整',
-      '哈哈'
-    ])
-    expect(second).toEqual([
-      '这个真的比我想的还要细很多，细节也更完整，越看越舒服',
-      '哈哈',
-      '这个真的很不错，而且挺顺眼的',
-      '从开头到结尾都挺顺的，细节也比我想的更完整',
-      '太强了',
-      '感觉比想象中顺眼很多，而且挺自然的'
-    ])
-    expect(first).not.toEqual(second)
+    expect(maxConsecutiveBucketRun(result)).toBeLessThanOrEqual(3)
+    expect(result.slice().sort()).toEqual(values.slice().sort())
     expect(values).toEqual(original)
 
     randomSpy.mockRestore()
   })
 
-  it('会先随机打散再进入短中长轮转逻辑', () => {
-    const values = ['甲', '乙', '丙', '丁']
+  it('不同随机序列会得到不同打乱结果，但不会依赖轮转状态', () => {
+    const values = SHUFFLE_SAMPLE_VALUES.slice()
     const original = values.slice()
-    const randomSpy = vi.spyOn(Math, 'random')
-      .mockReturnValueOnce(0)
-      .mockReturnValueOnce(0.5)
-      .mockReturnValueOnce(0.5)
+
+    const firstRandomSpy = vi.spyOn(Math, 'random')
       .mockReturnValueOnce(0)
       .mockReturnValueOnce(0)
+      .mockReturnValueOnce(0)
+      .mockReturnValueOnce(0)
+      .mockReturnValueOnce(0)
+      .mockReturnValueOnce(0)
+      .mockReturnValueOnce(0)
+      .mockReturnValueOnce(0)
+      .mockReturnValueOnce(0)
+      .mockReturnValueOnce(0)
+      .mockReturnValueOnce(0)
+      .mockReturnValueOnce(0)
 
-    const result = shuffleInPlace(values.slice(), 0)
+    const first = shuffleInPlace(values.slice())
+    firstRandomSpy.mockRestore()
 
-    expect(result).toEqual(['甲', '丁', '丙', '乙'])
-    expect(values).toEqual(original)
-
-    randomSpy.mockRestore()
-  })
-
-  it('会把尾部剩余项随机打散后插回前面', () => {
-    const values = [
-      '这个真的比我想的还要细很多，细节也更完整，越看越舒服',
-      '太强了',
-      '这个真的很不错，而且挺顺眼的',
-      '从开头到结尾都挺顺的，细节也比我想的更完整',
-      '哈哈',
-      '感觉比想象中顺眼很多，而且挺自然的'
-    ]
-    const randomSpy = vi.spyOn(Math, 'random')
+    const secondRandomSpy = vi.spyOn(Math, 'random')
       .mockReturnValueOnce(0.99)
       .mockReturnValueOnce(0.99)
       .mockReturnValueOnce(0.99)
       .mockReturnValueOnce(0.99)
       .mockReturnValueOnce(0.99)
-      .mockReturnValueOnce(0)
-      .mockReturnValueOnce(0)
-      .mockReturnValueOnce(0)
+      .mockReturnValueOnce(0.99)
+      .mockReturnValueOnce(0.99)
+      .mockReturnValueOnce(0.99)
+      .mockReturnValueOnce(0.99)
+      .mockReturnValueOnce(0.99)
+      .mockReturnValueOnce(0.99)
+      .mockReturnValueOnce(0.99)
 
-    const result = shuffleInPlace(values.slice(), 0)
+    const second = shuffleInPlace(values.slice())
+    secondRandomSpy.mockRestore()
 
-    expect(result).toEqual([
-      '感觉比想象中顺眼很多，而且挺自然的',
-      '从开头到结尾都挺顺的，细节也比我想的更完整',
-      '太强了',
-      '这个真的很不错，而且挺顺眼的',
-      '这个真的比我想的还要细很多，细节也更完整，越看越舒服',
-      '哈哈'
-    ])
-
-    randomSpy.mockRestore()
-  })
-
-  it('连续点击打乱按钮时会轮换起始桶', () => {
-    const { comments, shuffleComments } = useGenerate()
-    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0)
-    comments.value = [
-      '这个真的比我想的还要细很多，细节也更完整，越看越舒服',
-      '太强了',
-      '这个真的很不错，而且挺顺眼的',
-      '从开头到结尾都挺顺的，细节也比我想的更完整',
-      '哈哈',
-      '感觉比想象中顺眼很多，而且挺自然的'
-    ]
-
-    shuffleComments()
-    const first = [...comments.value]
-
-    shuffleComments()
-    const second = [...comments.value]
-
-    expect(first).toEqual([
-      '感觉比想象中顺眼很多，而且挺自然的',
-      '这个真的比我想的还要细很多，细节也更完整，越看越舒服',
-      '太强了',
-      '这个真的很不错，而且挺顺眼的',
-      '从开头到结尾都挺顺的，细节也比我想的更完整',
-      '哈哈'
-    ])
-    expect(second).toEqual([
-      '从开头到结尾都挺顺的，细节也比我想的更完整',
-      '哈哈',
-      '这个真的很不错，而且挺顺眼的',
-      '这个真的比我想的还要细很多，细节也更完整，越看越舒服',
-      '太强了',
-      '感觉比想象中顺眼很多，而且挺自然的'
-    ])
     expect(first).not.toEqual(second)
+    expect(maxConsecutiveBucketRun(first)).toBeLessThanOrEqual(3)
+    expect(maxConsecutiveBucketRun(second)).toBeLessThanOrEqual(3)
+    expect(maxConsecutiveOpeningKeyRun(first)).toBeLessThanOrEqual(1)
+    expect(maxConsecutiveOpeningKeyRun(second)).toBeLessThanOrEqual(1)
+    expect(values).toEqual(original)
+  })
+
+  it('不会改变原数组内容', () => {
+    const values = SHUFFLE_SAMPLE_VALUES.slice()
+    const original = values.slice()
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0)
+
+    const result = shuffleInPlace(values.slice(), 0)
+
+    expect(result).toHaveLength(values.length)
+    expect(values).toEqual(original)
 
     randomSpy.mockRestore()
   })
