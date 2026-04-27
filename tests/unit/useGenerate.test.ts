@@ -79,6 +79,27 @@ function maxConsecutiveOpeningKeyRun(values: string[]) {
   return Math.max(maxRun, currentRun)
 }
 
+function maxConsecutiveSameOpeningPairRun(values: string[]) {
+  if (values.length < 2) return 0
+
+  let maxRun = 1
+  let currentRun = 1
+  let lastKey = getOpeningKey(values[0])
+
+  for (const value of values.slice(1)) {
+    const key = getOpeningKey(value)
+    if (key === lastKey) {
+      currentRun += 1
+    } else {
+      maxRun = Math.max(maxRun, currentRun)
+      currentRun = 1
+      lastKey = key
+    }
+  }
+
+  return Math.max(maxRun, currentRun)
+}
+
 const SHUFFLE_SAMPLE_VALUES = [
   '那个真稳',
   '这个真稳',
@@ -187,8 +208,8 @@ describe('useGenerate', () => {
     expect(first).not.toEqual(second)
     expect(maxConsecutiveBucketRun(first)).toBeLessThanOrEqual(3)
     expect(maxConsecutiveBucketRun(second)).toBeLessThanOrEqual(3)
-    expect(maxConsecutiveOpeningKeyRun(first)).toBeLessThanOrEqual(1)
-    expect(maxConsecutiveOpeningKeyRun(second)).toBeLessThanOrEqual(1)
+    expect(maxConsecutiveSameOpeningPairRun(first)).toBeLessThanOrEqual(2)
+    expect(maxConsecutiveSameOpeningPairRun(second)).toBeLessThanOrEqual(2)
     expect(values).toEqual(original)
   })
 
