@@ -23,20 +23,41 @@ vi.mock('../../server/services/auth', () => ({
 
 vi.mock('../../server/services/douyin', () => ({
   parseDouyinLink: vi.fn().mockResolvedValue({ ok: true, videoUrl: 'https://www.douyin.com/video/7626738541439099121', awemeId: '7626738541439099121' }),
-  fetchDouyinCommentSamplesByAwemeId: vi.fn().mockResolvedValue([])
+  fetchDouyinCommentSamplesByAwemeId: vi.fn().mockResolvedValue([]),
+  resolveDouyinDownloadVideoUrl: vi.fn().mockImplementation(async (parsed: any) => {
+    const candidates = parsed?.raw?.data?.aweme_detail?.video?.bit_rate
+    if (Array.isArray(candidates) && candidates.length > 0) {
+      const selected = [...candidates]
+        .sort((left, right) => Number(left?.bit_rate || left?.bitrate || 0) - Number(right?.bit_rate || right?.bitrate || 0))[0]
+      const lowUrl = selected?.play_addr?.url_list?.[0]
+      if (typeof lowUrl === 'string' && lowUrl) return lowUrl
+    }
+
+    return 'https://cdn.example.com/cn-fallback.mp4'
+  })
 }))
 
 import { generateFromVideoUrl, generateFromVideoFile } from '../../server/services/ai'
 import { downloadVideoUrlToTempFile, saveVideoUploadToTempFile } from '../../server/services/file'
-import { fetchDouyinCommentSamplesByAwemeId, parseDouyinLink } from '../../server/services/douyin'
+import { fetchDouyinCommentSamplesByAwemeId, parseDouyinLink, resolveDouyinDownloadVideoUrl } from '../../server/services/douyin'
 import generateHandler from '../../server/api/generate.post'
 
 function styleTargetFromPrompt(prompt: string) {
-  const styleMatch = prompt.match(/输出\s+(\d+)\s+条(短评论|中评论|长评论)/)
-  if (styleMatch?.[1] && styleMatch[2]) {
+  const styleMatch = prompt.match(/当前长度桶：(?<style>短评论|中评论|长评论)组/u)
+  if (styleMatch?.groups?.style) {
+    const style = styleMatch.groups.style
+    const countMatch = prompt.match(/输出\s+(\d+)\s+条/)
     return {
-      count: Number(styleMatch[1]),
-      style: styleMatch[2]
+      count: Number(countMatch?.[1] || 1),
+      style
+    }
+  }
+
+  const legacyStyleMatch = prompt.match(/输出\s+(\d+)\s+条(短评论|中评论|长评论)/)
+  if (legacyStyleMatch?.[1] && legacyStyleMatch[2]) {
+    return {
+      count: Number(legacyStyleMatch[1]),
+      style: legacyStyleMatch[2]
     }
   }
 
@@ -47,15 +68,24 @@ function styleTargetFromPrompt(prompt: string) {
   }
 }
 
+let styleRawTextRun = 0
+
 function buildStyleRawText(prompt: string, count?: number) {
   const target = styleTargetFromPrompt(prompt)
   const itemCount = Math.max(Number(count || target.count || 0), 1)
-  return Array.from({ length: itemCount }, (_, index) => `${target.style}-${String(index + 1).padStart(2, '0')}`).join('\n')
+  const run = ++styleRawTextRun
+  return Array.from({ length: itemCount }, (_, index) => `${target.style}-${String(index + 1).padStart(2, '0')}-r${run}`).join('\n')
 }
 
 
 beforeEach(() => {
   vi.clearAllMocks()
+  styleRawTextRun = 0
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+    data: {
+      original_video_url: 'https://cdn.example.com/cn-fallback.mp4'
+    }
+  }), { status: 200 })) as any)
   vi.mocked(parseDouyinLink).mockResolvedValue({ ok: true, videoUrl: 'https://www.douyin.com/video/7626738541439099121' } as any)
   vi.mocked(saveVideoUploadToTempFile).mockResolvedValue({
     sourcePath: '/tmp/mock.mp4',
@@ -282,6 +312,58 @@ describe('POST /api/generate', () => {
     expect(res.body.ok).toBe(true)
     expect(downloadVideoUrlToTempFile).toHaveBeenCalledTimes(1)
     expect(generateFromVideoFile).toHaveBeenCalledTimes(2)
+  })
+
+  it('link 模式在 inputMode=file 时会优先下载最低画质链接', async () => {
+    vi.mocked(parseDouyinLink).mockResolvedValueOnce({
+      ok: true,
+      videoUrl: 'https://cdn.example.com/high.mp4',
+      awemeId: '7626738541439099121',
+      raw: {
+        data: {
+          aweme_detail: {
+            video: {
+              bit_rate: [
+                {
+                  bit_rate: 900000,
+                  play_addr: { url_list: ['https://cdn.example.com/high.mp4'] }
+                },
+                {
+                  bit_rate: 120000,
+                  play_addr: { url_list: ['https://cdn.example.com/low.mp4'] }
+                }
+              ]
+            }
+          }
+        }
+      }
+    } as any)
+
+    vi.mocked(downloadVideoUrlToTempFile).mockResolvedValueOnce({
+      bytes: 4,
+      mime: 'video/mp4',
+      sourcePath: '/tmp/mock.mp4',
+      cleanup: async () => {}
+    } as any)
+    vi.mocked(resolveDouyinDownloadVideoUrl).mockResolvedValueOnce('https://cdn.example.com/low.mp4' as any)
+
+    const app = createApp()
+    app.use('/api/generate', generateHandler)
+
+    const res = await request(toNodeListener(app))
+      .post('/api/generate')
+      .field('mode', 'link')
+      .field('inputMode', 'file')
+      .field('url', 'https://v.douyin.com/abcde/')
+      .field('count', '2')
+      .field('basePrompt', 'base')
+
+    expect(res.status).toBe(200)
+    expect(res.body.ok).toBe(true)
+    expect(downloadVideoUrlToTempFile).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(downloadVideoUrlToTempFile).mock.calls[0]?.[0]).toEqual(expect.objectContaining({
+      videoUrl: 'https://cdn.example.com/low.mp4'
+    }))
   })
 
   it('upload 模式会先保存到本地临时文件再交给 DashScope SDK', async () => {

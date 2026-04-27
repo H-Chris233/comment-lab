@@ -142,6 +142,82 @@ function extractCoverFromTikHub(payload: any) {
   )
 }
 
+type TikHubVideoCandidate = {
+  url: string
+  bitRate?: number
+  source: string
+}
+
+function normalizeCandidateUrls(value: unknown): string[] {
+  if (typeof value === 'string') return isHttpUrl(value) ? [value] : []
+  if (!Array.isArray(value)) return []
+  return value.flatMap((item) => normalizeCandidateUrls(item))
+}
+
+function parseCandidateBitRate(value: unknown) {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return undefined
+}
+
+function collectTikHubVideoCandidates(payload: any) {
+  const candidates: TikHubVideoCandidate[] = []
+  const bitRatePaths = [
+    'data.aweme_detail.video.bit_rate',
+    'data.video.bit_rate',
+    'aweme_detail.video.bit_rate',
+    'video.bit_rate'
+  ]
+
+  for (const path of bitRatePaths) {
+    const items = getByPath(payload, path)
+    if (!Array.isArray(items)) continue
+
+    for (const item of items) {
+      if (!item || typeof item !== 'object') continue
+      const urlList = normalizeCandidateUrls((item as any)?.play_addr?.url_list)
+      const bitRate = parseCandidateBitRate((item as any)?.bit_rate ?? (item as any)?.bitrate)
+      for (const url of urlList) {
+        candidates.push({
+          url,
+          bitRate,
+          source: `${path}:bit_rate`
+        })
+      }
+    }
+  }
+
+  const fallbackPaths = [
+    { path: 'data.video_url', source: 'data.video_url' },
+    { path: 'data.nwm_video_url', source: 'data.nwm_video_url' },
+    { path: 'data.aweme_detail.video.play_addr.url_list', source: 'data.aweme_detail.video.play_addr.url_list' },
+    { path: 'data.aweme_detail.video.bit_rate[0].play_addr.url_list', source: 'data.aweme_detail.video.bit_rate[0].play_addr.url_list' },
+    { path: 'data.aweme_detail.video.play_addr_h264.url_list', source: 'data.aweme_detail.video.play_addr_h264.url_list' },
+    { path: 'video_url', source: 'video_url' },
+    { path: 'nwm_video_url', source: 'nwm_video_url' }
+  ]
+
+  for (const { path, source } of fallbackPaths) {
+    const urls = normalizeCandidateUrls(getByPath(payload, path))
+    for (const url of urls) {
+      candidates.push({ url, source })
+    }
+  }
+
+  return candidates
+}
+
+function extractLowestQualityVideoUrlFromTikHub(payload: any) {
+  const candidates = collectTikHubVideoCandidates(payload).filter((candidate) => candidate.bitRate != null)
+  if (!candidates.length) return undefined
+
+  candidates.sort((left, right) => (left.bitRate || 0) - (right.bitRate || 0))
+  return candidates[0]?.url
+}
+
 function cleanCommentSample(value: string) {
   return value
     .replace(/^[\s\-•·\d.)、：:]+/g, '')
@@ -321,6 +397,55 @@ async function callTikHubForDouyinVideo(shareUrl: string, requestId?: string) {
   })
 }
 
+async function callTikHubForDouyinHighQualityPlayUrl(params: {
+  shareUrl?: string
+  awemeId?: string
+  region?: string
+  requestId?: string
+}) {
+  const { baseUrl, apiKey } = getTikHubConfig()
+  if (!apiKey) return undefined
+
+  const apiUrl = new URL(`${baseUrl}/api/v1/douyin/app/v3/fetch_video_high_quality_play_url`)
+  if (params.awemeId) apiUrl.searchParams.set('aweme_id', params.awemeId)
+  if (params.shareUrl) apiUrl.searchParams.set('share_url', params.shareUrl)
+  if (params.region) apiUrl.searchParams.set('region', params.region)
+
+  console.info('[douyin.tikhub] step:request-high-quality', {
+    requestId: params.requestId,
+    region: params.region || null,
+    hasAwemeId: Boolean(params.awemeId),
+    hasShareUrl: Boolean(params.shareUrl)
+  })
+
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 15_000)
+
+  try {
+    const res = await fetch(apiUrl.toString(), {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        Accept: 'application/json'
+      },
+      signal: controller.signal
+    })
+
+    if (!res.ok) return undefined
+
+    const json = await res.json().catch(() => null)
+    if (!json || typeof json !== 'object') return undefined
+
+    const url = getByPath(json, 'data.original_video_url')
+      ?? getByPath(json, 'original_video_url')
+      ?? getByPath(json, 'data.video_data.original_video_url')
+
+    return typeof url === 'string' && isHttpUrl(url) ? url : undefined
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 async function callTikHubForDouyinAwemeId(shareUrl: string, requestId?: string) {
   const { baseUrl, apiKey } = getTikHubConfig()
   if (!apiKey) return undefined
@@ -464,6 +589,48 @@ export async function parseDouyinLink(url: string, requestId?: string): Promise<
     awemeId: resolved.awemeId,
     raw: resolved.raw
   }
+}
+
+export async function resolveDouyinDownloadVideoUrl(
+  parsed: ParsedVideoResult,
+  sourceUrl: string,
+  requestId?: string,
+  options?: { region?: string }
+): Promise<string> {
+  const lowestQualityUrl = extractLowestQualityVideoUrlFromTikHub(parsed.raw)
+  if (lowestQualityUrl) {
+    console.info('[douyin.download] selected-lowest-quality-url', {
+      requestId,
+      host: new URL(lowestQualityUrl).hostname
+    })
+    return lowestQualityUrl
+  }
+
+  const awemeId = parsed.awemeId || extractDouyinVideoId(parsed.videoUrl || '') || extractDouyinVideoId(sourceUrl)
+  if (options?.region && awemeId) {
+    const regionalUrl = await callTikHubForDouyinHighQualityPlayUrl({
+      awemeId,
+      shareUrl: sourceUrl,
+      region: options.region,
+      requestId
+    })
+
+    if (regionalUrl) {
+      console.info('[douyin.download] selected-regional-url', {
+        requestId,
+        region: options.region,
+        host: new URL(regionalUrl).hostname
+      })
+      return regionalUrl
+    }
+  }
+
+  const fallbackVideoUrl = parsed.videoUrl || sourceUrl
+  console.info('[douyin.download] fallback-to-parsed-url', {
+    requestId,
+    host: new URL(fallbackVideoUrl).hostname
+  })
+  return fallbackVideoUrl
 }
 
 export async function verifyVideoUrlReachable(_videoUrl: string) {

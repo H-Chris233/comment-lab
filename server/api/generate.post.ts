@@ -5,7 +5,7 @@ import { generateFromVideoFile, generateFromVideoUrl } from '../services/ai'
 import { ALLOWED_VIDEO_MIME_TYPES, downloadVideoUrlToTempFile, getMaxVideoBytes, readMultipart, saveVideoUploadToTempFile } from '../services/file'
 import { normalizeComments } from '../services/normalize'
 import { countVisibleLengthWithoutEmojiAndPunctuation } from '../services/emoji'
-import { fetchDouyinCommentSamplesByAwemeId, parseDouyinLink } from '../services/douyin'
+import { fetchDouyinCommentSamplesByAwemeId, parseDouyinLink, resolveDouyinDownloadVideoUrl } from '../services/douyin'
 import {
   STYLE_ORDER,
   buildStylePrompts,
@@ -237,8 +237,9 @@ export default defineEventHandler(async (event) => {
             transport: 'url'
           })
         } else {
+          const downloadVideoUrl = await resolveDouyinDownloadVideoUrl(parsed, sourceUrl, requestId, { region: 'CN' })
           const downloaded = await downloadVideoUrlToTempFile({
-            videoUrl: parsedVideoUrl,
+            videoUrl: downloadVideoUrl,
             requestId,
             maxBytes: getMaxVideoBytes()
           })
@@ -278,8 +279,9 @@ export default defineEventHandler(async (event) => {
             transport: 'url'
           })
         } else {
+          const downloadVideoUrl = await resolveDouyinDownloadVideoUrl(parsed, sourceUrl, requestId, { region: 'CN' })
           const downloaded = await downloadVideoUrlToTempFile({
-            videoUrl: parsedVideoUrl,
+            videoUrl: downloadVideoUrl,
             requestId,
             maxBytes: getMaxVideoBytes()
           })
