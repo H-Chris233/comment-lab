@@ -5,7 +5,7 @@ import { generateFromVideoFile, generateFromVideoUrl } from '../services/ai'
 import { ALLOWED_VIDEO_MIME_TYPES, downloadVideoUrlToTempFile, getMaxVideoBytes, readMultipart, saveVideoUploadToTempFile } from '../services/file'
 import { normalizeComments } from '../services/normalize'
 import { countVisibleLengthWithoutEmojiAndPunctuation } from '../services/emoji'
-import { fetchDouyinCommentSamplesByAwemeId, parseDouyinLink, resolveDouyinDownloadVideoUrl } from '../services/douyin'
+import { parseDouyinLink, resolveDouyinDownloadVideoUrl } from '../services/douyin'
 import {
   STYLE_ORDER,
   buildStylePrompts,
@@ -127,10 +127,8 @@ export default defineEventHandler(async (event) => {
     const count = validateCount(field('count'))
     const dedupeRaw = field('dedupe')
     const cleanEmptyRaw = field('cleanEmpty')
-    const includeCommentSamplesRaw = field('includeCommentSamples')
     const dedupe = dedupeRaw == null ? true : parseBoolean(dedupeRaw)
     const cleanEmpty = cleanEmptyRaw == null ? true : parseBoolean(cleanEmptyRaw)
-    const includeCommentSamples = includeCommentSamplesRaw == null ? false : parseBoolean(includeCommentSamplesRaw)
     const promptData = validatePromptLength(field('basePrompt'))
     const inputMode = validateInputMode(field('inputMode')) ?? (mode === 'link' ? 'url' : 'file')
     const validatedModel = validateModel(field('model'))
@@ -150,7 +148,6 @@ export default defineEventHandler(async (event) => {
       count,
       dedupe,
       cleanEmpty,
-      includeCommentSamples,
       inputMode,
       basePromptLength: promptData.basePrompt.length,
       model
@@ -208,8 +205,6 @@ export default defineEventHandler(async (event) => {
     let cleanupVideoSource: null | (() => Promise<void>) = null
     let directVideoUrl = ''
     let videoTitle = ''
-    let commentSamples: string[] = []
-    let commentSamplesPromise: Promise<string[]> | null = null
 
     if (mode === 'link') {
       const sourceUrl = validateUrl(field('url'))
@@ -221,12 +216,6 @@ export default defineEventHandler(async (event) => {
       try {
         const parsedVideoUrl = ensureParsedVideoUrl(parsed)
         videoTitle = parsed.title?.trim() || videoTitle
-        if (includeCommentSamples) {
-          const awemeId = parsed.awemeId || parsedVideoUrl.match(/\/video\/(\d{8,24})(?:[/?#]|$)/)?.[1] || ''
-          if (awemeId) {
-            commentSamplesPromise = fetchDouyinCommentSamplesByAwemeId(sourceUrl, awemeId, requestId)
-          }
-        }
         if (inputMode === 'url') {
           directVideoUrl = parsedVideoUrl
           console.info('[api.generate] step:link-parse:ok', {
@@ -265,12 +254,6 @@ export default defineEventHandler(async (event) => {
         parsed = await parseDouyinLink(sourceUrl, requestId)
         const parsedVideoUrl = ensureParsedVideoUrl(parsed)
         videoTitle = parsed.title?.trim() || videoTitle
-        if (includeCommentSamples && !commentSamplesPromise) {
-          const awemeId = parsed.awemeId || parsedVideoUrl.match(/\/video\/(\d{8,24})(?:[/?#]|$)/)?.[1] || ''
-          if (awemeId) {
-            commentSamplesPromise = fetchDouyinCommentSamplesByAwemeId(sourceUrl, awemeId, requestId)
-          }
-        }
         if (inputMode === 'url') {
           directVideoUrl = parsedVideoUrl
           console.info('[api.generate] step:link-download-retry-ok', {
@@ -301,27 +284,12 @@ export default defineEventHandler(async (event) => {
       const uploaded = await saveVideoUploadToTempFile(file, requestId)
       localVideoPath = uploaded.sourcePath
       cleanupVideoSource = uploaded.cleanup
-        console.info('[api.generate] step:upload-accepted', {
-          requestId,
-          mime: file.type,
-          bytes: file.data?.byteLength || 0,
-          maxBytes,
-          transport: 'file'
-        })
-      }
-
-    if (commentSamplesPromise) {
-      commentSamples = await commentSamplesPromise.catch((error) => {
-        console.warn('[api.generate] comment-samples failed', {
-          requestId,
-          message: error instanceof Error ? error.message : 'unknown'
-        })
-        return []
-      })
-      console.info('[api.generate] step:comment-samples', {
+      console.info('[api.generate] step:upload-accepted', {
         requestId,
-        enabled: includeCommentSamples,
-        count: commentSamples.length
+        mime: file.type,
+        bytes: file.data?.byteLength || 0,
+        maxBytes,
+        transport: 'file'
       })
     }
 
@@ -367,8 +335,7 @@ export default defineEventHandler(async (event) => {
 
         const promptSet = await buildStylePrompts({
           basePrompt: promptData.basePrompt,
-          title: videoTitle,
-          commentSamples
+          title: videoTitle
         }, roundStyleTargets)
 
         const promptEntries = activeStyles.map((style) => ({

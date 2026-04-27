@@ -13,7 +13,6 @@ export type ModelOption = (typeof MODEL_OPTIONS)[number]['value']
 export interface BuildPromptParams {
   basePrompt: string
   title?: string
-  commentSamples?: string[]
   lengthBucket?: string
   lengthRange?: string
   lengthSubranges?: string

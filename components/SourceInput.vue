@@ -3,7 +3,6 @@ import { ref } from 'vue'
 
 const props = defineProps<{
   mode: 'link' | 'upload'
-  includeCommentSamples: boolean
   url: string
   loading: boolean
   parseStatus: string
@@ -15,7 +14,6 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'update:mode': ['link' | 'upload']
-  'update:includeCommentSamples': [boolean]
   'update:url': [string]
   'update:file': [File | null]
   'parse-link': []
@@ -90,26 +88,6 @@ function clearSelectedFile() {
     </div>
 
     <div v-if="props.mode === 'link'" class="input-group">
-      <div class="switch-row">
-        <span class="switch-label">评论样本</span>
-        <div class="switch-group">
-          <button
-            :class="{ active: props.includeCommentSamples }"
-            class="switch-btn"
-            @click="emit('update:includeCommentSamples', true)"
-          >
-            开启
-          </button>
-          <button
-            :class="{ active: !props.includeCommentSamples }"
-            class="switch-btn"
-            @click="emit('update:includeCommentSamples', false)"
-          >
-            关闭
-          </button>
-        </div>
-      </div>
-
       <div class="input-wrapper">
         <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" stroke-linecap="round" stroke-linejoin="round"/>
@@ -240,50 +218,6 @@ function clearSelectedFile() {
   display: flex;
   flex-direction: column;
   gap: 12px;
-}
-
-.switch-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.switch-label {
-  font-size: 13px;
-  font-weight: 600;
-  color: #475569;
-}
-
-.switch-group {
-  display: inline-flex;
-  padding: 4px;
-  background: #F1F5F9;
-  border-radius: 999px;
-  gap: 4px;
-}
-
-.switch-btn {
-  border: none;
-  background: transparent;
-  color: #64748B;
-  padding: 8px 12px;
-  border-radius: 999px;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 180ms ease;
-}
-
-.switch-btn:hover {
-  color: #0F172A;
-}
-
-.switch-btn.active {
-  background: white;
-  color: #0891B2;
-  box-shadow: 0 2px 8px rgba(8, 145, 178, 0.15);
 }
 
 .input-wrapper {

@@ -23,13 +23,12 @@ vi.mock('../../server/services/auth', () => ({
 
 vi.mock('../../server/services/douyin', () => ({
   parseDouyinLink: vi.fn().mockResolvedValue({ ok: true, videoUrl: 'https://www.douyin.com/video/7626738541439099121', awemeId: '7626738541439099121' }),
-  fetchDouyinCommentSamplesByAwemeId: vi.fn().mockResolvedValue([]),
   resolveDouyinDownloadVideoUrl: vi.fn().mockResolvedValue('https://cdn.example.com/cn-fallback.mp4')
 }))
 
 import { generateFromVideoUrl, generateFromVideoFile } from '../../server/services/ai'
 import { downloadVideoUrlToTempFile, saveVideoUploadToTempFile } from '../../server/services/file'
-import { fetchDouyinCommentSamplesByAwemeId, parseDouyinLink, resolveDouyinDownloadVideoUrl } from '../../server/services/douyin'
+import { parseDouyinLink, resolveDouyinDownloadVideoUrl } from '../../server/services/douyin'
 import generateHandler from '../../server/api/generate.post'
 
 function styleTargetFromPrompt(prompt: string) {
@@ -190,41 +189,6 @@ describe('POST /api/generate', () => {
 
     const firstCallArgs = vi.mocked(generateFromVideoUrl).mock.calls[0]?.[0] as any
     expect(firstCallArgs.prompt).toContain('视频标题：这个夏天最治愈的一段')
-  })
-
-  it('link 模式开启评论样本时会把原始样本注入 prompt 中', async () => {
-    vi.mocked(parseDouyinLink).mockResolvedValueOnce({
-      ok: true,
-      videoUrl: 'https://www.douyin.com/video/7626738541439099121',
-      title: '这个夏天最治愈的一段',
-      awemeId: '7626738541439099121'
-    } as any)
-
-    vi.mocked(fetchDouyinCommentSamplesByAwemeId).mockResolvedValue([
-      '这个镜头真的好舒服',
-      '主包这段状态太松弛了'
-    ])
-
-    const app = createApp()
-    app.use('/api/generate', generateHandler)
-
-    const res = await request(toNodeListener(app))
-      .post('/api/generate')
-      .field('mode', 'link')
-      .field('inputMode', 'url')
-      .field('includeCommentSamples', 'true')
-      .field('url', 'https://v.douyin.com/abcde/')
-      .field('count', '2')
-      .field('basePrompt', 'base')
-
-    expect(res.status).toBe(200)
-    expect(res.body.ok).toBe(true)
-    expect(fetchDouyinCommentSamplesByAwemeId).toHaveBeenCalledTimes(1)
-
-    const firstCallArgs = vi.mocked(generateFromVideoUrl).mock.calls[0]?.[0] as any
-    expect(firstCallArgs.prompt).toContain('评论样本（仅供模仿语气、句式和节奏，不要照抄）')
-    expect(firstCallArgs.prompt).toContain('这个镜头真的好舒服')
-    expect(firstCallArgs.prompt).toContain('主包这段状态太松弛了')
   })
 
   it('流式模式会在每条评论完成时推送 item 事件', async () => {

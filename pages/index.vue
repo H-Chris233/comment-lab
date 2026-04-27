@@ -26,7 +26,6 @@ function isAllowedModel(value: string): value is ModelOption {
 const selectedModel = ref<ModelOption>(
   isAllowedModel(runtimeConfig.public.defaultModel) ? runtimeConfig.public.defaultModel : DEFAULT_MODEL
 )
-const includeCommentSamples = ref(false)
 const fixedInputMode: 'file' = 'file'
 const url = ref('')
 const file = ref<File | null>(null)
@@ -115,7 +114,6 @@ async function handleGenerate() {
     mode: mode.value,
     inputMode: fixedInputMode,
     model: selectedModel.value,
-    includeCommentSamples: mode.value === 'link' ? includeCommentSamples.value : false,
     url: url.value,
     file: file.value,
     count: count.value,
@@ -292,7 +290,6 @@ onMounted(() => {
             <div class="sections-wrapper">
               <SourceInput
                 v-model:mode="mode"
-                v-model:include-comment-samples="includeCommentSamples"
                 v-model:url="url"
                 :loading="isLoading"
                 :parse-status="parseStatus"
