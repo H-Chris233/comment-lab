@@ -429,13 +429,15 @@ export async function resolveDouyinDownloadVideoUrl(
   requestId?: string,
   options?: { region?: string }
 ): Promise<string> {
-  const lowestQualityUrl = extractLowestQualityVideoUrlFromTikHub(parsed.raw)
-  if (lowestQualityUrl) {
-    console.info('[douyin.download] selected-lowest-quality-url', {
-      requestId,
-      host: new URL(lowestQualityUrl).hostname
-    })
-    return lowestQualityUrl
+  if (options?.region === 'CN') {
+    const lowestQualityUrl = extractLowestQualityVideoUrlFromTikHub(parsed.raw)
+    if (lowestQualityUrl) {
+      console.info('[douyin.download] selected-lowest-quality-url', {
+        requestId,
+        host: new URL(lowestQualityUrl).hostname
+      })
+      return lowestQualityUrl
+    }
   }
 
   const awemeId = parsed.awemeId || extractDouyinVideoId(parsed.videoUrl || '') || extractDouyinVideoId(sourceUrl)
