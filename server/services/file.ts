@@ -17,6 +17,36 @@ export function getMaxVideoBytes() {
   return Math.floor(mb * 1024 * 1024)
 }
 
+function logVideoFetchProgress(params: {
+  requestId?: string
+  attempt: number
+  downloadedBytes: number
+  contentLength: number
+  lastLoggedAt: number
+  force?: boolean
+}) {
+  const now = Date.now()
+  const shouldLogByTime = now - params.lastLoggedAt >= 5_000
+  const shouldLogBySize = params.downloadedBytes > 0 && params.downloadedBytes % (5 * 1024 * 1024) === 0
+  const shouldLog = params.force || shouldLogByTime || shouldLogBySize
+  if (!shouldLog) return params.lastLoggedAt
+
+  const percent = params.contentLength > 0
+    ? Number(((params.downloadedBytes / params.contentLength) * 100).toFixed(1))
+    : null
+
+  console.info('[file.fetch-video] progress', {
+    requestId: params.requestId,
+    attempt: params.attempt,
+    downloadedBytes: params.downloadedBytes,
+    contentLength: params.contentLength || null,
+    percent,
+    complete: params.contentLength > 0 ? params.downloadedBytes >= params.contentLength : undefined
+  })
+
+  return now
+}
+
 async function fetchVideoBuffer(params: {
   videoUrl: string
   requestId?: string
@@ -70,8 +100,66 @@ async function fetchVideoBuffer(params: {
         })
       }
 
-      const arrayBuffer = await res.arrayBuffer()
-      const buffer = Buffer.from(arrayBuffer)
+      const contentLength = lenHeader > 0 ? lenHeader : 0
+      console.info('[file.fetch-video] connected', {
+        requestId: params.requestId,
+        mime,
+        contentLength: contentLength || null,
+        attempt
+      })
+
+      let buffer: Buffer
+      if (res.body?.getReader) {
+        const reader = res.body.getReader()
+        const chunks: Uint8Array[] = []
+        let downloadedBytes = 0
+        let lastLoggedAt = 0
+
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          if (!value?.length) continue
+
+          chunks.push(value)
+          downloadedBytes += value.byteLength
+          lastLoggedAt = logVideoFetchProgress({
+            requestId: params.requestId,
+            attempt,
+            downloadedBytes,
+            contentLength,
+            lastLoggedAt
+          })
+
+          if (downloadedBytes > maxBytes) {
+            await reader.cancel().catch(() => {})
+            throw createAppError({
+              code: 'FILE_TOO_LARGE',
+              message: `视频大小超过限制（>${Math.floor(maxBytes / 1024 / 1024)}MB）`,
+              statusCode: 413
+            })
+          }
+        }
+
+        const totalBytes = chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0)
+        const merged = new Uint8Array(totalBytes)
+        let offset = 0
+        for (const chunk of chunks) {
+          merged.set(chunk, offset)
+          offset += chunk.byteLength
+        }
+        buffer = Buffer.from(merged)
+        logVideoFetchProgress({
+          requestId: params.requestId,
+          attempt,
+          downloadedBytes: buffer.byteLength,
+          contentLength,
+          lastLoggedAt,
+          force: true
+        })
+      } else {
+        const arrayBuffer = await res.arrayBuffer()
+        buffer = Buffer.from(arrayBuffer)
+      }
 
       if (buffer.byteLength > maxBytes) {
         throw createAppError({
@@ -85,6 +173,7 @@ async function fetchVideoBuffer(params: {
         requestId: params.requestId,
         mime,
         bytes: buffer.byteLength,
+        contentLength: contentLength || null,
         attempt
       })
 
@@ -103,6 +192,7 @@ async function fetchVideoBuffer(params: {
         message,
         attempt,
         retryTimes,
+        downloadedBytes: 0,
         isTerminal,
         isLastAttempt
       })

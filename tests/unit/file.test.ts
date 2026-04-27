@@ -25,6 +25,14 @@ describe('video temp retention', () => {
             return null
           }
         },
+        body: {
+          getReader: () => ({
+            read: vi.fn()
+              .mockResolvedValueOnce({ done: false, value: Uint8Array.from([1, 2]) })
+              .mockResolvedValueOnce({ done: false, value: Uint8Array.from([3]) })
+              .mockResolvedValueOnce({ done: true, value: undefined })
+          })
+        },
         arrayBuffer: async () => Uint8Array.from([1, 2, 3]).buffer
       })
     )
@@ -92,5 +100,16 @@ describe('video temp retention', () => {
 
     expect(path.isAbsolute(result.sourcePath)).toBe(true)
     expect(result.sourcePath).toContain(path.join(process.cwd(), '.tmp', 'douyin-downloads'))
+  })
+
+  it('存在流式 body 时也能正常下载并落盘', async () => {
+    const result = await downloadVideoUrlToTempFile({
+      videoUrl: 'https://example.com/video.mp4',
+      requestId: 'req_test'
+    })
+
+    expect(result.bytes).toBe(3)
+    expect(result.mime).toBe('video/mp4')
+    expect(path.basename(result.sourcePath)).toMatch(/^video\.mp4$/)
   })
 })
