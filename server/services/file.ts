@@ -54,7 +54,7 @@ async function fetchVideoBuffer(params: {
   maxBytes?: number
   retryTimes?: number
 }) {
-  const timeoutMs = params.timeoutMs ?? 60_000
+  const timeoutMs = params.timeoutMs ?? 180_000
   const maxBytes = params.maxBytes ?? getMaxVideoBytes()
   const retryTimes = Math.max(1, params.retryTimes ?? 3)
 
