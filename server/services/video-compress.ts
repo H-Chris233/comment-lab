@@ -139,7 +139,7 @@ function buildFfmpegArgs(params: {
     '-i',
     params.inputPath,
     '-vf',
-    'scale=1280:720:force_original_aspect_ratio=decrease',
+    'scale=1280:720:force_original_aspect_ratio=decrease:force_divisible_by=2',
     '-c:v',
     'libx264',
     '-preset',

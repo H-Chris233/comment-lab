@@ -81,6 +81,30 @@ describe('compressVideoIfNeeded', () => {
     await result.cleanup()
   })
 
+  it('uses an even-dimension scale filter so odd widths do not fail', async () => {
+    const sourcePath = await createSparseVideoFile(MAX_BYTES + 1, 'input.mov')
+
+    vi.mocked(runProcess).mockImplementation(async ({ args }: any) => {
+      const outputPath = args[args.length - 1] as string
+      await fs.mkdir(path.dirname(outputPath), { recursive: true })
+      await fs.writeFile(outputPath, Buffer.from([1, 2, 3]))
+      return {
+        stdout: '',
+        stderr: '',
+        exitCode: 0,
+        signal: null
+      }
+    })
+
+    await compressVideoIfNeeded({ sourcePath })
+
+    const ffmpegArgs = vi.mocked(runProcess).mock.calls[0]?.[0]?.args as string[] | undefined
+    expect(ffmpegArgs).toEqual(expect.arrayContaining([
+      '-vf',
+      expect.stringContaining('force_divisible_by=2')
+    ]))
+  })
+
   it('cleans up temp output when compression fails', async () => {
     const sourcePath = await createSparseVideoFile(MAX_BYTES + 1)
 
