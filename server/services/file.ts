@@ -89,6 +89,23 @@ function createClientAbortError() {
   })
 }
 
+function createRetryableDownloadError(params: {
+  reason: string
+  attempt: number
+  retryTimes: number
+}) {
+  return createAppError({
+    code: 'VIDEO_FETCH_FAILED',
+    message: '视频下载失败，请稍后重试',
+    statusCode: 422,
+    data: {
+      reason: params.reason,
+      attempt: params.attempt,
+      retryTimes: params.retryTimes
+    }
+  })
+}
+
 function isAbortLikeError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error ?? 'unknown')
   return /terminated|aborted|timeout|timed out|econnreset/i.test(message)
@@ -346,11 +363,20 @@ async function fetchVideoBuffer(params: {
         throw createAppError({
           code: 'VIDEO_FETCH_FAILED',
           message: '视频下载超时或连接中断，请重试',
-          statusCode: 422
+          statusCode: 422,
+          data: {
+            reason: message,
+            attempt,
+            retryTimes
+          }
         })
       }
 
-      throw error
+      throw createRetryableDownloadError({
+        reason: message,
+        attempt,
+        retryTimes
+      })
     } finally {
       releaseAbort()
     }
@@ -644,11 +670,20 @@ async function fetchVideoStreamToTempFile(params: {
         throw createAppError({
           code: 'VIDEO_FETCH_FAILED',
           message: '视频下载超时或连接中断，请重试',
-          statusCode: 422
+          statusCode: 422,
+          data: {
+            reason: message,
+            attempt,
+            retryTimes
+          }
         })
       }
 
-      throw error
+      throw createRetryableDownloadError({
+        reason: message,
+        attempt,
+        retryTimes
+      })
     } finally {
       releaseAbort()
     }

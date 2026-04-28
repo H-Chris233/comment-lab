@@ -207,6 +207,31 @@ describe('video temp retention', () => {
     expect(timeoutSpy).not.toHaveBeenCalled()
     timeoutSpy.mockRestore()
   })
+
+  it('fetch failed 时会自动重试并在耗尽后返回可重试的业务错误', async () => {
+    vi.useFakeTimers()
+    const fetchMock = vi.fn().mockRejectedValue(new TypeError('fetch failed'))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const promise = downloadVideoUrlToTempFile({
+      videoUrl: 'https://example.com/video.mp4',
+      requestId: 'req_test'
+    }).catch((error) => error)
+
+    await vi.runAllTimersAsync()
+    const error = await promise
+
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(error).toMatchObject({
+      code: 'VIDEO_FETCH_FAILED',
+      message: '视频下载失败，请稍后重试',
+      data: expect.objectContaining({
+        reason: 'fetch failed',
+        attempt: 3,
+        retryTimes: 3
+      })
+    })
+  })
 })
 
 describe('download video size limit', () => {

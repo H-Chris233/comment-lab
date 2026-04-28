@@ -522,6 +522,54 @@ describe('POST /api/generate', () => {
     expect(resolveDouyinLowQualityDownloadVideoUrl).not.toHaveBeenCalled()
   })
 
+  it('下载链路在 VIDEO_FETCH_FAILED 时会重新解析并重试一次', async () => {
+    vi.mocked(parseDouyinLink)
+      .mockResolvedValueOnce({
+        ok: true,
+        videoUrl: 'https://www.douyin.com/video/7626738541439099121',
+        awemeId: '7626738541439099121'
+      } as any)
+      .mockResolvedValueOnce({
+        ok: true,
+        videoUrl: 'https://www.douyin.com/video/7626738541439099121',
+        awemeId: '7626738541439099121'
+      } as any)
+
+    vi.mocked(resolveDouyinDownloadVideoUrl)
+      .mockResolvedValueOnce('https://cdn.example.com/cn-high.mp4' as any)
+      .mockResolvedValueOnce('https://cdn.example.com/cn-high-2.mp4' as any)
+
+    vi.mocked(downloadVideoUrlToTempFile)
+      .mockRejectedValueOnce(createAppError({
+        code: 'VIDEO_FETCH_FAILED',
+        message: '视频下载失败，请稍后重试',
+        statusCode: 422
+      }))
+      .mockResolvedValueOnce({
+        bytes: 4,
+        mime: 'video/mp4',
+        sourcePath: '/tmp/mock.mp4',
+        cleanup: async () => {}
+      } as any)
+
+    const app = createApp()
+    app.use('/api/generate', generateHandler)
+
+    const res = await request(toNodeListener(app))
+      .post('/api/generate')
+      .field('mode', 'link')
+      .field('inputMode', 'file')
+      .field('url', 'https://v.douyin.com/abcde/')
+      .field('count', '2')
+      .field('basePrompt', 'base')
+
+    expect(res.status).toBe(200)
+    expect(res.body.ok).toBe(true)
+    expect(parseDouyinLink).toHaveBeenCalledTimes(2)
+    expect(resolveDouyinDownloadVideoUrl).toHaveBeenCalledTimes(2)
+    expect(downloadVideoUrlToTempFile).toHaveBeenCalledTimes(2)
+  })
+
   it('upload 模式会先保存到本地临时文件再交给 DashScope SDK', async () => {
     vi.mocked(saveVideoUploadToTempFile).mockResolvedValueOnce({
       sourcePath: '/tmp/uploaded.mp4',
