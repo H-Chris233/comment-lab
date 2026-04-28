@@ -208,6 +208,83 @@ describe('video temp retention', () => {
     timeoutSpy.mockRestore()
   })
 
+  it('streamToDisk 模式在第二次尝试时会携带 Range 从上次中断处继续下载', async () => {
+    const fetchMock = vi.fn()
+    const timeoutSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((handler: TimerHandler) => {
+      if (typeof handler === 'function') {
+        handler()
+      }
+      return 0 as any
+    }) as any)
+    const firstReader = {
+      read: vi.fn()
+        .mockResolvedValueOnce({ done: false, value: Uint8Array.from([1, 2, 3]) })
+        .mockRejectedValueOnce(new TypeError('fetch failed')),
+      cancel: vi.fn().mockResolvedValue(undefined)
+    }
+    const secondReader = {
+      read: vi.fn()
+        .mockResolvedValueOnce({ done: false, value: Uint8Array.from([4, 5]) })
+        .mockResolvedValueOnce({ done: true, value: undefined }),
+      cancel: vi.fn().mockResolvedValue(undefined)
+    }
+
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        headers: {
+          get(name: string) {
+            if (name === 'content-type') return 'video/mp4'
+            if (name === 'content-length') return '5'
+            return null
+          }
+        },
+        body: {
+          getReader: () => firstReader
+        },
+        arrayBuffer: async () => Uint8Array.from([1, 2, 3]).buffer
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 206,
+        headers: {
+          get(name: string) {
+            if (name === 'content-type') return 'video/mp4'
+            if (name === 'content-length') return '2'
+            if (name === 'content-range') return 'bytes 3-4/5'
+            return null
+          }
+        },
+        body: {
+          getReader: () => secondReader
+        },
+        arrayBuffer: async () => Uint8Array.from([4, 5]).buffer
+      })
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    const resultPromise = downloadVideoUrlToTempFile({
+      videoUrl: 'https://example.com/video.mp4',
+      requestId: 'req_test',
+      streamToDisk: true,
+      retryTimes: 2
+    })
+
+    const result = await resultPromise
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock.mock.calls[1]?.[1]).toEqual(expect.objectContaining({
+      headers: expect.objectContaining({
+        Range: 'bytes=3-'
+      })
+    }))
+    expect(result.bytes).toBe(5)
+    expect(result.mime).toBe('video/mp4')
+    await result.cleanup()
+    timeoutSpy.mockRestore()
+  })
+
   it('fetch failed 时会自动重试并在耗尽后返回可重试的业务错误', async () => {
     vi.useFakeTimers()
     const fetchMock = vi.fn().mockRejectedValue(new TypeError('fetch failed'))

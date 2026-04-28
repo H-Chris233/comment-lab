@@ -2,10 +2,9 @@ import type { H3Event } from 'h3'
 import { readMultipartFormData } from 'h3'
 import { createAppError } from '../utils/errors'
 import type { GenerateStatusData } from '../../types/api'
-import { createWriteStream, promises as fs } from 'node:fs'
+import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { once } from 'node:events'
 
 export const ALLOWED_VIDEO_MIME_TYPES = ['video/mp4', 'video/quicktime', 'video/webm']
 const DEFAULT_DOWNLOADED_VIDEO_RETENTION_MINUTES = 10
@@ -125,6 +124,23 @@ function wireAbortSignal(controller: AbortController, signal?: AbortSignal) {
   signal.addEventListener('abort', onAbort, { once: true })
   return () => {
     signal.removeEventListener('abort', onAbort)
+  }
+}
+
+function parseContentRangeTotal(contentRange: string | null) {
+  if (!contentRange) return null
+  const match = contentRange.match(/^bytes\s+(\d+)-(\d+)\/(\d+|\*)$/i)
+  if (!match) return null
+  const total = Number(match[3])
+  return Number.isFinite(total) && total > 0 ? total : null
+}
+
+async function getFileSize(filePath: string) {
+  try {
+    const stat = await fs.stat(filePath)
+    return stat.size
+  } catch {
+    return 0
   }
 }
 
@@ -400,13 +416,15 @@ async function fetchVideoStreamToTempFile(params: {
 }) {
   const maxBytes = params.maxBytes ?? Number.POSITIVE_INFINITY
   const retryTimes = Math.max(1, params.retryTimes ?? 3)
+  let workDir = ''
+  let filePath = ''
+  let mime = 'video/mp4'
 
   for (let attempt = 1; attempt <= retryTimes; attempt += 1) {
     const controller = new AbortController()
     const releaseAbort = wireAbortSignal(controller, params.signal)
-    let workDir = ''
-    let filePath = ''
-    let downloadedBytes = 0
+    const resumeBytes = filePath ? await getFileSize(filePath) : 0
+    let downloadedBytes = resumeBytes
     let contentLength = 0
     let lastPercent: number | null = null
 
@@ -421,14 +439,19 @@ async function fetchVideoStreamToTempFile(params: {
         streamToDisk: true
       })
 
+      const requestHeaders: Record<string, string> = {
+        'user-agent': 'Mozilla/5.0 (compatible; CommentLab/1.0)',
+        referer: 'https://www.douyin.com/',
+        origin: 'https://www.douyin.com'
+      }
+      if (resumeBytes > 0) {
+        requestHeaders.Range = `bytes=${resumeBytes}-`
+      }
+
       const res = await fetch(params.videoUrl, {
         method: 'GET',
         signal: controller.signal,
-        headers: {
-          'user-agent': 'Mozilla/5.0 (compatible; CommentLab/1.0)',
-          referer: 'https://www.douyin.com/',
-          origin: 'https://www.douyin.com'
-        }
+        headers: requestHeaders
       })
 
       if (!res.ok) {
@@ -439,9 +462,19 @@ async function fetchVideoStreamToTempFile(params: {
         })
       }
 
-      const mime = res.headers.get('content-type')?.split(';')[0]?.trim() || 'video/mp4'
+      mime = res.headers.get('content-type')?.split(';')[0]?.trim() || mime
       const lenHeader = Number(res.headers.get('content-length') || '0')
-      if (lenHeader > 0 && lenHeader > maxBytes) {
+      const contentRangeTotal = parseContentRangeTotal(res.headers.get('content-range'))
+      const isPartialResponse = res.status === 206
+      const responseTotalBytes = contentRangeTotal
+        || (isPartialResponse && resumeBytes > 0 && lenHeader > 0 ? resumeBytes + lenHeader : 0)
+        || lenHeader
+        || 0
+      const effectiveTotalBytes = isPartialResponse && resumeBytes > 0 && responseTotalBytes > 0
+        ? Math.max(resumeBytes, responseTotalBytes)
+        : responseTotalBytes
+
+      if (effectiveTotalBytes > 0 && effectiveTotalBytes > maxBytes) {
         throw createAppError({
           code: 'FILE_TOO_LARGE',
           message: `视频大小超过限制（>${Math.floor(maxBytes / 1024 / 1024)}MB）`,
@@ -449,35 +482,49 @@ async function fetchVideoStreamToTempFile(params: {
         })
       }
 
-      contentLength = lenHeader > 0 ? lenHeader : 0
+      contentLength = effectiveTotalBytes > 0 ? effectiveTotalBytes : 0
+
+      if (!workDir) {
+        workDir = path.join(getTempVideoDir(), `${Date.now()}-${randomUUID()}`)
+        await fs.mkdir(workDir, { recursive: true })
+      }
+      if (!filePath) {
+        filePath = path.join(workDir, `video.${guessExtByMime(mime)}`)
+      }
+
+      const canResume = resumeBytes > 0 && isPartialResponse
+      if (!canResume && resumeBytes > 0) {
+        downloadedBytes = 0
+      }
+
       emitDownloadStatus(params.onStatus, {
         requestId: params.requestId,
         phase: 'downloading',
-        message: '正在下载视频',
+        message: canResume
+          ? `正在继续下载视频${contentLength > 0 ? ` ${Math.min(100, Math.round((resumeBytes / contentLength) * 100))}%` : ''}`
+          : '正在下载视频',
         attempt,
         retryTimes,
-        downloadedBytes: 0,
+        downloadedBytes,
         contentLength: contentLength || null,
-        percent: null
+        percent: contentLength > 0 ? Math.min(100, Math.round((downloadedBytes / contentLength) * 100)) : null
       })
       console.info('[file.fetch-video] connected', {
         requestId: params.requestId,
         mime,
         contentLength: contentLength || null,
         attempt,
+        resumedFromBytes: resumeBytes > 0 ? resumeBytes : null,
         streamToDisk: true
       })
-
-      workDir = path.join(getTempVideoDir(), `${Date.now()}-${randomUUID()}`)
-      await fs.mkdir(workDir, { recursive: true })
-      filePath = path.join(workDir, `video.${guessExtByMime(mime)}`)
 
       let lastLoggedAt = 0
       const source = res.body
 
       if (!source) {
         const arrayBuffer = await res.arrayBuffer()
-        downloadedBytes = arrayBuffer.byteLength
+        const chunkBytes = arrayBuffer.byteLength
+        downloadedBytes = (canResume ? resumeBytes : 0) + chunkBytes
         lastPercent = contentLength > 0
           ? Math.min(100, Math.round((downloadedBytes / contentLength) * 100))
           : null
@@ -488,28 +535,13 @@ async function fetchVideoStreamToTempFile(params: {
             statusCode: 413
           })
         }
-        await fs.writeFile(filePath, Buffer.from(arrayBuffer))
+        if (canResume) {
+          await fs.appendFile(filePath, Buffer.from(arrayBuffer))
+        } else {
+          await fs.writeFile(filePath, Buffer.from(arrayBuffer))
+        }
       } else if (typeof (source as any).getReader === 'function') {
         const reader = (source as any).getReader()
-        const writer = createWriteStream(filePath)
-        const writerClosed = new Promise<void>((resolve, reject) => {
-          let settled = false
-          const resolveOnce = () => {
-            if (settled) return
-            settled = true
-            resolve()
-          }
-          const rejectOnce = (error: Error) => {
-            if (settled) return
-            settled = true
-            reject(error)
-          }
-
-          writer.once('finish', resolveOnce)
-          writer.once('close', resolveOnce)
-          writer.once('error', rejectOnce)
-        })
-
         try {
           while (true) {
             const { done, value } = await reader.read()
@@ -534,7 +566,9 @@ async function fetchVideoStreamToTempFile(params: {
               emitDownloadStatus(params.onStatus, {
                 requestId: params.requestId,
                 phase: 'downloading',
-                message: lastPercent == null ? '正在下载视频' : `正在下载视频 ${lastPercent}%`,
+                message: lastPercent == null
+                  ? '正在下载视频'
+                  : `正在下载视频 ${lastPercent}%`,
                 attempt,
                 retryTimes,
                 downloadedBytes,
@@ -545,7 +579,6 @@ async function fetchVideoStreamToTempFile(params: {
 
             if (downloadedBytes > maxBytes) {
               await reader.cancel().catch(() => {})
-              writer.destroy()
               throw createAppError({
                 code: 'FILE_TOO_LARGE',
                 message: `视频大小超过限制（>${Math.floor(maxBytes / 1024 / 1024)}MB）`,
@@ -553,21 +586,16 @@ async function fetchVideoStreamToTempFile(params: {
               })
             }
 
-            if (!writer.write(buffer)) {
-              await once(writer, 'drain')
-            }
+            await fs.appendFile(filePath, buffer)
           }
-
-          writer.end()
-          await writerClosed
         } catch (error) {
-          writer.destroy()
-          await writerClosed.catch(() => {})
+          await reader.cancel().catch(() => {})
           throw error
         }
       } else {
         const arrayBuffer = await res.arrayBuffer()
-        downloadedBytes = arrayBuffer.byteLength
+        const chunkBytes = arrayBuffer.byteLength
+        downloadedBytes = (canResume ? resumeBytes : 0) + chunkBytes
         if (downloadedBytes > maxBytes) {
           throw createAppError({
             code: 'FILE_TOO_LARGE',
@@ -575,7 +603,11 @@ async function fetchVideoStreamToTempFile(params: {
             statusCode: 413
           })
         }
-        await fs.writeFile(filePath, Buffer.from(arrayBuffer))
+        if (canResume) {
+          await fs.appendFile(filePath, Buffer.from(arrayBuffer))
+        } else {
+          await fs.writeFile(filePath, Buffer.from(arrayBuffer))
+        }
       }
 
       if (downloadedBytes === 0) {
@@ -592,6 +624,7 @@ async function fetchVideoStreamToTempFile(params: {
         bytes: downloadedBytes,
         contentLength: contentLength || null,
         attempt,
+        resumedFromBytes: resumeBytes > 0 ? resumeBytes : null,
         streamToDisk: true
       })
 
@@ -625,14 +658,16 @@ async function fetchVideoStreamToTempFile(params: {
         message,
         attempt,
         retryTimes,
-        downloadedBytes: 0,
+        downloadedBytes,
         isTerminal,
         isLastAttempt,
         streamToDisk: true
       })
 
-      if (workDir) {
-        await fs.rm(workDir, { recursive: true, force: true }).catch(() => {})
+      if (isFileTooLarge || params.signal?.aborted || isLastAttempt) {
+        if (workDir) {
+          await fs.rm(workDir, { recursive: true, force: true }).catch(() => {})
+        }
       }
 
       if (isFileTooLarge) {
@@ -661,6 +696,9 @@ async function fetchVideoStreamToTempFile(params: {
         const waitMs = attempt * 600
         await new Promise((resolve) => setTimeout(resolve, waitMs))
         if (params.signal?.aborted) {
+          if (workDir) {
+            await fs.rm(workDir, { recursive: true, force: true }).catch(() => {})
+          }
           throw createClientAbortError()
         }
         continue
