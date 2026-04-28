@@ -549,6 +549,9 @@ async function fetchVideoStreamToTempFile(params: {
         }
       } else if (typeof (source as any).getReader === 'function') {
         const reader = (source as any).getReader()
+        if (!canResume) {
+          await fs.writeFile(filePath, '')
+        }
         try {
           while (true) {
             const { done, value } = await reader.read()

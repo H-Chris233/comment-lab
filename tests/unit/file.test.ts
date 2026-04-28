@@ -126,7 +126,8 @@ describe('video temp retention', () => {
 
     expect(streamed.bytes).toBe(3)
     expect(streamed.mime).toBe('video/mp4')
-    expect(vi.mocked(fs.writeFile).mock.calls.length).toBe(writesBeforeStream)
+    // First attempt stream truncates before writing, adding 1 call
+    expect(vi.mocked(fs.writeFile).mock.calls.length).toBe(writesBeforeStream + 1)
 
     await streamed.cleanup()
     expect(fs.rm).toHaveBeenCalled()
@@ -297,6 +298,83 @@ describe('video temp retention', () => {
     expect(result.bytes).toBe(5)
     expect(result.mime).toBe('video/mp4')
     expect(statuses.some((item) => item.phase === 'retrying' && item.message.includes('下载中断，正在从 60% 继续下载'))).toBe(true)
+    await result.cleanup()
+    timeoutSpy.mockRestore()
+  })
+
+  it('server 返回 200 忽略 Range 时 second attempt 不会污染残留文件', async () => {
+    const fetchMock = vi.fn()
+    const timeoutSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((handler: TimerHandler) => {
+      if (typeof handler === 'function') {
+        handler()
+      }
+      return 0 as any
+    }) as any)
+
+    const firstReader = {
+      read: vi.fn()
+        .mockResolvedValueOnce({ done: false, value: Uint8Array.from([1, 2, 3]) })
+        .mockRejectedValueOnce(new TypeError('fetch failed')),
+      cancel: vi.fn().mockResolvedValue(undefined)
+    }
+    const secondReader = {
+      read: vi.fn()
+        .mockResolvedValueOnce({ done: false, value: Uint8Array.from([1, 2, 3, 4, 5]) })
+        .mockResolvedValueOnce({ done: true, value: undefined }),
+      cancel: vi.fn().mockResolvedValue(undefined)
+    }
+
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        headers: {
+          get(name: string) {
+            if (name === 'content-type') return 'video/mp4'
+            if (name === 'content-length') return '3'
+            return null
+          }
+        },
+        body: {
+          getReader: () => firstReader
+        },
+        arrayBuffer: async () => Uint8Array.from([1, 2, 3]).buffer
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        headers: {
+          get(name: string) {
+            if (name === 'content-type') return 'video/mp4'
+            if (name === 'content-length') return '5'
+            return null
+          }
+        },
+        body: {
+          getReader: () => secondReader
+        },
+        arrayBuffer: async () => Uint8Array.from([1, 2, 3, 4, 5]).buffer
+      })
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await downloadVideoUrlToTempFile({
+      videoUrl: 'https://example.com/video.mp4',
+      requestId: 'req_test',
+      streamToDisk: true,
+      retryTimes: 2
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock.mock.calls[1]?.[1]).toEqual(expect.objectContaining({
+      headers: expect.objectContaining({
+        Range: 'bytes=3-'
+      })
+    }))
+    expect(result.bytes).toBe(5)
+    expect(result.mime).toBe('video/mp4')
+    // Verify the file was truncated before second attempt — the recovered file
+    // should contain bytes [1,2,3,4,5], not [1,2,3,1,2,3,4,5]
     await result.cleanup()
     timeoutSpy.mockRestore()
   })
