@@ -33,6 +33,12 @@ function emitDownloadStatus(
   })
 }
 
+export function formatDownloadRetryMessage(params: { attempt: number; retryTimes: number; percent: number | null }) {
+  const base = `下载失败，正在重试（第 ${params.attempt}/${params.retryTimes} 次`
+  if (params.percent == null) return `${base}）`
+  return `${base}，已下载 ${params.percent}%）`
+}
+
 export function getMaxVideoBytes() {
   const config = useRuntimeConfig()
   const fromConfig = Number(config.maxVideoSizeMb || process.env.MAX_VIDEO_SIZE_MB || 1000)
@@ -120,6 +126,9 @@ async function fetchVideoBuffer(params: {
   for (let attempt = 1; attempt <= retryTimes; attempt += 1) {
     const controller = new AbortController()
     const releaseAbort = wireAbortSignal(controller, params.signal)
+    let downloadedBytes = 0
+    let contentLength = 0
+    let lastPercent: number | null = null
 
     try {
       console.info('[file.fetch-video] start', {
@@ -159,7 +168,7 @@ async function fetchVideoBuffer(params: {
         })
       }
 
-      const contentLength = lenHeader > 0 ? lenHeader : 0
+      contentLength = lenHeader > 0 ? lenHeader : 0
       emitDownloadStatus(params.onStatus, {
         requestId: params.requestId,
         phase: 'downloading',
@@ -181,7 +190,6 @@ async function fetchVideoBuffer(params: {
       if (res.body?.getReader) {
         const reader = res.body.getReader()
         const chunks: Uint8Array[] = []
-        let downloadedBytes = 0
         let lastLoggedAt = 0
 
         while (true) {
@@ -191,7 +199,7 @@ async function fetchVideoBuffer(params: {
 
           chunks.push(value)
           downloadedBytes += value.byteLength
-          const percent = contentLength > 0
+          lastPercent = contentLength > 0
             ? Math.min(100, Math.round((downloadedBytes / contentLength) * 100))
             : null
           const previousLoggedAt = lastLoggedAt
@@ -207,12 +215,12 @@ async function fetchVideoBuffer(params: {
             emitDownloadStatus(params.onStatus, {
               requestId: params.requestId,
               phase: 'downloading',
-              message: percent == null ? '正在下载视频' : `正在下载视频 ${percent}%`,
+              message: lastPercent == null ? '正在下载视频' : `正在下载视频 ${lastPercent}%`,
               attempt,
               retryTimes,
               downloadedBytes,
               contentLength: contentLength || null,
-              percent
+              percent: lastPercent
             })
           }
 
@@ -234,10 +242,14 @@ async function fetchVideoBuffer(params: {
           offset += chunk.byteLength
         }
         buffer = Buffer.from(merged)
+        downloadedBytes = buffer.byteLength
+        lastPercent = contentLength > 0
+          ? Math.min(100, Math.round((downloadedBytes / contentLength) * 100))
+          : null
         logVideoFetchProgress({
           requestId: params.requestId,
           attempt,
-          downloadedBytes: buffer.byteLength,
+          downloadedBytes,
           contentLength,
           lastLoggedAt,
           force: true
@@ -245,9 +257,13 @@ async function fetchVideoBuffer(params: {
       } else {
         const arrayBuffer = await res.arrayBuffer()
         buffer = Buffer.from(arrayBuffer)
+        downloadedBytes = buffer.byteLength
+        lastPercent = contentLength > 0
+          ? Math.min(100, Math.round((downloadedBytes / contentLength) * 100))
+          : null
       }
 
-      if (buffer.byteLength > maxBytes) {
+      if (downloadedBytes > maxBytes) {
         throw createAppError({
           code: 'FILE_TOO_LARGE',
           message: `视频大小超过限制（>${Math.floor(maxBytes / 1024 / 1024)}MB）`,
@@ -258,7 +274,7 @@ async function fetchVideoBuffer(params: {
       console.info('[file.fetch-video] success', {
         requestId: params.requestId,
         mime,
-        bytes: buffer.byteLength,
+        bytes: downloadedBytes,
         contentLength: contentLength || null,
         attempt
       })
@@ -269,7 +285,7 @@ async function fetchVideoBuffer(params: {
         message: '视频下载完成',
         attempt,
         retryTimes,
-        downloadedBytes: buffer.byteLength,
+        downloadedBytes,
         contentLength: contentLength || null,
         percent: 100
       })
@@ -307,7 +323,11 @@ async function fetchVideoBuffer(params: {
         emitDownloadStatus(params.onStatus, {
           requestId: params.requestId,
           phase: 'retrying',
-          message: `下载失败，正在重试（第 ${attempt + 1}/${retryTimes} 次）`,
+          message: formatDownloadRetryMessage({
+            attempt: attempt + 1,
+            retryTimes,
+            percent: lastPercent
+          }),
           attempt: attempt + 1,
           retryTimes,
           details: {
@@ -360,6 +380,9 @@ async function fetchVideoStreamToTempFile(params: {
     const releaseAbort = wireAbortSignal(controller, params.signal)
     let workDir = ''
     let filePath = ''
+    let downloadedBytes = 0
+    let contentLength = 0
+    let lastPercent: number | null = null
 
     try {
       console.info('[file.fetch-video] start', {
@@ -400,7 +423,7 @@ async function fetchVideoStreamToTempFile(params: {
         })
       }
 
-      const contentLength = lenHeader > 0 ? lenHeader : 0
+      contentLength = lenHeader > 0 ? lenHeader : 0
       emitDownloadStatus(params.onStatus, {
         requestId: params.requestId,
         phase: 'downloading',
@@ -423,13 +446,15 @@ async function fetchVideoStreamToTempFile(params: {
       await fs.mkdir(workDir, { recursive: true })
       filePath = path.join(workDir, `video.${guessExtByMime(mime)}`)
 
-      let downloadedBytes = 0
       let lastLoggedAt = 0
       const source = res.body
 
       if (!source) {
         const arrayBuffer = await res.arrayBuffer()
         downloadedBytes = arrayBuffer.byteLength
+        lastPercent = contentLength > 0
+          ? Math.min(100, Math.round((downloadedBytes / contentLength) * 100))
+          : null
         if (downloadedBytes > maxBytes) {
           throw createAppError({
             code: 'FILE_TOO_LARGE',
@@ -467,7 +492,7 @@ async function fetchVideoStreamToTempFile(params: {
 
             const buffer = Buffer.isBuffer(value) ? value : Buffer.from(value)
             downloadedBytes += buffer.byteLength
-            const percent = contentLength > 0
+            lastPercent = contentLength > 0
               ? Math.min(100, Math.round((downloadedBytes / contentLength) * 100))
               : null
             const previousLoggedAt = lastLoggedAt
@@ -483,12 +508,12 @@ async function fetchVideoStreamToTempFile(params: {
               emitDownloadStatus(params.onStatus, {
                 requestId: params.requestId,
                 phase: 'downloading',
-                message: percent == null ? '正在下载视频' : `正在下载视频 ${percent}%`,
+                message: lastPercent == null ? '正在下载视频' : `正在下载视频 ${lastPercent}%`,
                 attempt,
                 retryTimes,
                 downloadedBytes,
                 contentLength: contentLength || null,
-                percent
+                percent: lastPercent
               })
             }
 
@@ -530,6 +555,9 @@ async function fetchVideoStreamToTempFile(params: {
       if (downloadedBytes === 0) {
         const fileStat = await fs.stat(filePath)
         downloadedBytes = fileStat.size
+        lastPercent = contentLength > 0
+          ? Math.min(100, Math.round((downloadedBytes / contentLength) * 100))
+          : null
       }
 
       console.info('[file.fetch-video] success', {
@@ -593,7 +621,11 @@ async function fetchVideoStreamToTempFile(params: {
         emitDownloadStatus(params.onStatus, {
           requestId: params.requestId,
           phase: 'retrying',
-          message: `下载失败，正在重试（第 ${attempt + 1}/${retryTimes} 次）`,
+          message: formatDownloadRetryMessage({
+            attempt: attempt + 1,
+            retryTimes,
+            percent: lastPercent
+          }),
           attempt: attempt + 1,
           retryTimes,
           details: {
@@ -719,6 +751,7 @@ export async function downloadVideoUrlToTempFile(params: {
   requestId?: string
   timeoutMs?: number
   maxBytes?: number
+  retryTimes?: number
   signal?: AbortSignal
   streamToDisk?: boolean
   onStatus?: DownloadStatusEmitter

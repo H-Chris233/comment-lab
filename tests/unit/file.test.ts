@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { downloadVideoUrlToTempFile, getMaxDownloadVideoBytes, getMaxVideoBytes, saveVideoUploadToTempFile } from '../../server/services/file'
+import { downloadVideoUrlToTempFile, formatDownloadRetryMessage, getMaxDownloadVideoBytes, getMaxVideoBytes, saveVideoUploadToTempFile } from '../../server/services/file'
 
 const TEN_MINUTES = 10 * 60 * 1000
 
@@ -186,6 +186,14 @@ describe('video temp retention', () => {
     expect(statuses[0]?.phase).toBe('downloading')
     expect(statuses.some((item) => item.message.includes('正在下载视频'))).toBe(true)
     expect(statuses.some((item) => item.message.includes('视频下载完成'))).toBe(true)
+  })
+
+  it('下载重试文案会携带已下载百分比', () => {
+    expect(formatDownloadRetryMessage({
+      attempt: 2,
+      retryTimes: 2,
+      percent: 67
+    })).toBe('下载失败，正在重试（第 2/2 次，已下载 67%）')
   })
 
   it('下载视频不再依赖内部超时定时器', async () => {
