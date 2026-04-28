@@ -14,7 +14,7 @@ describe('buildStylePrompts', () => {
 
     expect(result.long).toContain('根据以下视频内容生成评论：')
     expect(result.medium).toContain('根据以下视频内容生成评论：')
-    expect(result.short).toContain('根据以下视频内容生成评论：')
+    expect(result.short).toContain('根据以下视频内容，生成 40 条短视频评论。视频内容：')
 
     expect(result.long).toContain('20~30字')
     expect(result.medium).toContain('10~20字')
@@ -22,15 +22,15 @@ describe('buildStylePrompts', () => {
 
     expect(result.long).toContain('输出 20 条评论')
     expect(result.medium).toContain('请按以下规则输出 40 条中评论')
-    expect(result.short).toContain('为视频生成 40 条短评论')
+    expect(result.short).toContain('⚠️ 核心任务：生成恰好 40 条评论')
 
     expect(result.long).toContain('口吻随意、口语化')
     expect(result.medium).toContain('语气像随口闲聊')
-    expect(result.short).toContain('像聊天框里随手敲出去的话')
+    expect(result.short).toContain('用聊天框里随手敲出去的口吻')
 
     expect(result.long).toContain('字数随机分布在 20–30 字之间')
     expect(result.medium).toContain('每条10–20字')
-    expect(result.short).toContain('极短、即时的口吻')
+    expect(result.short).toContain('每条评论必须严格 ≤10 个字')
 
     expect(result.long).toContain('当前长度桶：长评论组')
     expect(result.medium).toContain('当前长度桶：中评论组')
@@ -46,14 +46,14 @@ describe('buildStylePrompts', () => {
 
     expect(result.long).toContain('40%–45%')
     expect(result.medium).toContain('30–35%')
-    expect(result.short).toContain('30–35%')
+    expect(result.short).toContain('约 1/4 到 1/3')
     expect(result.long).toContain('1/3 放开头')
     expect(result.medium).toContain('1/3放开头')
-    expect(result.short).toContain('1/3在开头')
+    expect(result.short).toContain('位置随机出现在开头、中间或结尾')
 
     expect(result.long).toContain('Emoji 不与句尾标点同时出现')
     expect(result.medium).toContain('Emoji不计入字数')
-    expect(result.short).toContain('Emoji 不与句尾标点共存')
+    expect(result.short).toContain('不与句尾标点同存')
 
     expect(result.long).not.toContain('{{EMOJI_LIST}}')
     expect(result.medium).not.toContain('{{EMOJI_LIST}}')
@@ -61,7 +61,7 @@ describe('buildStylePrompts', () => {
 
     expect(result.long).toContain('Emoji 不与句尾标点同时出现')
     expect(result.medium).toContain('Emoji不计入字数')
-    expect(result.short).toContain('Emoji 不与句尾标点共存')
+    expect(result.short).toContain('不与句尾标点同存')
 
     expect(result.long).toContain('禁止复述视频画面、台词、剧情')
     expect(result.medium).toContain('禁止复述视频画面、动作、台词')
