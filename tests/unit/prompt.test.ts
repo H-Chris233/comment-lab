@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
+  buildExactLengthBundlePrompt,
   buildStylePrompts,
+  splitExactLengthTargetBundles,
   splitStyleTargets
 } from '../../server/services/prompt'
 
@@ -42,9 +44,9 @@ describe('buildStylePrompts', () => {
     expect(result.medium).toContain('字数要故意打散')
     expect(result.short).toContain('字数要故意打散')
 
-    expect(result.long).toContain('30%–35%')
-    expect(result.medium).toContain('20–25%')
-    expect(result.short).toContain('20–25%')
+    expect(result.long).toContain('40%–45%')
+    expect(result.medium).toContain('30–35%')
+    expect(result.short).toContain('30–35%')
     expect(result.long).toContain('1/3 放开头')
     expect(result.medium).toContain('1/3放开头')
     expect(result.short).toContain('1/3在开头')
@@ -121,5 +123,24 @@ describe('buildStylePrompts', () => {
     expect(result.short).toContain('博主、种草、笑死我了')
     expect(result.medium).toContain('禁用：“博主、种草、笑死我了')
     expect(result.long).toContain('禁用词（不得出现）')
+  })
+
+  it('bundle prompt 也会同步提高 emoji 使用频率', async () => {
+    const bundles = splitExactLengthTargetBundles([
+      { length: 3, target: 1 },
+      { length: 4, target: 1 },
+      { length: 5, target: 1 },
+      { length: 6, target: 1 },
+      { length: 7, target: 1 }
+    ])
+
+    const result = await buildExactLengthBundlePrompt(bundles[0], {
+      basePrompt: '请偏口语化',
+      title: '这个夏天最治愈的一段'
+    })
+
+    expect(result).toContain('总量约25%')
+    expect(result).toContain('75% 不用 Emoji、25% 用 Emoji')
+    expect(result).toContain('25% 的 Emoji 尽量均匀分布在开头、中间、结尾')
   })
 })
