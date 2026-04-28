@@ -145,6 +145,43 @@ describe('POST /api/generate', () => {
     expect(res.body.code).toBe('FILE_TOO_LARGE')
   }, 30_000)
 
+  it('压缩失败时会把详细错误信息返回给客户端', async () => {
+    vi.mocked(downloadVideoUrlToTempFile).mockResolvedValueOnce({
+      sourcePath: '/tmp/mock.mp4',
+      cleanup: async () => {},
+      bytes: 301378261,
+      mime: 'video/mp4'
+    } as any)
+    vi.mocked(ensureVideoUnderLimit).mockRejectedValueOnce(Object.assign(new Error('ffmpeg exited 1'), {
+      name: 'AppError',
+      code: 'VIDEO_COMPRESS_FAILED',
+      statusCode: 422,
+      data: {
+        stderr: 'broken header',
+        exitCode: 1
+      }
+    }))
+
+    const app = createApp()
+    app.use('/api/generate', generateHandler)
+
+    const res = await request(toNodeListener(app))
+      .post('/api/generate')
+      .field('mode', 'link')
+      .field('inputMode', 'file')
+      .field('url', 'https://v.douyin.com/abcde/')
+      .field('count', '1')
+      .field('basePrompt', 'base')
+
+    expect(res.status).toBe(422)
+    expect(res.body.ok).toBe(false)
+    expect(res.body.code).toBe('VIDEO_COMPRESS_FAILED')
+    expect(res.body.data).toMatchObject({
+      stderr: 'broken header',
+      exitCode: 1
+    })
+  })
+
   it('单轮会按 3 个风格桶并行调用并合并结果', async () => {
     const app = createApp()
     app.use('/api/generate', generateHandler)

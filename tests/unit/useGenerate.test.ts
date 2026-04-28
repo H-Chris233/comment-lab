@@ -174,6 +174,35 @@ describe('useGenerate', () => {
     timeoutSpy.mockRestore()
   })
 
+  it('会把错误响应里的详细信息暴露给界面', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(
+      'event: error\ndata: {"ok":false,"code":"VIDEO_COMPRESS_FAILED","message":"视频压缩失败，请重试","requestId":"req_test","data":{"stderr":"boom","exitCode":1}}\n\n',
+      {
+        headers: {
+          'Content-Type': 'text/event-stream'
+        }
+      }
+    )) as any)
+
+    const { generate, error, errorCode, errorDetail } = useGenerate() as any
+
+    const result = await generate({
+      mode: 'link',
+      inputMode: 'file',
+      model: 'qwen3.6-plus',
+      enableThinking: true,
+      url: 'https://v.douyin.com/abcde/',
+      count: 1,
+      basePrompt: 'base'
+    })
+
+    expect(result.ok).toBe(false)
+    expect(error.value).toBe('视频压缩失败，请重试')
+    expect(errorCode.value).toBe('VIDEO_COMPRESS_FAILED')
+    expect(errorDetail.value).toContain('boom')
+    expect(errorDetail.value).toContain('exitCode')
+  })
+
   it('会避免同一长度桶连续超过 3 条', () => {
     const values = SHUFFLE_SAMPLE_VALUES
     const original = values.slice()

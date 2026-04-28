@@ -46,6 +46,7 @@ const {
   generating,
   error,
   errorCode,
+  errorDetail,
   comments,
   rawText,
   rawPromptTrace,
@@ -279,6 +280,11 @@ onMounted(() => {
               <div class="error-content">
                 <p class="error-title">出错了</p>
                 <p class="error-message">{{ error }} <span v-if="errorCode" class="error-code">({{ errorCode }})</span></p>
+                <p v-if="requestId" class="error-request-id">请求ID：{{ requestId }}</p>
+                <details v-if="errorDetail" class="error-details">
+                  <summary>查看详细错误</summary>
+                  <pre>{{ errorDetail }}</pre>
+                </details>
               </div>
             </div>
           </Transition>
@@ -652,6 +658,34 @@ body {
   font-size: 13px;
   color: #991B1B;
   margin: 0;
+}
+
+.error-request-id {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #B91C1C;
+}
+
+.error-details {
+  margin-top: 12px;
+  color: #7F1D1D;
+  font-size: 12px;
+}
+
+.error-details summary {
+  cursor: pointer;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.error-details pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+  padding: 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(248, 113, 113, 0.25);
 }
 
 .error-code {

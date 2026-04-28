@@ -206,6 +206,7 @@ export function useGenerate() {
   const generating = ref(false)
   const error = ref('')
   const errorCode = ref('')
+  const errorDetail = ref('')
 
   const comments = ref<string[]>([])
   const rawText = ref('')
@@ -220,6 +221,33 @@ export function useGenerate() {
   let streamedCommentSet = new Set<string>()
 
   const lastPayload = ref<GenerateRequestPayload & { file?: File | null } | null>(null)
+
+  function formatErrorDetail(data?: Record<string, unknown>) {
+    if (!data || typeof data !== 'object') return ''
+
+    const lines: string[] = []
+
+    if (typeof data.stderr === 'string' && data.stderr.trim()) {
+      lines.push('stderr:')
+      lines.push(data.stderr.trim())
+    }
+
+    if (typeof data.stdout === 'string' && data.stdout.trim()) {
+      lines.push('stdout:')
+      lines.push(data.stdout.trim())
+    }
+
+    const extra = Object.fromEntries(
+      Object.entries(data).filter(([key]) => key !== 'stderr' && key !== 'stdout')
+    )
+
+    if (Object.keys(extra).length) {
+      lines.push('details:')
+      lines.push(JSON.stringify(extra, null, 2))
+    }
+
+    return lines.join('\n\n')
+  }
 
   function toApiErrorLike(error: unknown): ApiError {
     const fallback: ApiError = {
@@ -311,6 +339,7 @@ export function useGenerate() {
     generating.value = true
     error.value = ''
     errorCode.value = ''
+    errorDetail.value = ''
     comments.value = []
     rawText.value = ''
     rawPromptTrace.value = []
@@ -349,6 +378,7 @@ export function useGenerate() {
           const apiError = errorData as ApiError
           error.value = apiError.message
           errorCode.value = apiError.code
+          errorDetail.value = formatErrorDetail(apiError.data)
           return apiError
         }
 
@@ -435,6 +465,7 @@ export function useGenerate() {
       if (!doneResponse.ok) {
         error.value = doneResponse.message
         errorCode.value = doneResponse.code
+        errorDetail.value = formatErrorDetail(doneResponse.data)
         if (doneResponse.data?.rawText && typeof doneResponse.data.rawText === 'string') rawText.value = doneResponse.data.rawText
         if (Array.isArray(doneResponse.data?.promptTrace)) rawPromptTrace.value = doneResponse.data.promptTrace
         return doneResponse
@@ -456,6 +487,7 @@ export function useGenerate() {
       if ((e as any)?.name === 'AbortError') {
         error.value = '已取消本次生成'
         errorCode.value = 'REQUEST_ABORTED'
+        errorDetail.value = ''
         return {
           ok: false,
           code: errorCode.value,
@@ -467,6 +499,7 @@ export function useGenerate() {
       const mapped = toApiErrorLike(e)
       error.value = mapped.message
       errorCode.value = mapped.code
+      errorDetail.value = formatErrorDetail(mapped.data)
       comments.value = []
       rawText.value = ''
       rawPromptTrace.value = []
@@ -509,6 +542,7 @@ export function useGenerate() {
     generating,
     error,
     errorCode,
+    errorDetail,
     comments,
     rawText,
     rawPromptTrace,

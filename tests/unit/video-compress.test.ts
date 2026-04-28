@@ -128,7 +128,10 @@ describe('compressVideoIfNeeded', () => {
     await expect(compressVideoIfNeeded({ sourcePath })).rejects.toMatchObject({
       name: 'AppError',
       code: 'VIDEO_COMPRESS_FAILED',
-      statusCode: 422
+      statusCode: 422,
+      data: {
+        stderr: 'boom'
+      }
     })
   })
 

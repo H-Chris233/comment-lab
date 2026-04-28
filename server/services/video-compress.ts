@@ -82,6 +82,31 @@ function createCompressionAppError(message = '视频压缩失败，请重试') {
   })
 }
 
+function createCompressionAppErrorWithData(message = '视频压缩失败，请重试', data?: Record<string, unknown>) {
+  return createAppError({
+    code: 'VIDEO_COMPRESS_FAILED',
+    message,
+    statusCode: 422,
+    data
+  })
+}
+
+function buildCompressionErrorData(error: unknown) {
+  const runnerError = error as {
+    exitCode?: unknown
+    signal?: unknown
+    stdout?: unknown
+    stderr?: unknown
+  }
+
+  const detail: Record<string, unknown> = {}
+  if (typeof runnerError.exitCode === 'number') detail.exitCode = runnerError.exitCode
+  if (typeof runnerError.signal === 'string' || runnerError.signal === null) detail.signal = runnerError.signal
+  if (typeof runnerError.stdout === 'string' && runnerError.stdout.trim()) detail.stdout = runnerError.stdout.trim()
+  if (typeof runnerError.stderr === 'string' && runnerError.stderr.trim()) detail.stderr = runnerError.stderr.trim()
+  return detail
+}
+
 function createMissingBinaryAppError() {
   return createAppError({
     code: 'VIDEO_COMPRESS_FFMPEG_MISSING',
@@ -185,14 +210,23 @@ async function compressVideoFile(params: {
 
       await fs.rm(outputPath, { force: true }).catch(() => {})
 
-      const outputStat = await runCompressionAttempt({
-        inputPath: params.inputPath,
-        outputPath,
-        profile,
-        signal: params.signal,
-        timeoutMs: params.timeoutMs,
-        requestId: params.requestId
-      })
+      let outputStat
+      try {
+        outputStat = await runCompressionAttempt({
+          inputPath: params.inputPath,
+          outputPath,
+          profile,
+          signal: params.signal,
+          timeoutMs: params.timeoutMs,
+          requestId: params.requestId
+        })
+      } catch (error) {
+        if (isExitError(error)) {
+          throw createCompressionAppErrorWithData('视频压缩失败，请重试', buildCompressionErrorData(error))
+        }
+
+        throw error
+      }
 
       console.info('[video-compress] attempt:result', {
         requestId: params.requestId,
@@ -247,7 +281,7 @@ async function compressVideoFile(params: {
     }
 
     if (isExitError(error)) {
-      throw createCompressionAppError()
+      throw createCompressionAppErrorWithData('视频压缩失败，请重试', buildCompressionErrorData(error))
     }
 
     if (error && typeof error === 'object' && (error as { code?: unknown }).code === 'VIDEO_COMPRESS_FAILED') {

@@ -679,7 +679,8 @@ export default defineEventHandler(async (event) => {
       sse.send('error', failure({
         code: mapped.code,
         message: mapped.message,
-        requestId: mapped.requestId
+        requestId: mapped.requestId,
+        data: mapped.data
       }))
       sse.close()
       return
