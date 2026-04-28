@@ -11,7 +11,7 @@ vi.mock('../../server/services/process-runner', () => ({
 }))
 
 const MB = 1024 * 1024
-const MAX_BYTES = 100 * MB
+const MAX_BYTES = 500 * MB
 const TEST_ROOT = path.join(process.cwd(), '.tmp', 'video-compress-tests')
 const TEMP_VIDEO_CACHE_ROOT = path.resolve(process.cwd(), '.tmp', 'video-cache')
 
@@ -30,7 +30,7 @@ describe('compressVideoIfNeeded', () => {
   beforeEach(() => {
     vi.stubGlobal('useRuntimeConfig', () => ({
       tempVideoDir: path.join('.tmp', 'video-cache'),
-      maxVideoSizeMb: 100
+      maxVideoSizeMb: 500
     }))
   })
 
@@ -41,7 +41,7 @@ describe('compressVideoIfNeeded', () => {
     await fs.rm(TEMP_VIDEO_CACHE_ROOT, { recursive: true, force: true }).catch(() => {})
   })
 
-  it('keeps files at or below 100MB unchanged', async () => {
+  it('keeps files at or below 500MB unchanged', async () => {
     const sourcePath = await createSparseVideoFile(MAX_BYTES)
 
     const result = await compressVideoIfNeeded({ sourcePath })
@@ -54,7 +54,7 @@ describe('compressVideoIfNeeded', () => {
     await result.cleanup()
   })
 
-  it('compresses files above 100MB into a new temp mp4 path', async () => {
+  it('compresses files above 500MB into a new temp mp4 path', async () => {
     const sourcePath = await createSparseVideoFile(MAX_BYTES + 1, 'input.mov')
 
     vi.mocked(runProcess).mockImplementation(async ({ args }: any) => {

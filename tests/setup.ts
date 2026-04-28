@@ -19,7 +19,8 @@ Object.assign(globalThis, {
     aliyunBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
     aliyunModel: 'qwen3.5-omni-plus',
     douyinApiBase: 'https://parser.example.com',
-    maxVideoSizeMb: 100,
+    maxVideoSizeMb: 500,
+    maxDownloadVideoSizeMb: 500,
     public: {
       defaultModel: 'qwen3.5-omni-plus'
     },

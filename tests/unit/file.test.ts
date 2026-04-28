@@ -160,9 +160,9 @@ describe('download video size limit', () => {
     vi.unstubAllGlobals()
   })
 
-  it('默认超过 100MB 就会切换到更小的分辨率下载', () => {
+  it('默认超过 500MB 才会切换到更小的分辨率下载', () => {
     vi.stubGlobal('useRuntimeConfig', () => ({}))
 
-    expect(getMaxDownloadVideoBytes()).toBe(100 * 1024 * 1024)
+    expect(getMaxDownloadVideoBytes()).toBe(500 * 1024 * 1024)
   })
 })

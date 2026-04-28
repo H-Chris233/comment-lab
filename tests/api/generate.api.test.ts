@@ -1,6 +1,6 @@
 import { createApp, toNodeListener } from 'h3'
 import request from 'supertest'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createAppError } from '../../server/utils/errors'
 
 vi.mock('../../server/services/ai', () => ({
@@ -105,6 +105,10 @@ beforeEach(() => {
   } as any))
 })
 
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
+
 describe('POST /api/generate', () => {
   it('参数缺失时返回 INVALID_INPUT', async () => {
     const app = createApp()
@@ -120,6 +124,11 @@ describe('POST /api/generate', () => {
   })
 
   it('文件过大时返回 FILE_TOO_LARGE', async () => {
+    vi.stubGlobal('useRuntimeConfig', () => ({
+      maxVideoSizeMb: 1,
+      maxDownloadVideoSizeMb: 1
+    }))
+
     const app = createApp()
     app.use('/api/generate', generateHandler)
 
@@ -128,7 +137,7 @@ describe('POST /api/generate', () => {
       .field('mode', 'upload')
       .field('count', '100')
       .field('basePrompt', 'base')
-      .attach('video', Buffer.alloc(101 * 1024 * 1024), { filename: 'big.mp4', contentType: 'video/mp4' })
+      .attach('video', Buffer.alloc(2 * 1024 * 1024), { filename: 'big.mp4', contentType: 'video/mp4' })
 
     expect(res.status).toBe(413)
     expect(res.body.ok).toBe(false)
@@ -356,7 +365,7 @@ describe('POST /api/generate', () => {
     vi.mocked(resolveDouyinDownloadVideoUrl).mockResolvedValueOnce('https://cdn.example.com/cn-high.mp4' as any)
     vi.mocked(downloadVideoUrlToTempFile)
       .mockResolvedValueOnce({
-        bytes: 120 * 1024 * 1024,
+        bytes: 600 * 1024 * 1024,
         mime: 'video/mp4',
         sourcePath: '/tmp/original.mp4',
         cleanup: async () => {}
@@ -378,7 +387,7 @@ describe('POST /api/generate', () => {
     expect(downloadVideoUrlToTempFile).toHaveBeenCalledTimes(1)
     expect(vi.mocked(downloadVideoUrlToTempFile).mock.calls[0]?.[0]).toEqual(expect.objectContaining({
       streamToDisk: true,
-      maxBytes: 100 * 1024 * 1024,
+      maxBytes: 500 * 1024 * 1024,
       videoUrl: 'https://cdn.example.com/cn-high.mp4'
     }))
     expect(resolveDouyinDownloadVideoUrl).toHaveBeenCalledTimes(1)
