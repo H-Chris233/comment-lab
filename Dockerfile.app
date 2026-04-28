@@ -21,6 +21,10 @@ ENV PORT=3000
 ENV NITRO_HOST=0.0.0.0
 ENV NITRO_PORT=3000
 
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ffmpeg \
+  && rm -rf /var/lib/apt/lists/*
+
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/.output ./.output
 COPY --from=build /app/prompts ./prompts
