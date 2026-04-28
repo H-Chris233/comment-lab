@@ -64,6 +64,11 @@ function createClientAbortError() {
   })
 }
 
+function isAbortLikeError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error ?? 'unknown')
+  return /terminated|aborted|timeout|timed out|econnreset/i.test(message)
+}
+
 function wireAbortSignal(controller: AbortController, signal?: AbortSignal) {
   if (!signal) return () => {}
   if (signal.aborted) {
@@ -221,7 +226,7 @@ async function fetchVideoBuffer(params: {
     } catch (error) {
       const message = error instanceof Error ? error.message : 'unknown'
       const isFileTooLarge = error instanceof Error && (error as { code?: unknown }).code === 'FILE_TOO_LARGE'
-      const isTerminal = error instanceof Error && /terminated|aborted|timeout|timed out|econnreset/i.test(message)
+      const isTerminal = isAbortLikeError(error)
       const isLastAttempt = attempt >= retryTimes
 
       console.error('[file.fetch-video] failed', {
@@ -238,13 +243,20 @@ async function fetchVideoBuffer(params: {
         throw error
       }
 
+      if (params.signal?.aborted) {
+        throw createClientAbortError()
+      }
+
       if (!isLastAttempt) {
         const waitMs = attempt * 600
         await new Promise((resolve) => setTimeout(resolve, waitMs))
+        if (params.signal?.aborted) {
+          throw createClientAbortError()
+        }
         continue
       }
 
-      if (error instanceof Error && /terminated|aborted|timeout|timed out|econnreset/i.test(message)) {
+      if (isAbortLikeError(error)) {
         throw createAppError({
           code: 'VIDEO_FETCH_FAILED',
           message: '视频下载超时或连接中断，请重试',
@@ -356,8 +368,21 @@ async function fetchVideoStreamToTempFile(params: {
         const reader = (source as any).getReader()
         const writer = createWriteStream(filePath)
         const writerClosed = new Promise<void>((resolve, reject) => {
-          writer.once('finish', resolve)
-          writer.once('error', reject)
+          let settled = false
+          const resolveOnce = () => {
+            if (settled) return
+            settled = true
+            resolve()
+          }
+          const rejectOnce = (error: Error) => {
+            if (settled) return
+            settled = true
+            reject(error)
+          }
+
+          writer.once('finish', resolveOnce)
+          writer.once('close', resolveOnce)
+          writer.once('error', rejectOnce)
         })
 
         try {
@@ -436,7 +461,7 @@ async function fetchVideoStreamToTempFile(params: {
     } catch (error) {
       const message = error instanceof Error ? error.message : 'unknown'
       const isFileTooLarge = error instanceof Error && (error as { code?: unknown }).code === 'FILE_TOO_LARGE'
-      const isTerminal = error instanceof Error && /terminated|aborted|timeout|timed out|econnreset/i.test(message)
+      const isTerminal = isAbortLikeError(error)
       const isLastAttempt = attempt >= retryTimes
 
       console.error('[file.fetch-video] failed', {
@@ -458,17 +483,20 @@ async function fetchVideoStreamToTempFile(params: {
         throw error
       }
 
-      if (!isLastAttempt) {
-        const waitMs = attempt * 600
-        await new Promise((resolve) => setTimeout(resolve, waitMs))
-        continue
-      }
-
       if (params.signal?.aborted) {
         throw createClientAbortError()
       }
 
-      if (error instanceof Error && /terminated|aborted|timeout|timed out|econnreset/i.test(message)) {
+      if (!isLastAttempt) {
+        const waitMs = attempt * 600
+        await new Promise((resolve) => setTimeout(resolve, waitMs))
+        if (params.signal?.aborted) {
+          throw createClientAbortError()
+        }
+        continue
+      }
+
+      if (isAbortLikeError(error)) {
         throw createAppError({
           code: 'VIDEO_FETCH_FAILED',
           message: '视频下载超时或连接中断，请重试',
