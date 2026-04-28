@@ -32,6 +32,20 @@ npm run desktop:dev
 这会先启动本地 Nuxt + Python 服务，再打开一个桌面窗口。
 当前桌面版仍然是“本地服务 + 桌面壳”的结构，不是把所有后端逻辑完全搬进 Rust。
 
+### 桌面打包
+
+```bash
+npm run desktop:build
+```
+
+打包流程会自动执行两步：
+1. 用 `PyInstaller` 将 `python_service/app.py` 打成独立侧车可执行文件（内含 Python 运行时 + DashScope SDK）。
+2. 再执行 Tauri 打包，把该侧车随桌面应用一起发布。
+
+因此目标机器不需要单独安装 Node.js / Python 运行时。
+
+当前 Linux 发布包默认产出 `.deb` 和 `.rpm`，先不打 AppImage，避免额外的打包依赖卡住发布流程。
+
 ### 分开启动
 
 ```bash

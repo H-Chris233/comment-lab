@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+echo "Python sidecar placeholder. Run desktop build to replace this file." >&2
+exit 1

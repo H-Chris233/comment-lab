@@ -14,3 +14,6 @@ __pycache__/
 *.pyc
 .venv/
 python_service/__pycache__/
+python_service/build/
+python_service/dist/
+python_service/*.spec

@@ -214,3 +214,9 @@ async def generate(request: GenerateRequest):
         raise
     except Exception as exc:  # pragma: no cover - surfaced to Node
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run("app:app", host="127.0.0.1", port=8001)
