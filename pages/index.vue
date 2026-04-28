@@ -311,7 +311,7 @@ onMounted(() => {
                 :file-name="fileMeta.name"
                 :file-size="fileMeta.size"
                 :file-type="fileMeta.type"
-                :max-size-mb="100"
+                :max-size-mb="1000"
                 @update:file="file = $event"
                 @parse-link="handleParseLink"
                 @file-error="handleFileError"

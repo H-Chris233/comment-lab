@@ -89,7 +89,7 @@ npm run docker:down
 - `ALIYUN_MODEL`: 默认模型名（建议 `qwen3.5-omni-plus`）
 - `TIKHUB_API_KEY`: TikHub API Key（抖音解析）
 - `TIKHUB_BASE_URL`: TikHub API 地址（默认 `https://api.tikhub.io`）
-- `MAX_VIDEO_SIZE_MB`: 前端/服务端上传大小限制（默认 100）
+- `MAX_VIDEO_SIZE_MB`: 前端/服务端上传大小限制（默认 1000）
 - `GENERATE_TIMEOUT_MS`: 前端/服务端生成请求超时（默认 3600000，即 1 小时）
 - `AUTH_LOCK_FILE`: 密码锁状态文件路径（本地默认 `.tmp/auth-lock.json`；Docker Compose 会改用独立持久化卷）
 - `PYTHON_DASHSCOPE_SERVICE_URL`: Python 侧车地址（默认 `http://127.0.0.1:8001`）
@@ -98,7 +98,7 @@ npm run docker:down
 
 ## 限制说明
 
-- 产品当前前端上传限制：100MB（可通过 `MAX_VIDEO_SIZE_MB` 调整）
+- 产品当前前端上传限制：1000MB（可通过 `MAX_VIDEO_SIZE_MB` 调整）
 - 模型能力可支持长视频理解，但实际体验仍受上传体积、网络和服务超时影响
 
 ## API

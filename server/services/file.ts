@@ -13,8 +13,8 @@ export type UploadVideo = { type?: string; data?: Buffer; filename?: string }
 
 export function getMaxVideoBytes() {
   const config = useRuntimeConfig()
-  const fromConfig = Number(config.maxVideoSizeMb || process.env.MAX_VIDEO_SIZE_MB || 500)
-  const mb = Number.isFinite(fromConfig) && fromConfig > 0 ? fromConfig : 500
+  const fromConfig = Number(config.maxVideoSizeMb || process.env.MAX_VIDEO_SIZE_MB || 1000)
+  const mb = Number.isFinite(fromConfig) && fromConfig > 0 ? fromConfig : 1000
   return Math.floor(mb * 1024 * 1024)
 }
 
@@ -559,6 +559,8 @@ async function writeVideoBufferToTempFile(
 
   return {
     sourcePath: filePath,
+    bytes: buffer.byteLength,
+    mime,
     cleanup: async () => {
       const cleanupDelayMs = Math.max(0, options?.cleanupDelayMs ?? 0)
 

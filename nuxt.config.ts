@@ -15,7 +15,7 @@ export default defineNuxtConfig({
     aliyunModel: process.env.ALIYUN_MODEL,
     tikhubApiKey: process.env.TIKHUB_API_KEY,
     tikhubBaseUrl: process.env.TIKHUB_BASE_URL || 'https://api.tikhub.io',
-    maxVideoSizeMb: Number(process.env.MAX_VIDEO_SIZE_MB || 500),
+    maxVideoSizeMb: Number(process.env.MAX_VIDEO_SIZE_MB || 1000),
     maxDownloadVideoSizeMb: Number.POSITIVE_INFINITY,
     maxCompressVideoSizeMb: Number(process.env.MAX_COMPRESS_VIDEO_SIZE_MB || 100),
     tempVideoRetentionMinutes: Number(process.env.TEMP_VIDEO_RETENTION_MINUTES || 10),

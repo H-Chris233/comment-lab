@@ -38,9 +38,9 @@ function onFileChange(event: Event) {
     return
   }
 
-  const maxBytes = (props.maxSizeMb || 100) * 1024 * 1024
+  const maxBytes = (props.maxSizeMb || 1000) * 1024 * 1024
   if (file.size > maxBytes) {
-    emit('file-error', `文件大小不能超过 ${props.maxSizeMb || 100}MB`)
+    emit('file-error', `文件大小不能超过 ${props.maxSizeMb || 1000}MB`)
     emit('update:file', null)
     input.value = ''
     return
@@ -130,7 +130,7 @@ function clearSelectedFile() {
             <line x1="12" y1="3" x2="12" y2="15" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
           <p class="upload-text">点击或拖拽上传视频</p>
-          <p class="upload-hint">支持 mp4/mov/webm，最大 {{ props.maxSizeMb || 100 }}MB</p>
+          <p class="upload-hint">支持 mp4/mov/webm，最大 {{ props.maxSizeMb || 1000 }}MB</p>
         </div>
       </div>
       <div v-if="props.fileName" class="file-info">

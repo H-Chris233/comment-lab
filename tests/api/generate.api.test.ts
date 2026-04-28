@@ -90,6 +90,8 @@ beforeEach(() => {
   vi.mocked(parseDouyinLink).mockResolvedValue({ ok: true, videoUrl: 'https://www.douyin.com/video/7626738541439099121' } as any)
   vi.mocked(saveVideoUploadToTempFile).mockResolvedValue({
     sourcePath: '/tmp/mock.mp4',
+    bytes: 4,
+    mime: 'video/mp4',
     cleanup: async () => {}
   } as any)
   vi.mocked(generateFromVideoUrl).mockImplementation(async (params: any) => ({
@@ -111,6 +113,8 @@ afterEach(() => {
 })
 
 describe('POST /api/generate', () => {
+  const BIG_UPLOAD_BYTES = 101 * 1024 * 1024
+
   it('参数缺失时返回 INVALID_INPUT', async () => {
     const app = createApp()
     app.use('/api/generate', generateHandler)
@@ -491,6 +495,8 @@ describe('POST /api/generate', () => {
   it('upload 模式会先保存到本地临时文件再交给 DashScope SDK', async () => {
     vi.mocked(saveVideoUploadToTempFile).mockResolvedValueOnce({
       sourcePath: '/tmp/uploaded.mp4',
+      bytes: 4,
+      mime: 'video/mp4',
       cleanup: async () => {}
     } as any)
 
@@ -512,6 +518,38 @@ describe('POST /api/generate', () => {
     const firstCallArgs = vi.mocked(generateFromVideoFile).mock.calls[0]?.[0] as any
     expect(firstCallArgs.videoPath).toBe('/tmp/uploaded.mp4')
   })
+
+  it('upload 模式在超过 100MB 时会先压缩再交给 DashScope SDK', async () => {
+    vi.mocked(saveVideoUploadToTempFile).mockResolvedValueOnce({
+      sourcePath: '/tmp/uploaded-large.mp4',
+      bytes: 120 * 1024 * 1024,
+      mime: 'video/mp4',
+      cleanup: async () => {}
+    } as any)
+    vi.mocked(ensureVideoUnderLimit).mockResolvedValueOnce({
+      sourcePath: '/tmp/uploaded-compressed.mp4',
+      bytes: 80 * 1024 * 1024,
+      compressed: true,
+      cleanup: async () => {}
+    } as any)
+
+    const app = createApp()
+    app.use('/api/generate', generateHandler)
+
+    const res = await request(toNodeListener(app))
+      .post('/api/generate')
+      .field('mode', 'upload')
+      .field('count', '2')
+      .field('basePrompt', 'base')
+      .attach('video', Buffer.alloc(BIG_UPLOAD_BYTES, 1), { filename: 'ok.mp4', contentType: 'video/mp4' })
+
+    expect(res.status).toBe(200)
+    expect(res.body.ok).toBe(true)
+    expect(saveVideoUploadToTempFile).toHaveBeenCalledTimes(1)
+    expect(ensureVideoUnderLimit).toHaveBeenCalledTimes(1)
+    const firstCallArgs = vi.mocked(generateFromVideoFile).mock.calls[0]?.[0] as any
+    expect(firstCallArgs.videoPath).toBe('/tmp/uploaded-compressed.mp4')
+  }, 30_000)
 
   it('可通过请求指定不同模型', async () => {
     const app = createApp()

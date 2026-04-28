@@ -30,6 +30,13 @@ import { spreadCommentsByPrefix } from '../services/normalize'
 const MAX_ROUNDS_BUFFER = 2
 const SSE_HEARTBEAT_INTERVAL_MS = 15_000
 
+type TempVideoSource = {
+  sourcePath: string
+  bytes: number
+  cleanup: () => Promise<void>
+  mime?: string
+}
+
 type RunOutcome =
   | { ok: true; data: GenerateResultData }
   | { ok: false; code: string; message: string; statusCode: number; data?: Record<string, unknown> }
@@ -82,48 +89,49 @@ function createSseWriter(event: any): SseWriter {
   }
 }
 
-async function compressDownloadedDouyinVideo(params: {
-  downloaded: Awaited<ReturnType<typeof downloadVideoUrlToTempFile>>
+async function compressVideoSourceIfNeeded(params: {
+  source: TempVideoSource
   requestId?: string
   signal?: AbortSignal
+  stepLabel: 'link-download' | 'upload'
 }) {
   const maxVideoBytes = getMaxCompressVideoBytes()
-  if (params.downloaded.bytes <= maxVideoBytes) {
-    console.info('[api.generate] step:link-download-compress:skip', {
+  if (params.source.bytes <= maxVideoBytes) {
+    console.info(`[api.generate] step:${params.stepLabel}-compress:skip`, {
       requestId: params.requestId,
-      bytes: params.downloaded.bytes,
+      bytes: params.source.bytes,
       maxBytes: maxVideoBytes
     })
-    return params.downloaded
+    return params.source
   }
 
-  console.info('[api.generate] step:link-download-compress:start', {
+  console.info(`[api.generate] step:${params.stepLabel}-compress:start`, {
     requestId: params.requestId,
-    bytes: params.downloaded.bytes,
+    bytes: params.source.bytes,
     maxBytes: maxVideoBytes,
-    sourcePath: params.downloaded.sourcePath
+    sourcePath: params.source.sourcePath
   })
 
   try {
     const compressed = await ensureVideoUnderLimit({
-      sourcePath: params.downloaded.sourcePath,
+      sourcePath: params.source.sourcePath,
       maxBytes: maxVideoBytes,
       requestId: params.requestId,
       signal: params.signal
     })
 
     if (!compressed.compressed) {
-      console.info('[api.generate] step:link-download-compress:noop', {
+      console.info(`[api.generate] step:${params.stepLabel}-compress:noop`, {
         requestId: params.requestId,
-        bytes: compressed.bytes,
+        bytes: params.source.bytes,
         maxBytes: maxVideoBytes
       })
-      return params.downloaded
+      return params.source
     }
 
-    console.info('[api.generate] step:link-download-compress:done', {
+    console.info(`[api.generate] step:${params.stepLabel}-compress:done`, {
       requestId: params.requestId,
-      sourceBytes: params.downloaded.bytes,
+      sourceBytes: params.source.bytes,
       bytes: compressed.bytes,
       maxBytes: maxVideoBytes,
       compressed: true
@@ -134,12 +142,12 @@ async function compressDownloadedDouyinVideo(params: {
       bytes: compressed.bytes,
       cleanup: async () => {
         await compressed.cleanup().catch(() => {})
-        await params.downloaded.cleanup().catch(() => {})
+        await params.source.cleanup().catch(() => {})
       },
-      mime: params.downloaded.mime
+      mime: params.source.mime
     }
   } catch (error) {
-    await params.downloaded.cleanup().catch(() => {})
+    await params.source.cleanup().catch(() => {})
     throw error
   }
 }
@@ -165,10 +173,11 @@ async function downloadDouyinLinkVideo(params: {
     streamToDisk: true
   })
 
-  return await compressDownloadedDouyinVideo({
-    downloaded,
+  return await compressVideoSourceIfNeeded({
+    source: downloaded,
     requestId: params.requestId,
-    signal: params.signal
+    signal: params.signal,
+    stepLabel: 'link-download'
   })
 }
 
@@ -366,12 +375,18 @@ export default defineEventHandler(async (event) => {
       const maxBytes = getMaxVideoBytes()
       const file = validateVideoFile(form.find((f) => f.name === 'video'), maxBytes, ALLOWED_VIDEO_MIME_TYPES)
       const uploaded = await saveVideoUploadToTempFile(file, requestId)
-      localVideoPath = uploaded.sourcePath
-      cleanupVideoSource = uploaded.cleanup
+      const compressed = await compressVideoSourceIfNeeded({
+        source: uploaded,
+        requestId,
+        signal: abortController.signal,
+        stepLabel: 'upload'
+      })
+      localVideoPath = compressed.sourcePath
+      cleanupVideoSource = compressed.cleanup
       console.info('[api.generate] step:upload-accepted', {
         requestId,
         mime: file.type,
-        bytes: file.data?.byteLength || 0,
+        bytes: uploaded.bytes,
         maxBytes,
         transport: 'file'
       })

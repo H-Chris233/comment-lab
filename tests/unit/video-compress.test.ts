@@ -30,7 +30,7 @@ describe('compressVideoIfNeeded', () => {
   beforeEach(() => {
     vi.stubGlobal('useRuntimeConfig', () => ({
       tempVideoDir: path.join('.tmp', 'video-cache'),
-      maxVideoSizeMb: 500,
+      maxVideoSizeMb: 1000,
       maxCompressVideoSizeMb: 100
     }))
   })
