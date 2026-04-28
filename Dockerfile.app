@@ -21,9 +21,24 @@ ENV PORT=3000
 ENV NITRO_HOST=0.0.0.0
 ENV NITRO_PORT=3000
 
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends ffmpeg \
-  && rm -rf /var/lib/apt/lists/*
+RUN set -eux; \
+  rm -f /etc/apt/sources.list.d/debian.sources; \
+  printf '%s\n' \
+    'Types: deb' \
+    'URIs: http://mirrors.tuna.tsinghua.edu.cn/debian/' \
+    'Suites: bookworm bookworm-updates' \
+    'Components: main' \
+    'Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg' \
+    '' \
+    'Types: deb' \
+    'URIs: http://mirrors.tuna.tsinghua.edu.cn/debian-security/' \
+    'Suites: bookworm-security' \
+    'Components: main' \
+    'Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg' \
+    > /etc/apt/sources.list.d/debian.sources; \
+  apt-get update; \
+  apt-get install -y --no-install-recommends ffmpeg; \
+  rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/.output ./.output
