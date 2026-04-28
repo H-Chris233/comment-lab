@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 
 
 DEFAULT_BASE_URL = "https://dashscope.aliyuncs.com/api/v1"
-THINKING_BUDGET = 8192
+THINKING_BUDGET = 4096
 
 
 class GenerateRequest(BaseModel):
