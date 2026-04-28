@@ -19,10 +19,7 @@ export function getMaxVideoBytes() {
 }
 
 export function getMaxDownloadVideoBytes() {
-  const config = useRuntimeConfig()
-  const fromConfig = Number(config.maxDownloadVideoSizeMb || process.env.MAX_DOWNLOAD_VIDEO_SIZE_MB || 500)
-  const mb = Number.isFinite(fromConfig) && fromConfig > 0 ? fromConfig : 500
-  return Math.floor(mb * 1024 * 1024)
+  return Number.POSITIVE_INFINITY
 }
 
 function logVideoFetchProgress(params: {
@@ -94,7 +91,7 @@ async function fetchVideoBuffer(params: {
   retryTimes?: number
   signal?: AbortSignal
 }) {
-  const maxBytes = params.maxBytes ?? getMaxVideoBytes()
+  const maxBytes = params.maxBytes ?? Number.POSITIVE_INFINITY
   const retryTimes = Math.max(1, params.retryTimes ?? 3)
 
   for (let attempt = 1; attempt <= retryTimes; attempt += 1) {
@@ -283,7 +280,7 @@ async function fetchVideoStreamToTempFile(params: {
   retryTimes?: number
   signal?: AbortSignal
 }) {
-  const maxBytes = params.maxBytes ?? getMaxVideoBytes()
+  const maxBytes = params.maxBytes ?? Number.POSITIVE_INFINITY
   const retryTimes = Math.max(1, params.retryTimes ?? 3)
 
   for (let attempt = 1; attempt <= retryTimes; attempt += 1) {

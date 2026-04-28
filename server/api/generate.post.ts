@@ -14,7 +14,7 @@ import { normalizeComments } from '../services/normalize'
 import { countVisibleLengthWithoutEmojiAndPunctuation } from '../services/emoji'
 import type { ParsedVideoResult } from '../services/douyin'
 import { parseDouyinLink, resolveDouyinDownloadVideoUrl } from '../services/douyin'
-import { ensureVideoUnderLimit } from '../services/video-compress'
+import { ensureVideoUnderLimit, getMaxCompressVideoBytes } from '../services/video-compress'
 import {
   STYLE_ORDER,
   buildStylePrompts,
@@ -87,7 +87,7 @@ async function compressDownloadedDouyinVideo(params: {
   requestId?: string
   signal?: AbortSignal
 }) {
-  const maxVideoBytes = getMaxVideoBytes()
+  const maxVideoBytes = getMaxCompressVideoBytes()
   if (params.downloaded.bytes <= maxVideoBytes) {
     console.info('[api.generate] step:link-download-compress:skip', {
       requestId: params.requestId,

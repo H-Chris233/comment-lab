@@ -28,6 +28,7 @@ vi.mock('../../server/services/douyin', () => ({
 }))
 
 vi.mock('../../server/services/video-compress', () => ({
+  getMaxCompressVideoBytes: vi.fn(() => 100 * 1024 * 1024),
   ensureVideoUnderLimit: vi.fn(async (params: any) => ({
     sourcePath: params.sourcePath,
     cleanup: async () => {},
@@ -39,7 +40,7 @@ vi.mock('../../server/services/video-compress', () => ({
 import { generateFromVideoUrl, generateFromVideoFile } from '../../server/services/ai'
 import { downloadVideoUrlToTempFile, saveVideoUploadToTempFile } from '../../server/services/file'
 import { parseDouyinLink, resolveDouyinDownloadVideoUrl, resolveDouyinLowQualityDownloadVideoUrl } from '../../server/services/douyin'
-import { ensureVideoUnderLimit } from '../../server/services/video-compress'
+import { ensureVideoUnderLimit, getMaxCompressVideoBytes } from '../../server/services/video-compress'
 import generateHandler from '../../server/api/generate.post'
 
 function styleTargetFromPrompt(prompt: string) {
@@ -387,13 +388,17 @@ describe('POST /api/generate', () => {
     expect(downloadVideoUrlToTempFile).toHaveBeenCalledTimes(1)
     expect(vi.mocked(downloadVideoUrlToTempFile).mock.calls[0]?.[0]).toEqual(expect.objectContaining({
       streamToDisk: true,
-      maxBytes: 500 * 1024 * 1024,
+      maxBytes: Number.POSITIVE_INFINITY,
       videoUrl: 'https://cdn.example.com/cn-high.mp4'
     }))
     expect(resolveDouyinDownloadVideoUrl).toHaveBeenCalledTimes(1)
     expect(vi.mocked(resolveDouyinDownloadVideoUrl).mock.calls[0]?.[3]).toEqual({ region: 'CN' })
     expect(resolveDouyinLowQualityDownloadVideoUrl).not.toHaveBeenCalled()
     expect(ensureVideoUnderLimit).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(ensureVideoUnderLimit).mock.calls[0]?.[0]).toEqual(expect.objectContaining({
+      maxBytes: 100 * 1024 * 1024
+    }))
+    expect(vi.mocked(getMaxCompressVideoBytes)).toHaveBeenCalledTimes(1)
     expect(vi.mocked(generateFromVideoFile).mock.calls[0]?.[0]).toEqual(expect.objectContaining({
       videoPath: '/tmp/original.mp4'
     }))

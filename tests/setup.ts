@@ -20,7 +20,8 @@ Object.assign(globalThis, {
     aliyunModel: 'qwen3.5-omni-plus',
     douyinApiBase: 'https://parser.example.com',
     maxVideoSizeMb: 500,
-    maxDownloadVideoSizeMb: 500,
+    maxDownloadVideoSizeMb: Number.POSITIVE_INFINITY,
+    maxCompressVideoSizeMb: 100,
     public: {
       defaultModel: 'qwen3.5-omni-plus'
     },

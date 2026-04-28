@@ -5,7 +5,7 @@ import path from 'node:path'
 import { createAppError } from '../utils/errors'
 import { runProcess } from './process-runner'
 
-const DEFAULT_MAX_VIDEO_BYTES = 500 * 1024 * 1024
+const DEFAULT_MAX_COMPRESS_VIDEO_BYTES = 100 * 1024 * 1024
 
 export interface CompressVideoIfNeededParams {
   sourcePath: string
@@ -38,10 +38,10 @@ function getTempVideoDir() {
   return path.isAbsolute(configured) ? configured : path.resolve(process.cwd(), configured)
 }
 
-function getMaxVideoBytes() {
+export function getMaxCompressVideoBytes() {
   const config = useRuntimeConfig()
-  const fromConfig = Number(config.maxVideoSizeMb || process.env.MAX_VIDEO_SIZE_MB || 500)
-  const mb = Number.isFinite(fromConfig) && fromConfig > 0 ? fromConfig : 500
+  const fromConfig = Number(config.maxCompressVideoSizeMb || process.env.MAX_COMPRESS_VIDEO_SIZE_MB || 100)
+  const mb = Number.isFinite(fromConfig) && fromConfig > 0 ? fromConfig : 100
   return Math.floor(mb * 1024 * 1024)
 }
 
@@ -259,7 +259,7 @@ async function compressVideoFile(params: {
 }
 
 export async function compressVideoIfNeeded(params: CompressVideoIfNeededParams): Promise<CompressVideoResult> {
-  const maxBytes = params.maxBytes ?? getMaxVideoBytes() ?? DEFAULT_MAX_VIDEO_BYTES
+  const maxBytes = params.maxBytes ?? getMaxCompressVideoBytes() ?? DEFAULT_MAX_COMPRESS_VIDEO_BYTES
 
   if (params.signal?.aborted) {
     throw createAbortAppError()
