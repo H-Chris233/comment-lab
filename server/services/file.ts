@@ -1,6 +1,7 @@
 import type { H3Event } from 'h3'
 import { readMultipartFormData } from 'h3'
 import { createAppError } from '../utils/errors'
+import type { GenerateStatusData } from '../../types/api'
 import { createWriteStream, promises as fs } from 'node:fs'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -10,6 +11,27 @@ export const ALLOWED_VIDEO_MIME_TYPES = ['video/mp4', 'video/quicktime', 'video/
 const DEFAULT_DOWNLOADED_VIDEO_RETENTION_MINUTES = 10
 
 export type UploadVideo = { type?: string; data?: Buffer; filename?: string }
+type DownloadStatusEmitter = (status: GenerateStatusData) => void
+
+function emitDownloadStatus(
+  onStatus: DownloadStatusEmitter | undefined,
+  payload: Omit<GenerateStatusData, 'requestId'>
+  & { requestId?: string }
+) {
+  if (!onStatus || !payload.requestId) return
+  onStatus({
+    requestId: payload.requestId,
+    phase: payload.phase,
+    message: payload.message,
+    attempt: payload.attempt,
+    retryTimes: payload.retryTimes,
+    round: payload.round,
+    percent: payload.percent,
+    downloadedBytes: payload.downloadedBytes,
+    contentLength: payload.contentLength,
+    details: payload.details
+  })
+}
 
 export function getMaxVideoBytes() {
   const config = useRuntimeConfig()
@@ -90,6 +112,7 @@ async function fetchVideoBuffer(params: {
   maxBytes?: number
   retryTimes?: number
   signal?: AbortSignal
+  onStatus?: DownloadStatusEmitter
 }) {
   const maxBytes = params.maxBytes ?? Number.POSITIVE_INFINITY
   const retryTimes = Math.max(1, params.retryTimes ?? 3)
@@ -137,6 +160,16 @@ async function fetchVideoBuffer(params: {
       }
 
       const contentLength = lenHeader > 0 ? lenHeader : 0
+      emitDownloadStatus(params.onStatus, {
+        requestId: params.requestId,
+        phase: 'downloading',
+        message: '正在下载视频',
+        attempt,
+        retryTimes,
+        downloadedBytes: 0,
+        contentLength: contentLength || null,
+        percent: null
+      })
       console.info('[file.fetch-video] connected', {
         requestId: params.requestId,
         mime,
@@ -158,6 +191,10 @@ async function fetchVideoBuffer(params: {
 
           chunks.push(value)
           downloadedBytes += value.byteLength
+          const percent = contentLength > 0
+            ? Math.min(100, Math.round((downloadedBytes / contentLength) * 100))
+            : null
+          const previousLoggedAt = lastLoggedAt
           lastLoggedAt = logVideoFetchProgress({
             requestId: params.requestId,
             attempt,
@@ -165,6 +202,19 @@ async function fetchVideoBuffer(params: {
             contentLength,
             lastLoggedAt
           })
+
+          if (lastLoggedAt !== previousLoggedAt) {
+            emitDownloadStatus(params.onStatus, {
+              requestId: params.requestId,
+              phase: 'downloading',
+              message: percent == null ? '正在下载视频' : `正在下载视频 ${percent}%`,
+              attempt,
+              retryTimes,
+              downloadedBytes,
+              contentLength: contentLength || null,
+              percent
+            })
+          }
 
           if (downloadedBytes > maxBytes) {
             await reader.cancel().catch(() => {})
@@ -213,6 +263,17 @@ async function fetchVideoBuffer(params: {
         attempt
       })
 
+      emitDownloadStatus(params.onStatus, {
+        requestId: params.requestId,
+        phase: 'downloading',
+        message: '视频下载完成',
+        attempt,
+        retryTimes,
+        downloadedBytes: buffer.byteLength,
+        contentLength: contentLength || null,
+        percent: 100
+      })
+
       return {
         mime,
         bytes: buffer.byteLength,
@@ -243,6 +304,16 @@ async function fetchVideoBuffer(params: {
       }
 
       if (!isLastAttempt) {
+        emitDownloadStatus(params.onStatus, {
+          requestId: params.requestId,
+          phase: 'retrying',
+          message: `下载失败，正在重试（第 ${attempt + 1}/${retryTimes} 次）`,
+          attempt: attempt + 1,
+          retryTimes,
+          details: {
+            reason: message
+          }
+        })
         const waitMs = attempt * 600
         await new Promise((resolve) => setTimeout(resolve, waitMs))
         if (params.signal?.aborted) {
@@ -279,6 +350,7 @@ async function fetchVideoStreamToTempFile(params: {
   maxBytes?: number
   retryTimes?: number
   signal?: AbortSignal
+  onStatus?: DownloadStatusEmitter
 }) {
   const maxBytes = params.maxBytes ?? Number.POSITIVE_INFINITY
   const retryTimes = Math.max(1, params.retryTimes ?? 3)
@@ -329,6 +401,16 @@ async function fetchVideoStreamToTempFile(params: {
       }
 
       const contentLength = lenHeader > 0 ? lenHeader : 0
+      emitDownloadStatus(params.onStatus, {
+        requestId: params.requestId,
+        phase: 'downloading',
+        message: '正在下载视频',
+        attempt,
+        retryTimes,
+        downloadedBytes: 0,
+        contentLength: contentLength || null,
+        percent: null
+      })
       console.info('[file.fetch-video] connected', {
         requestId: params.requestId,
         mime,
@@ -385,6 +467,10 @@ async function fetchVideoStreamToTempFile(params: {
 
             const buffer = Buffer.isBuffer(value) ? value : Buffer.from(value)
             downloadedBytes += buffer.byteLength
+            const percent = contentLength > 0
+              ? Math.min(100, Math.round((downloadedBytes / contentLength) * 100))
+              : null
+            const previousLoggedAt = lastLoggedAt
             lastLoggedAt = logVideoFetchProgress({
               requestId: params.requestId,
               attempt,
@@ -392,6 +478,19 @@ async function fetchVideoStreamToTempFile(params: {
               contentLength,
               lastLoggedAt
             })
+
+            if (lastLoggedAt !== previousLoggedAt) {
+              emitDownloadStatus(params.onStatus, {
+                requestId: params.requestId,
+                phase: 'downloading',
+                message: percent == null ? '正在下载视频' : `正在下载视频 ${percent}%`,
+                attempt,
+                retryTimes,
+                downloadedBytes,
+                contentLength: contentLength || null,
+                percent
+              })
+            }
 
             if (downloadedBytes > maxBytes) {
               await reader.cancel().catch(() => {})
@@ -442,6 +541,17 @@ async function fetchVideoStreamToTempFile(params: {
         streamToDisk: true
       })
 
+      emitDownloadStatus(params.onStatus, {
+        requestId: params.requestId,
+        phase: 'downloading',
+        message: '视频下载完成',
+        attempt,
+        retryTimes,
+        downloadedBytes,
+        contentLength: contentLength || null,
+        percent: 100
+      })
+
       return {
         mime,
         bytes: downloadedBytes,
@@ -480,6 +590,16 @@ async function fetchVideoStreamToTempFile(params: {
       }
 
       if (!isLastAttempt) {
+        emitDownloadStatus(params.onStatus, {
+          requestId: params.requestId,
+          phase: 'retrying',
+          message: `下载失败，正在重试（第 ${attempt + 1}/${retryTimes} 次）`,
+          attempt: attempt + 1,
+          retryTimes,
+          details: {
+            reason: message
+          }
+        })
         const waitMs = attempt * 600
         await new Promise((resolve) => setTimeout(resolve, waitMs))
         if (params.signal?.aborted) {
@@ -601,6 +721,7 @@ export async function downloadVideoUrlToTempFile(params: {
   maxBytes?: number
   signal?: AbortSignal
   streamToDisk?: boolean
+  onStatus?: DownloadStatusEmitter
 }) {
   if (params.streamToDisk) {
     return await fetchVideoStreamToTempFile(params)

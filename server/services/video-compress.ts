@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 
+import type { GenerateStatusData } from '../../types/api'
 import { createAppError } from '../utils/errors'
 import { runProcess } from './process-runner'
 
@@ -13,6 +14,7 @@ export interface CompressVideoIfNeededParams {
   signal?: AbortSignal
   timeoutMs?: number
   requestId?: string
+  onStatus?: (status: GenerateStatusData) => void
 }
 
 export interface CompressVideoResult {
@@ -158,6 +160,25 @@ function buildFfmpegArgs(params: {
   ]
 }
 
+function emitCompressStatus(
+  onStatus: CompressVideoIfNeededParams['onStatus'],
+  payload: Omit<GenerateStatusData, 'requestId'> & { requestId?: string }
+) {
+  if (!onStatus || !payload.requestId) return
+  onStatus({
+    requestId: payload.requestId,
+    phase: payload.phase,
+    message: payload.message,
+    attempt: payload.attempt,
+    retryTimes: payload.retryTimes,
+    round: payload.round,
+    percent: payload.percent,
+    downloadedBytes: payload.downloadedBytes,
+    contentLength: payload.contentLength,
+    details: payload.details
+  })
+}
+
 async function runCompressionAttempt(params: {
   inputPath: string
   outputPath: string
@@ -186,6 +207,7 @@ async function compressVideoFile(params: {
   signal?: AbortSignal
   timeoutMs?: number
   requestId?: string
+  onStatus?: CompressVideoIfNeededParams['onStatus']
 }) {
   const workDir = await createTempWorkDir()
   const outputPath = path.join(workDir, 'compressed.mp4')
@@ -200,6 +222,17 @@ async function compressVideoFile(params: {
 
   try {
     for (const [index, profile] of COMPRESSION_PROFILES.entries()) {
+      emitCompressStatus(params.onStatus, {
+        requestId: params.requestId,
+        phase: 'compressing',
+        message: `正在压缩视频（第 ${index + 1}/${COMPRESSION_PROFILES.length} 次尝试）`,
+        attempt: index + 1,
+        retryTimes: COMPRESSION_PROFILES.length,
+        details: {
+          preset: profile.preset,
+          crf: profile.crf
+        }
+      })
       console.info('[video-compress] attempt:start', {
         requestId: params.requestId,
         attempt: index + 1,
@@ -245,6 +278,16 @@ async function compressVideoFile(params: {
           maxBytes: params.maxBytes,
           attempt: index + 1
         })
+        emitCompressStatus(params.onStatus, {
+          requestId: params.requestId,
+          phase: 'compressing',
+          message: '视频压缩完成',
+          attempt: index + 1,
+          retryTimes: COMPRESSION_PROFILES.length,
+          downloadedBytes: outputStat.size,
+          contentLength: outputStat.size,
+          percent: 100
+        })
         return {
           sourcePath: outputPath,
           cleanup: async () => {
@@ -260,6 +303,16 @@ async function compressVideoFile(params: {
       requestId: params.requestId,
       maxBytes: params.maxBytes,
       attempts: COMPRESSION_PROFILES.length
+    })
+    emitCompressStatus(params.onStatus, {
+      requestId: params.requestId,
+      phase: 'failed',
+      message: '压缩后视频仍然超过限制',
+      attempt: COMPRESSION_PROFILES.length,
+      retryTimes: COMPRESSION_PROFILES.length,
+      details: {
+        maxBytes: params.maxBytes
+      }
     })
     throw createCompressionAppError(`压缩后视频仍然超过 ${Math.floor(params.maxBytes / 1024 / 1024)}MB`)
   } catch (error) {
@@ -330,12 +383,25 @@ export async function compressVideoIfNeeded(params: CompressVideoIfNeededParams)
     maxBytes
   })
 
+  emitCompressStatus(params.onStatus, {
+    requestId: params.requestId,
+    phase: 'compressing',
+    message: '正在压缩视频',
+    percent: null,
+    downloadedBytes: stat.size,
+    contentLength: stat.size,
+    details: {
+      maxBytes
+    }
+  })
+
   return await compressVideoFile({
     inputPath: params.sourcePath,
     maxBytes,
     signal: params.signal,
     timeoutMs: params.timeoutMs,
-    requestId: params.requestId
+    requestId: params.requestId,
+    onStatus: params.onStatus
   })
 }
 

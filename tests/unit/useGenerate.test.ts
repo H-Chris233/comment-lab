@@ -203,6 +203,46 @@ describe('useGenerate', () => {
     expect(errorDetail.value).toContain('exitCode')
   })
 
+  it('会把 status 事件映射成当前请求的实时状态文案', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(
+      [
+        'event: meta',
+        'data: {"requestId":"req_test","requestedCount":1,"model":"test"}',
+        '',
+        'event: status',
+        'data: {"requestId":"req_test","phase":"downloading","message":"正在下载视频 47%"}',
+        '',
+        'event: status',
+        'data: {"requestId":"req_test","phase":"done","message":"生成完成"}',
+        '',
+        'event: done',
+        'data: {"ok":true,"data":{"comments":[],"rawText":"","promptTrace":[],"requestedCount":1,"finalCount":0,"beforeNormalizeCount":0,"afterNormalizeCount":0,"model":"test"},"requestId":"req_test"}',
+        ''
+      ].join('\n'),
+      {
+        headers: {
+          'Content-Type': 'text/event-stream'
+        }
+      }
+    )) as any)
+
+    const { generate, statusText, statusPhase } = useGenerate() as any
+
+    const result = await generate({
+      mode: 'link',
+      inputMode: 'file',
+      model: 'qwen3.6-plus',
+      enableThinking: true,
+      url: 'https://v.douyin.com/abcde/',
+      count: 1,
+      basePrompt: 'base'
+    })
+
+    expect(result.ok).toBe(true)
+    expect(statusText.value).toBe('生成完成')
+    expect(statusPhase.value).toBe('done')
+  })
+
   it('会避免同一长度桶连续超过 3 条', () => {
     const values = SHUFFLE_SAMPLE_VALUES
     const original = values.slice()

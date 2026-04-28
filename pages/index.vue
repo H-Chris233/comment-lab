@@ -60,7 +60,9 @@ const {
   beforeNormalizeCount,
   afterNormalizeCount,
   model,
-  requestId
+  requestId,
+  statusText,
+  statusPhase
 } = useGenerate()
 
 const { copyAll, exportTxt, exportWord } = useExport()
@@ -399,6 +401,8 @@ onMounted(() => {
               :can-show-raw="canShowRaw"
               :raw-text="rawText"
               :raw-prompt-trace="rawPromptTrace"
+              :status-text="statusText"
+              :status-phase="statusPhase"
               @copy-all="handleCopyAll"
               @copy-one="handleCopyOne"
               @delete-one="handleDeleteOne"

@@ -1,4 +1,4 @@
-import type { ApiError, GenerateResultData } from '../../types/api'
+import type { ApiError, GenerateResultData, GenerateStatusData } from '../../types/api'
 import { getQuery, getRequestHeader, setResponseHeaders } from 'h3'
 import { DEFAULT_MODEL } from '../../types/prompt'
 import { generateFromVideoFile, generateFromVideoUrl } from '../services/ai'
@@ -46,6 +46,8 @@ type SseWriter = {
   close: () => void
 }
 
+type StatusEmitter = (status: GenerateStatusData) => void
+
 function ensureParsedVideoUrl(parsed: { videoUrl?: string }) {
   if (!parsed.videoUrl) {
     throw createAppError({
@@ -89,11 +91,27 @@ function createSseWriter(event: any): SseWriter {
   }
 }
 
+function normalizeStatusPayload(payload: GenerateStatusData) {
+  return {
+    requestId: payload.requestId,
+    phase: payload.phase,
+    message: payload.message,
+    attempt: payload.attempt,
+    retryTimes: payload.retryTimes,
+    round: payload.round,
+    percent: payload.percent,
+    downloadedBytes: payload.downloadedBytes,
+    contentLength: payload.contentLength,
+    details: payload.details
+  }
+}
+
 async function compressVideoSourceIfNeeded(params: {
   source: TempVideoSource
   requestId?: string
   signal?: AbortSignal
   stepLabel: 'link-download' | 'upload'
+  onStatus?: StatusEmitter
 }) {
   const maxVideoBytes = getMaxCompressVideoBytes()
   if (params.source.bytes <= maxVideoBytes) {
@@ -117,7 +135,8 @@ async function compressVideoSourceIfNeeded(params: {
       sourcePath: params.source.sourcePath,
       maxBytes: maxVideoBytes,
       requestId: params.requestId,
-      signal: params.signal
+      signal: params.signal,
+      onStatus: params.onStatus
     })
 
     if (!compressed.compressed) {
@@ -157,6 +176,7 @@ async function downloadDouyinLinkVideo(params: {
   sourceUrl: string
   requestId?: string
   signal?: AbortSignal
+  onStatus?: StatusEmitter
 }) {
   const primaryVideoUrl = await resolveDouyinDownloadVideoUrl(
     params.parsed,
@@ -170,14 +190,16 @@ async function downloadDouyinLinkVideo(params: {
     requestId: params.requestId,
     maxBytes: getMaxDownloadVideoBytes(),
     signal: params.signal,
-    streamToDisk: true
+    streamToDisk: true,
+    onStatus: params.onStatus
   })
 
   return await compressVideoSourceIfNeeded({
     source: downloaded,
     requestId: params.requestId,
     signal: params.signal,
-    stepLabel: 'link-download'
+    stepLabel: 'link-download',
+    onStatus: params.onStatus
   })
 }
 
@@ -204,6 +226,11 @@ export default defineEventHandler(async (event) => {
   const emitProgress = (eventName: string, payload: unknown) => {
     if (!sse || clientDisconnected) return
     sse.send(eventName, payload)
+  }
+
+  const emitStatus = (payload: GenerateStatusData) => {
+    if (!sse || clientDisconnected) return
+    sse.send('status', normalizeStatusPayload(payload))
   }
 
   const ensureClientConnected = (step: string) => {
@@ -291,6 +318,11 @@ export default defineEventHandler(async (event) => {
       model,
       enableThinking
     })
+    emitStatus({
+      requestId,
+      phase: 'parsing',
+      message: mode === 'link' ? '正在解析视频链接' : '正在准备上传视频'
+    })
     ensureClientConnected('after-meta')
 
     // 3) 获取视频输入源
@@ -301,6 +333,11 @@ export default defineEventHandler(async (event) => {
 
     if (mode === 'link') {
       const sourceUrl = validateUrl(field('url'))
+      emitStatus({
+        requestId,
+        phase: 'parsing',
+        message: '正在解析视频链接'
+      })
       console.info('[api.generate] step:link-parse:start', {
         requestId,
         sourceHost: new URL(sourceUrl).hostname
@@ -311,6 +348,11 @@ export default defineEventHandler(async (event) => {
         videoTitle = parsed.title?.trim() || videoTitle
         if (inputMode === 'url') {
           directVideoUrl = parsedVideoUrl
+          emitStatus({
+            requestId,
+            phase: 'parsing',
+            message: '链接解析完成，正在调用模型'
+          })
           console.info('[api.generate] step:link-parse:ok', {
             requestId,
             parsedHost: new URL(parsedVideoUrl).hostname,
@@ -319,14 +361,27 @@ export default defineEventHandler(async (event) => {
             transport: 'url'
           })
         } else {
+          emitStatus({
+            requestId,
+            phase: 'downloading',
+            message: '正在下载视频'
+          })
           const downloaded = await downloadDouyinLinkVideo({
             parsed,
             sourceUrl,
             requestId,
-            signal: abortController.signal
+            signal: abortController.signal,
+            onStatus: emitStatus
           })
           localVideoPath = downloaded.sourcePath
           cleanupVideoSource = downloaded.cleanup
+          emitStatus({
+            requestId,
+            phase: downloaded.bytes > getMaxCompressVideoBytes() ? 'compressing' : 'calling_model',
+            message: downloaded.bytes > getMaxCompressVideoBytes()
+              ? '正在压缩视频'
+              : '视频下载完成，正在调用模型'
+          })
           console.info('[api.generate] step:link-parse:ok', {
             requestId,
             parsedHost: new URL(parsedVideoUrl).hostname,
@@ -339,6 +394,11 @@ export default defineEventHandler(async (event) => {
       } catch (error) {
         if (!(isAppError(error) && error.code === 'VIDEO_FETCH_FAILED')) throw error
 
+        emitStatus({
+          requestId,
+          phase: 'retrying',
+          message: '下载失败，正在重新解析并重试'
+        })
         console.warn('[api.generate] step:link-download-retry-with-reparse', {
           requestId,
           reason: error.message
@@ -349,20 +409,38 @@ export default defineEventHandler(async (event) => {
         videoTitle = parsed.title?.trim() || videoTitle
         if (inputMode === 'url') {
           directVideoUrl = parsedVideoUrl
+          emitStatus({
+            requestId,
+            phase: 'parsing',
+            message: '链接解析完成，正在调用模型'
+          })
           console.info('[api.generate] step:link-download-retry-ok', {
             requestId,
             parsedHost: new URL(parsedVideoUrl).hostname,
             transport: 'url'
           })
         } else {
+          emitStatus({
+            requestId,
+            phase: 'downloading',
+            message: '正在下载视频'
+          })
           const downloaded = await downloadDouyinLinkVideo({
             parsed,
             sourceUrl,
             requestId,
-            signal: abortController.signal
+            signal: abortController.signal,
+            onStatus: emitStatus
           })
           localVideoPath = downloaded.sourcePath
           cleanupVideoSource = downloaded.cleanup
+          emitStatus({
+            requestId,
+            phase: downloaded.bytes > getMaxCompressVideoBytes() ? 'compressing' : 'calling_model',
+            message: downloaded.bytes > getMaxCompressVideoBytes()
+              ? '正在压缩视频'
+              : '视频下载完成，正在调用模型'
+          })
           console.info('[api.generate] step:link-download-retry-ok', {
             requestId,
             parsedHost: new URL(parsedVideoUrl).hostname,
@@ -375,11 +453,19 @@ export default defineEventHandler(async (event) => {
       const maxBytes = getMaxVideoBytes()
       const file = validateVideoFile(form.find((f) => f.name === 'video'), maxBytes, ALLOWED_VIDEO_MIME_TYPES)
       const uploaded = await saveVideoUploadToTempFile(file, requestId)
+      emitStatus({
+        requestId,
+        phase: uploaded.bytes > getMaxCompressVideoBytes() ? 'compressing' : 'calling_model',
+        message: uploaded.bytes > getMaxCompressVideoBytes()
+          ? '正在压缩上传视频'
+          : '上传完成，正在调用模型'
+      })
       const compressed = await compressVideoSourceIfNeeded({
         source: uploaded,
         requestId,
         signal: abortController.signal,
-        stepLabel: 'upload'
+        stepLabel: 'upload',
+        onStatus: emitStatus
       })
       localVideoPath = compressed.sourcePath
       cleanupVideoSource = compressed.cleanup
@@ -419,6 +505,13 @@ export default defineEventHandler(async (event) => {
           remaining,
           targets: roundStyleTargets,
           styles: activeStyles
+        })
+
+        emitStatus({
+          requestId,
+          phase: 'calling_model',
+          message: `正在调用模型（第 ${round} 轮）`,
+          round
         })
 
         emitProgress('round', {
@@ -498,6 +591,13 @@ export default defineEventHandler(async (event) => {
           finishReasons: aiResults.map((result) => result.finishReason)
         })
 
+        emitStatus({
+          requestId,
+          phase: 'normalizing',
+          message: `模型已返回，正在整理结果（第 ${round} 轮）`,
+          round
+        })
+
         const normalizedResults = aiResults.map((result, index) => {
           return {
             target: promptEntries[index]?.target || 0,
@@ -516,6 +616,13 @@ export default defineEventHandler(async (event) => {
           removedDuplicate: normalizedResults.reduce((sum, item) => sum + item.normalized.removedDuplicate, 0),
           removedInvalid: normalizedResults.reduce((sum, item) => sum + item.normalized.removedInvalid, 0),
           cappedRoundCount: roundComments.length
+        })
+
+        emitStatus({
+          requestId,
+          phase: 'normalizing',
+          message: `正在合并评论结果（第 ${round} 轮）`,
+          round
         })
 
         beforeNormalizeCount += normalizedResults.reduce((sum, item) => sum + item.normalized.beforeCount, 0)
@@ -554,6 +661,13 @@ export default defineEventHandler(async (event) => {
         })
         ensureClientConnected(`round-${round}-after-partial`)
 
+        emitStatus({
+          requestId,
+          phase: 'normalizing',
+          message: `第 ${round} 轮处理完成，继续生成下一轮`,
+          round
+        })
+
         // 本轮没有新增，避免无意义重试
         if (finalComments.length === beforeLen) {
           console.warn('[api.generate] step:round:stopped-no-growth', {
@@ -572,6 +686,11 @@ export default defineEventHandler(async (event) => {
     const arrangedComments = spreadCommentsByPrefix(finalComments, 2)
     const trimmedComments = arrangedComments.slice(0, count)
     ensureClientConnected('post-process')
+    emitStatus({
+      requestId,
+      phase: 'normalizing',
+      message: '正在整理最终结果'
+    })
     console.info('[api.generate] step:post-process', {
       requestId,
       requestedCount: count,
@@ -628,6 +747,12 @@ export default defineEventHandler(async (event) => {
       requestedCount: count,
       finalCount: trimmedComments.length,
       model
+    })
+
+    emitStatus({
+      requestId,
+      phase: 'done',
+      message: '生成完成'
     })
 
     return {

@@ -35,6 +35,29 @@ export interface GenerateResultData {
   model: string
 }
 
+export type GenerateStatusPhase =
+  | 'parsing'
+  | 'downloading'
+  | 'retrying'
+  | 'compressing'
+  | 'calling_model'
+  | 'normalizing'
+  | 'done'
+  | 'failed'
+
+export interface GenerateStatusData {
+  requestId: string
+  phase: GenerateStatusPhase
+  message: string
+  attempt?: number
+  retryTimes?: number
+  round?: number
+  percent?: number | null
+  downloadedBytes?: number
+  contentLength?: number | null
+  details?: Record<string, unknown>
+}
+
 export type GenerateResponse = ApiSuccess<GenerateResultData> | ApiError
 
 export interface ParseLinkData {

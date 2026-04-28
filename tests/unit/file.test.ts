@@ -144,6 +144,50 @@ describe('video temp retention', () => {
     expect(fs.writeFile).not.toHaveBeenCalled()
   })
 
+  it('streamToDisk 模式会把关键下载状态回传给调用方', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: {
+          get(name: string) {
+            if (name === 'content-type') return 'video/mp4'
+            if (name === 'content-length') return String(5 * 1024 * 1024 + 2)
+            return null
+          }
+        },
+        body: {
+          getReader: () => ({
+            read: vi.fn()
+              .mockResolvedValueOnce({ done: false, value: new Uint8Array(5 * 1024 * 1024) })
+              .mockResolvedValueOnce({ done: false, value: new Uint8Array(2) })
+              .mockResolvedValueOnce({ done: true, value: undefined })
+          })
+        },
+        arrayBuffer: async () => new Uint8Array(5 * 1024 * 1024 + 2).buffer
+      })
+    )
+
+    const statuses: Array<{ phase: string; message: string }> = []
+    const result = await downloadVideoUrlToTempFile({
+      videoUrl: 'https://example.com/video.mp4',
+      requestId: 'req_test',
+      streamToDisk: true,
+      onStatus: (status) => {
+        statuses.push({
+          phase: status.phase,
+          message: status.message
+        })
+      }
+    })
+
+    expect(result.bytes).toBe(5 * 1024 * 1024 + 2)
+    expect(statuses[0]?.phase).toBe('downloading')
+    expect(statuses.some((item) => item.message.includes('正在下载视频'))).toBe(true)
+    expect(statuses.some((item) => item.message.includes('视频下载完成'))).toBe(true)
+  })
+
   it('下载视频不再依赖内部超时定时器', async () => {
     const timeoutSpy = vi.spyOn(globalThis, 'setTimeout')
 

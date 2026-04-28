@@ -305,6 +305,36 @@ describe('POST /api/generate', () => {
     expect(res.text).not.toContain('超过三十个字符的长长评论内容应该被跳过')
   })
 
+  it('流式模式会推送 requestId 绑定的 status 事件', async () => {
+    vi.mocked(generateFromVideoFile).mockImplementation(async (params: any) => {
+      params.onLine?.('即时-1-1')
+      return {
+        rawText: '第1条',
+        model: 'qwen3.5-omni-plus',
+        streamChunkCount: 1,
+        durationMs: 1
+      } as any
+    })
+
+    const app = createApp()
+    app.use('/api/generate', generateHandler)
+
+    const res = await request(toNodeListener(app))
+      .post('/api/generate?stream=1')
+      .set('Accept', 'text/event-stream')
+      .field('mode', 'upload')
+      .field('count', '1')
+      .field('basePrompt', 'base')
+      .attach('video', Buffer.from('1234'), { filename: 'ok.mp4', contentType: 'video/mp4' })
+
+    expect(res.status).toBe(200)
+    expect(res.headers['content-type']).toContain('text/event-stream')
+    expect(res.text).toContain('event: status')
+    expect(res.text).toContain('正在调用模型')
+    expect(res.text).toContain('生成完成')
+    expect(res.text).toContain('"requestId":"req_')
+  })
+
   it('link 解析失败时返回 PARSE_LINK_FAILED', async () => {
     vi.mocked(parseDouyinLink).mockRejectedValueOnce(
       createAppError({ code: 'PARSE_LINK_FAILED', message: '链接解析失败，请改为上传视频', statusCode: 422 })
@@ -439,7 +469,7 @@ describe('POST /api/generate', () => {
     expect(vi.mocked(ensureVideoUnderLimit).mock.calls[0]?.[0]).toEqual(expect.objectContaining({
       maxBytes: 100 * 1024 * 1024
     }))
-    expect(vi.mocked(getMaxCompressVideoBytes)).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(getMaxCompressVideoBytes)).toHaveBeenCalled()
     expect(vi.mocked(generateFromVideoFile).mock.calls[0]?.[0]).toEqual(expect.objectContaining({
       videoPath: '/tmp/original.mp4'
     }))

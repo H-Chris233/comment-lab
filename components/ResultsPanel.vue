@@ -16,6 +16,8 @@ const props = defineProps<{
   canShowRaw?: boolean
   rawText?: string
   rawPromptTrace?: string[]
+  statusText?: string
+  statusPhase?: string
 }>()
 
 const showRawDebug = defineModel<boolean>('showRawDebug')
@@ -54,6 +56,7 @@ const progressRatio = computed(() => {
 })
 const progressPercent = computed(() => Math.round(progressRatio.value * 100))
 const loadingText = computed(() => {
+  if (props.statusText?.trim()) return props.statusText.trim()
   if (props.parsing) return '正在解析视频链接...'
   if (props.generating) return `AI 正在生成评论... ${progressPercent.value}%`
   return ''

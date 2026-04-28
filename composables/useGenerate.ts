@@ -1,5 +1,5 @@
 import { ref } from 'vue'
-import type { ApiError, GenerateRequestPayload, GenerateResponse, ParseLinkResponse } from '~/types/api'
+import type { ApiError, GenerateRequestPayload, GenerateResponse, GenerateStatusData, GenerateStatusPhase, ParseLinkResponse } from '~/types/api'
 
 type StreamEvent = {
   event: string
@@ -212,6 +212,8 @@ export function useGenerate() {
   const rawText = ref('')
   const rawPromptTrace = ref<string[]>([])
   const requestId = ref('')
+  const statusText = ref('')
+  const statusPhase = ref<GenerateStatusPhase | ''>('')
   const requestedCount = ref(0)
   const finalCount = ref(0)
   const beforeNormalizeCount = ref(0)
@@ -247,6 +249,14 @@ export function useGenerate() {
     }
 
     return lines.join('\n\n')
+  }
+
+  function applyStatus(payload: GenerateStatusData) {
+    const incomingRequestId = payload.requestId || requestId.value
+    if (requestId.value && incomingRequestId && incomingRequestId !== requestId.value) return
+    requestId.value = incomingRequestId || requestId.value
+    statusPhase.value = payload.phase
+    statusText.value = payload.message
   }
 
   function toApiErrorLike(error: unknown): ApiError {
@@ -343,6 +353,8 @@ export function useGenerate() {
     comments.value = []
     rawText.value = ''
     rawPromptTrace.value = []
+    statusText.value = ''
+    statusPhase.value = ''
     requestedCount.value = payload.count
     beforeNormalizeCount.value = 0
     afterNormalizeCount.value = 0
@@ -413,6 +425,13 @@ export function useGenerate() {
             requestId.value = evt.data?.requestId || requestId.value
             requestedCount.value = Number(evt.data?.requestedCount || 0)
             model.value = evt.data?.model || model.value
+          }
+
+          if (evt.event === 'status') {
+            const status = evt.data as GenerateStatusData
+            if (status && typeof status.message === 'string' && typeof status.phase === 'string') {
+              applyStatus(status)
+            }
           }
 
           if (evt.event === 'item') {
@@ -547,6 +566,8 @@ export function useGenerate() {
     rawText,
     rawPromptTrace,
     requestId,
+    statusText,
+    statusPhase,
     requestedCount,
     finalCount,
     beforeNormalizeCount,
