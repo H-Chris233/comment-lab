@@ -429,9 +429,28 @@ export async function resolveDouyinDownloadVideoUrl(
   requestId?: string,
   options?: { region?: string }
 ): Promise<string> {
-  // CN 这里不表示“国家逻辑”，只是把低码率优先作为一次额外尝试；
-  // 如果拿不到低码率候选，再回退到 high-quality / parsed URL。
   if (options?.region === 'CN') {
+    // CN 这里优先尝试 TikHub 返回的高质量播放地址；
+    // 如果上游没有高质量结果，再退回到本地解析到的低码率候选。
+    const awemeId = parsed.awemeId || extractDouyinVideoId(parsed.videoUrl || '') || extractDouyinVideoId(sourceUrl)
+    if (awemeId) {
+      const regionalUrl = await callTikHubForDouyinHighQualityPlayUrl({
+        awemeId,
+        shareUrl: sourceUrl,
+        region: options.region,
+        requestId
+      })
+
+      if (regionalUrl) {
+        console.info('[douyin.download] selected-regional-url', {
+          requestId,
+          region: options.region,
+          host: new URL(regionalUrl).hostname
+        })
+        return regionalUrl
+      }
+    }
+
     const lowestQualityUrl = extractLowestQualityVideoUrlFromTikHub(parsed.raw)
     if (lowestQualityUrl) {
       console.info('[douyin.download] selected-lowest-quality-url', {
@@ -459,6 +478,28 @@ export async function resolveDouyinDownloadVideoUrl(
       })
       return regionalUrl
     }
+  }
+
+  const fallbackVideoUrl = parsed.videoUrl || sourceUrl
+  console.info('[douyin.download] fallback-to-parsed-url', {
+    requestId,
+    host: new URL(fallbackVideoUrl).hostname
+  })
+  return fallbackVideoUrl
+}
+
+export async function resolveDouyinLowQualityDownloadVideoUrl(
+  parsed: ParsedVideoResult,
+  sourceUrl: string,
+  requestId?: string
+): Promise<string> {
+  const lowestQualityUrl = extractLowestQualityVideoUrlFromTikHub(parsed.raw)
+  if (lowestQualityUrl) {
+    console.info('[douyin.download] selected-lowest-quality-url', {
+      requestId,
+      host: new URL(lowestQualityUrl).hostname
+    })
+    return lowestQualityUrl
   }
 
   const fallbackVideoUrl = parsed.videoUrl || sourceUrl

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, afterEach } from 'vitest'
-import { extractDouyinVideoId, parseDouyinLink, resolveDouyinDownloadVideoUrl, toCanonicalDouyinVideoUrl } from '../../server/services/douyin'
+import { extractDouyinVideoId, parseDouyinLink, resolveDouyinDownloadVideoUrl, resolveDouyinLowQualityDownloadVideoUrl, toCanonicalDouyinVideoUrl } from '../../server/services/douyin'
 
 describe('douyin url normalize', () => {
   afterEach(() => {
@@ -73,7 +73,7 @@ describe('douyin url normalize', () => {
     expect(infoSpy).toHaveBeenCalled()
   })
 
-  it('下载时会优先使用最低画质链接', async () => {
+  it('CN 区域下载时会优先使用 region=CN 链接', async () => {
     vi.stubGlobal('useRuntimeConfig', () => ({
       tikhubApiKey: 'test-key',
       tikhubBaseUrl: 'https://api.tikhub.io'
@@ -103,13 +103,18 @@ describe('douyin url normalize', () => {
       }
     } as any
 
-    const fetchMock = vi.fn()
+    const fetchMock = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({
+      data: {
+        original_video_url: 'https://cdn.example.com/cn-high.mp4'
+      }
+    }), { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)
 
     const selected = await resolveDouyinDownloadVideoUrl(parsed, 'https://v.douyin.com/8_1r_vNADwM/', 'req_test', { region: 'CN' })
 
-    expect(selected).toBe('https://cdn.example.com/low.mp4')
-    expect(fetchMock).not.toHaveBeenCalled()
+    expect(selected).toBe('https://cdn.example.com/cn-high.mp4')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(new URL(fetchMock.mock.calls[0]?.[0] as string).searchParams.get('region')).toBe('CN')
   })
 
   it('非 CN 区域不会优先选择最低画质链接', async () => {
@@ -154,6 +159,41 @@ describe('douyin url normalize', () => {
     expect(selected).toBe('https://cdn.example.com/jp-fallback.mp4')
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(new URL(fetchMock.mock.calls[0]?.[0] as string).searchParams.get('region')).toBe('JP')
+  })
+
+  it('CN 区域在低码率回退时能返回最低画质链接', async () => {
+    vi.stubGlobal('useRuntimeConfig', () => ({
+      tikhubApiKey: 'test-key',
+      tikhubBaseUrl: 'https://api.tikhub.io'
+    }))
+
+    const parsed = {
+      ok: true,
+      videoUrl: 'https://cdn.example.com/high.mp4',
+      awemeId: '7626738541439099121',
+      raw: {
+        data: {
+          aweme_detail: {
+            video: {
+              bit_rate: [
+                {
+                  bit_rate: 900000,
+                  play_addr: { url_list: ['https://cdn.example.com/high.mp4'] }
+                },
+                {
+                  bit_rate: 120000,
+                  play_addr: { url_list: ['https://cdn.example.com/low.mp4'] }
+                }
+              ]
+            }
+          }
+        }
+      }
+    } as any
+
+    const selected = await resolveDouyinLowQualityDownloadVideoUrl(parsed, 'https://v.douyin.com/8_1r_vNADwM/', 'req_test')
+
+    expect(selected).toBe('https://cdn.example.com/low.mp4')
   })
 
   it('下载时没有低画质候选时会回退到 region=CN 的链接', async () => {

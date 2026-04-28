@@ -23,12 +23,13 @@ vi.mock('../../server/services/auth', () => ({
 
 vi.mock('../../server/services/douyin', () => ({
   parseDouyinLink: vi.fn().mockResolvedValue({ ok: true, videoUrl: 'https://www.douyin.com/video/7626738541439099121', awemeId: '7626738541439099121' }),
-  resolveDouyinDownloadVideoUrl: vi.fn().mockResolvedValue('https://cdn.example.com/cn-fallback.mp4')
+  resolveDouyinDownloadVideoUrl: vi.fn().mockResolvedValue('https://cdn.example.com/cn-high.mp4'),
+  resolveDouyinLowQualityDownloadVideoUrl: vi.fn().mockResolvedValue('https://cdn.example.com/cn-low.mp4')
 }))
 
 import { generateFromVideoUrl, generateFromVideoFile } from '../../server/services/ai'
 import { downloadVideoUrlToTempFile, saveVideoUploadToTempFile } from '../../server/services/file'
-import { parseDouyinLink, resolveDouyinDownloadVideoUrl } from '../../server/services/douyin'
+import { parseDouyinLink, resolveDouyinDownloadVideoUrl, resolveDouyinLowQualityDownloadVideoUrl } from '../../server/services/douyin'
 import generateHandler from '../../server/api/generate.post'
 
 function styleTargetFromPrompt(prompt: string) {
@@ -268,7 +269,7 @@ describe('POST /api/generate', () => {
     expect(generateFromVideoFile).toHaveBeenCalledTimes(2)
   })
 
-  it('link 模式在 inputMode=file 时会优先下载最低画质链接', async () => {
+  it('CN 区域链接在 inputMode=file 时会优先下载高画质链接', async () => {
     vi.mocked(parseDouyinLink).mockResolvedValueOnce({
       ok: true,
       videoUrl: 'https://cdn.example.com/high.mp4',
@@ -293,13 +294,13 @@ describe('POST /api/generate', () => {
       }
     } as any)
 
+    vi.mocked(resolveDouyinDownloadVideoUrl).mockResolvedValueOnce('https://cdn.example.com/cn-high.mp4' as any)
     vi.mocked(downloadVideoUrlToTempFile).mockResolvedValueOnce({
       bytes: 4,
       mime: 'video/mp4',
       sourcePath: '/tmp/mock.mp4',
       cleanup: async () => {}
     } as any)
-    vi.mocked(resolveDouyinDownloadVideoUrl).mockResolvedValueOnce('https://cdn.example.com/low.mp4' as any)
 
     const app = createApp()
     app.use('/api/generate', generateHandler)
@@ -316,7 +317,45 @@ describe('POST /api/generate', () => {
     expect(res.body.ok).toBe(true)
     expect(downloadVideoUrlToTempFile).toHaveBeenCalledTimes(1)
     expect(vi.mocked(downloadVideoUrlToTempFile).mock.calls[0]?.[0]).toEqual(expect.objectContaining({
-      videoUrl: 'https://cdn.example.com/low.mp4'
+      videoUrl: 'https://cdn.example.com/cn-high.mp4'
+    }))
+  })
+
+  it('CN 区域在高画质过大时会回退到低画质链接', async () => {
+    vi.mocked(resolveDouyinDownloadVideoUrl).mockResolvedValueOnce('https://cdn.example.com/cn-high.mp4' as any)
+    vi.mocked(resolveDouyinLowQualityDownloadVideoUrl).mockResolvedValueOnce('https://cdn.example.com/cn-low.mp4' as any)
+    vi.mocked(downloadVideoUrlToTempFile)
+      .mockRejectedValueOnce(createAppError({
+        code: 'FILE_TOO_LARGE',
+        message: '视频大小超过限制（>100MB）',
+        statusCode: 413
+      }))
+      .mockResolvedValueOnce({
+        bytes: 4,
+        mime: 'video/mp4',
+        sourcePath: '/tmp/mock.mp4',
+        cleanup: async () => {}
+      } as any)
+
+    const app = createApp()
+    app.use('/api/generate', generateHandler)
+
+    const res = await request(toNodeListener(app))
+      .post('/api/generate')
+      .field('mode', 'link')
+      .field('inputMode', 'file')
+      .field('url', 'https://v.douyin.com/abcde/')
+      .field('count', '2')
+      .field('basePrompt', 'base')
+
+    expect(res.status).toBe(200)
+    expect(res.body.ok).toBe(true)
+    expect(downloadVideoUrlToTempFile).toHaveBeenCalledTimes(2)
+    expect(vi.mocked(downloadVideoUrlToTempFile).mock.calls[0]?.[0]).toEqual(expect.objectContaining({
+      videoUrl: 'https://cdn.example.com/cn-high.mp4'
+    }))
+    expect(vi.mocked(downloadVideoUrlToTempFile).mock.calls[1]?.[0]).toEqual(expect.objectContaining({
+      videoUrl: 'https://cdn.example.com/cn-low.mp4'
     }))
   })
 

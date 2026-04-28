@@ -5,7 +5,8 @@ import { generateFromVideoFile, generateFromVideoUrl } from '../services/ai'
 import { ALLOWED_VIDEO_MIME_TYPES, downloadVideoUrlToTempFile, getMaxVideoBytes, readMultipart, saveVideoUploadToTempFile } from '../services/file'
 import { normalizeComments } from '../services/normalize'
 import { countVisibleLengthWithoutEmojiAndPunctuation } from '../services/emoji'
-import { parseDouyinLink, resolveDouyinDownloadVideoUrl } from '../services/douyin'
+import type { ParsedVideoResult } from '../services/douyin'
+import { parseDouyinLink, resolveDouyinDownloadVideoUrl, resolveDouyinLowQualityDownloadVideoUrl } from '../services/douyin'
 import {
   STYLE_ORDER,
   buildStylePrompts,
@@ -70,6 +71,44 @@ function createSseWriter(event: any): SseWriter {
       if (res.writableEnded || res.destroyed) return
       res.end()
     }
+  }
+}
+
+async function downloadDouyinLinkVideo(params: {
+  parsed: ParsedVideoResult
+  sourceUrl: string
+  requestId?: string
+}) {
+  const primaryVideoUrl = await resolveDouyinDownloadVideoUrl(params.parsed, params.sourceUrl, params.requestId, { region: 'CN' })
+
+  try {
+    return await downloadVideoUrlToTempFile({
+      videoUrl: primaryVideoUrl,
+      requestId: params.requestId,
+      maxBytes: getMaxVideoBytes()
+    })
+  } catch (error) {
+    if (!(isAppError(error) && error.code === 'FILE_TOO_LARGE')) {
+      throw error
+    }
+
+    const fallbackVideoUrl = await resolveDouyinLowQualityDownloadVideoUrl(params.parsed, params.sourceUrl, params.requestId)
+    if (fallbackVideoUrl === primaryVideoUrl) {
+      throw error
+    }
+
+    console.warn('[api.generate] step:link-download-fallback-low-quality', {
+      requestId: params.requestId,
+      reason: error.message,
+      primaryHost: new URL(primaryVideoUrl).hostname,
+      fallbackHost: new URL(fallbackVideoUrl).hostname
+    })
+
+    return downloadVideoUrlToTempFile({
+      videoUrl: fallbackVideoUrl,
+      requestId: params.requestId,
+      maxBytes: getMaxVideoBytes()
+    })
   }
 }
 
@@ -226,12 +265,7 @@ export default defineEventHandler(async (event) => {
             transport: 'url'
           })
         } else {
-          const downloadVideoUrl = await resolveDouyinDownloadVideoUrl(parsed, sourceUrl, requestId, { region: 'CN' })
-          const downloaded = await downloadVideoUrlToTempFile({
-            videoUrl: downloadVideoUrl,
-            requestId,
-            maxBytes: getMaxVideoBytes()
-          })
+          const downloaded = await downloadDouyinLinkVideo({ parsed, sourceUrl, requestId })
           localVideoPath = downloaded.sourcePath
           cleanupVideoSource = downloaded.cleanup
           console.info('[api.generate] step:link-parse:ok', {
@@ -262,12 +296,7 @@ export default defineEventHandler(async (event) => {
             transport: 'url'
           })
         } else {
-          const downloadVideoUrl = await resolveDouyinDownloadVideoUrl(parsed, sourceUrl, requestId, { region: 'CN' })
-          const downloaded = await downloadVideoUrlToTempFile({
-            videoUrl: downloadVideoUrl,
-            requestId,
-            maxBytes: getMaxVideoBytes()
-          })
+          const downloaded = await downloadDouyinLinkVideo({ parsed, sourceUrl, requestId })
           localVideoPath = downloaded.sourcePath
           cleanupVideoSource = downloaded.cleanup
           console.info('[api.generate] step:link-download-retry-ok', {
