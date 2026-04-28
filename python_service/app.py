@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 
 
 DEFAULT_BASE_URL = "https://dashscope.aliyuncs.com/api/v1"
+THINKING_BUDGET = 8192
 
 
 class GenerateRequest(BaseModel):
@@ -20,6 +21,7 @@ class GenerateRequest(BaseModel):
     input_mode: Literal["url", "file"]
     video_url: Optional[str] = None
     video_path: Optional[str] = None
+    enable_thinking: bool = False
     fps: float = Field(default=1.0, ge=0.1, le=10)
 
 
@@ -56,8 +58,25 @@ def ensure_file_uri(video_path: str) -> str:
     return f"file://{absolute}"
 
 
-def should_disable_thinking(model: str) -> bool:
+def supports_thinking_toggle(model: str) -> bool:
     return model.startswith("qwen3.5-plus") or model.startswith("qwen3.6-plus")
+
+
+def resolve_enable_thinking(model: str, requested: bool) -> bool | None:
+    if not supports_thinking_toggle(model):
+        return None
+    return bool(requested)
+
+
+def build_thinking_kwargs(model: str, requested: bool) -> dict[str, object]:
+    enable_thinking = resolve_enable_thinking(model, requested)
+    if enable_thinking is None:
+        return {}
+
+    kwargs: dict[str, object] = {"enable_thinking": enable_thinking}
+    if enable_thinking:
+        kwargs["thinking_budget"] = THINKING_BUDGET
+    return kwargs
 
 
 def _as_mapping(value: object) -> dict[str, object] | None:
@@ -163,9 +182,7 @@ async def run_conversation(request: GenerateRequest) -> dict[str, object]:
     dashscope.base_http_api_url = normalize_base_url()
 
     def _call():
-        call_kwargs = {}
-        if should_disable_thinking(request.model):
-            call_kwargs["enable_thinking"] = False
+        call_kwargs = build_thinking_kwargs(request.model, request.enable_thinking)
 
         return MultiModalConversation.call(
             api_key=api_key,

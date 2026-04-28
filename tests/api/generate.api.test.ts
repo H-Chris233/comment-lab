@@ -177,6 +177,26 @@ describe('POST /api/generate', () => {
     expect(generateFromVideoFile).not.toHaveBeenCalled()
   })
 
+  it('enableThinking=true 时会透传思考开关到模型调用参数', async () => {
+    const app = createApp()
+    app.use('/api/generate', generateHandler)
+
+    const res = await request(toNodeListener(app))
+      .post('/api/generate')
+      .field('mode', 'upload')
+      .field('count', '100')
+      .field('basePrompt', 'base')
+      .field('enableThinking', 'true')
+      .attach('video', Buffer.from('1234'), { filename: 'ok.mp4', contentType: 'video/mp4' })
+
+    expect(res.status).toBe(200)
+    expect(res.body.ok).toBe(true)
+    expect(vi.mocked(generateFromVideoFile).mock.calls.length).toBeGreaterThan(0)
+    for (const call of vi.mocked(generateFromVideoFile).mock.calls) {
+      expect((call[0] as any).enableThinking).toBe(true)
+    }
+  })
+
   it('link 模式会把 TikHub 标题注入到 prompt 中', async () => {
     vi.mocked(parseDouyinLink).mockResolvedValueOnce({
       ok: true,

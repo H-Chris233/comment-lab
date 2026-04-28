@@ -8,7 +8,7 @@ import ResultsPanel from '~/components/ResultsPanel.vue'
 import { useAuth } from '~/composables/useAuth'
 import { useExport } from '~/composables/useExport'
 import { useGenerate } from '~/composables/useGenerate'
-import { DEFAULT_MODEL, DEFAULT_PROMPT, MODEL_OPTIONS, type ModelOption } from '~/types/prompt'
+import { DEFAULT_MODEL, DEFAULT_PROMPT, MODEL_OPTIONS, supportsThinkingMode, type ModelOption } from '~/types/prompt'
 import { shouldShowDebugRaw } from '~/utils/env'
 
 const mode = ref<'link' | 'upload'>('link')
@@ -33,6 +33,7 @@ const basePrompt = ref(DEFAULT_PROMPT)
 const count = ref(100)
 const dedupe = ref(true)
 const cleanEmpty = ref(true)
+const enableThinking = ref(false)
 const parseStatus = ref('')
 const copiedHint = ref('')
 const showRawDebug = ref(false)
@@ -77,6 +78,7 @@ const isUnlocked = computed(() => authUnlocked.value)
 
 const isLoading = computed(() => parsing.value || generating.value)
 const hasComments = computed(() => comments.value.length > 0)
+const thinkingSupported = computed(() => supportsThinkingMode(selectedModel.value))
 
 const generationState = computed(() => {
   if (!hasComments.value && !isLoading.value) return 'input'
@@ -119,7 +121,8 @@ async function handleGenerate() {
     count: count.value,
     basePrompt: basePrompt.value,
     dedupe: dedupe.value,
-    cleanEmpty: cleanEmpty.value
+    cleanEmpty: cleanEmpty.value,
+    enableThinking: thinkingSupported.value ? enableThinking.value : false
   })
 
   if (!result.ok && result.code === 'UNAUTHORIZED') {
@@ -213,6 +216,12 @@ watch(authUnlocked, (unlocked) => {
     closePasswordModal()
   }
 })
+
+watch(thinkingSupported, (supported) => {
+  if (!supported && enableThinking.value) {
+    enableThinking.value = false
+  }
+}, { immediate: true })
 
 onBeforeUnmount(() => {
   if (!process.client) return
@@ -311,6 +320,8 @@ onMounted(() => {
                 v-model:dedupe="dedupe"
                 v-model:clean-empty="cleanEmpty"
                 v-model:model="selectedModel"
+                v-model:enable-thinking="enableThinking"
+                :thinking-supported="thinkingSupported"
                 :loading="isLoading"
                 @generate="handleGenerate"
               />

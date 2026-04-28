@@ -137,6 +137,7 @@ describe('useGenerate', () => {
       mode: 'link',
       inputMode: 'file',
       model: 'qwen3.6-plus',
+      enableThinking: true,
       url: 'https://v.douyin.com/abcde/',
       count: 1,
       basePrompt: 'base'
@@ -148,9 +149,11 @@ describe('useGenerate', () => {
     const entries = body ? Array.from(body.entries()) : []
     const inputMode = entries.find(([key]) => key === 'inputMode')?.[1]
     const model = entries.find(([key]) => key === 'model')?.[1]
+    const enableThinking = entries.find(([key]) => key === 'enableThinking')?.[1]
 
     expect(inputMode).toBe('file')
     expect(model).toBe('qwen3.6-plus')
+    expect(enableThinking).toBe('true')
   })
 
   it('会避免同一长度桶连续超过 3 条', () => {

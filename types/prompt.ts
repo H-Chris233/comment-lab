@@ -10,6 +10,11 @@ export const MODEL_OPTIONS = [
 
 export type ModelOption = (typeof MODEL_OPTIONS)[number]['value']
 
+export function supportsThinkingMode(model?: string) {
+  if (!model) return false
+  return model.startsWith('qwen3.5-plus') || model.startsWith('qwen3.6-plus')
+}
+
 export interface BuildPromptParams {
   basePrompt: string
   title?: string

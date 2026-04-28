@@ -256,8 +256,10 @@ export default defineEventHandler(async (event) => {
     const count = validateCount(field('count'))
     const dedupeRaw = field('dedupe')
     const cleanEmptyRaw = field('cleanEmpty')
+    const enableThinkingRaw = field('enableThinking')
     const dedupe = dedupeRaw == null ? true : parseBoolean(dedupeRaw)
     const cleanEmpty = cleanEmptyRaw == null ? true : parseBoolean(cleanEmptyRaw)
+    const enableThinking = enableThinkingRaw == null ? false : parseBoolean(enableThinkingRaw)
     const promptData = validatePromptLength(field('basePrompt'))
     const inputMode = validateInputMode(field('inputMode')) ?? (mode === 'link' ? 'url' : 'file')
     const validatedModel = validateModel(field('model'))
@@ -277,6 +279,7 @@ export default defineEventHandler(async (event) => {
       count,
       dedupe,
       cleanEmpty,
+      enableThinking,
       inputMode,
       basePromptLength: promptData.basePrompt.length,
       model
@@ -325,7 +328,8 @@ export default defineEventHandler(async (event) => {
       requestId,
       mode,
       requestedCount: count,
-      model
+      model,
+      enableThinking
     })
     ensureClientConnected('after-meta')
 
@@ -506,6 +510,7 @@ export default defineEventHandler(async (event) => {
                   comment
                 })
               },
+              enableThinking,
               signal: abortController.signal
             }
 

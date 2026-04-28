@@ -104,6 +104,7 @@ describe('generateFromVideoFile', () => {
         prompt: 'base prompt',
         videoPath: '/tmp/video.mp4',
         requestId: 'req_test',
+        enableThinking: true,
         onLine
       })
 
@@ -115,6 +116,7 @@ describe('generateFromVideoFile', () => {
       expect(init.method).toBe('POST')
       const body = JSON.parse(String(init.body)) as any
       expect(body.model).toBe('qwen3.6-plus')
+      expect(body.enable_thinking).toBe(true)
       expect(body.input_mode).toBe('file')
       expect(body.video_path).toBe('/tmp/video.mp4')
       expect(onLine).toHaveBeenCalledWith('第一条')

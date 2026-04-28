@@ -16,6 +16,7 @@ export interface GenerateRequestPayload {
   mode: 'link' | 'upload'
   inputMode?: 'file' | 'base64'
   model?: string
+  enableThinking?: boolean
   url?: string
   count: number
   basePrompt: string

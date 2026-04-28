@@ -10,6 +10,7 @@ type GenerateBaseParams = {
   requestId: string
   fps?: number
   stopAfterItems?: number
+  enableThinking?: boolean
   signal?: AbortSignal
   onLine?: (line: string) => void
 }
@@ -32,6 +33,7 @@ function buildSidecarPayload(params: {
   model: string
   prompt: string
   fps: number
+  enableThinking?: boolean
   inputMode: 'url' | 'file'
   videoUrl?: string
   videoPath?: string
@@ -40,6 +42,7 @@ function buildSidecarPayload(params: {
     model: params.model,
     prompt: params.prompt,
     fps: params.fps,
+    enable_thinking: params.enableThinking ?? false,
     input_mode: params.inputMode,
     video_url: params.videoUrl,
     video_path: params.videoPath
@@ -142,6 +145,7 @@ async function callPythonSidecar(params: {
   model: string
   prompt: string
   fps: number
+  enableThinking?: boolean
   inputMode: 'url' | 'file'
   videoUrl?: string
   videoPath?: string
@@ -253,6 +257,7 @@ async function generateStreamed(params: GenerateBaseParams & {
     requestId: params.requestId,
     model: params.model,
     fps,
+    enableThinking: params.enableThinking ?? false,
     inputMode: params.inputMode,
     stopAfterItems: params.stopAfterItems,
     promptLength: params.prompt.length
@@ -268,6 +273,7 @@ async function generateStreamed(params: GenerateBaseParams & {
       model: params.model,
       prompt: params.prompt,
       fps,
+      enableThinking: params.enableThinking,
       inputMode: params.inputMode,
       videoUrl: params.videoUrl,
       videoPath: params.videoPath,
@@ -353,6 +359,7 @@ export async function generateFromVideoUrl(params: {
   requestId: string
   fps?: number
   stopAfterItems?: number
+  enableThinking?: boolean
   onLine?: (line: string) => void
   signal?: AbortSignal
 }) {
@@ -364,6 +371,7 @@ export async function generateFromVideoUrl(params: {
     requestId: params.requestId,
     fps: params.fps,
     stopAfterItems: params.stopAfterItems,
+    enableThinking: params.enableThinking,
     onLine: params.onLine,
     signal: params.signal
   })
@@ -376,6 +384,7 @@ export async function generateFromVideoFile(params: {
   requestId: string
   fps?: number
   stopAfterItems?: number
+  enableThinking?: boolean
   onLine?: (line: string) => void
   signal?: AbortSignal
 }) {
@@ -387,6 +396,7 @@ export async function generateFromVideoFile(params: {
     requestId: params.requestId,
     fps: params.fps,
     stopAfterItems: params.stopAfterItems,
+    enableThinking: params.enableThinking,
     onLine: params.onLine,
     signal: params.signal
   })

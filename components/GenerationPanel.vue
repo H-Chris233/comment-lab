@@ -7,6 +7,8 @@ const props = defineProps<{
   dedupe: boolean
   cleanEmpty: boolean
   model: string
+  enableThinking: boolean
+  thinkingSupported: boolean
   loading: boolean
 }>()
 
@@ -15,6 +17,7 @@ const emit = defineEmits<{
   'update:dedupe': [boolean]
   'update:cleanEmpty': [boolean]
   'update:model': [string]
+  'update:enableThinking': [boolean]
   generate: []
 }>()
 
@@ -105,6 +108,22 @@ function enableCustomCount() {
     </div>
 
     <div class="options-row">
+      <div class="thinking-toggle">
+        <span class="setting-label">思考模式</span>
+        <div class="thinking-toggle-main">
+          <button
+            type="button"
+            class="thinking-button"
+            :class="{ active: props.enableThinking, disabled: !props.thinkingSupported }"
+            :disabled="!props.thinkingSupported"
+            @click="emit('update:enableThinking', !props.enableThinking)"
+          >
+            {{ props.thinkingSupported ? (props.enableThinking ? '已开启' : '点击开启') : '当前模型不支持' }}
+          </button>
+          <span class="thinking-hint">仅 qwen3.5-plus / qwen3.6-plus 支持</span>
+        </div>
+      </div>
+
       <label class="checkbox-wrapper">
         <input
           type="checkbox"
@@ -324,11 +343,56 @@ function enableCustomCount() {
 .options-row {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 24px;
   padding: 16px 0;
   border-top: 1px solid #E2E8F0;
   border-bottom: 1px solid #E2E8F0;
   margin-bottom: 20px;
+}
+
+.thinking-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.thinking-toggle-main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.thinking-button {
+  border: 1px solid #CBD5E1;
+  border-radius: 999px;
+  padding: 6px 14px;
+  color: #475569;
+  background: #F8FAFC;
+  cursor: pointer;
+  transition: all 200ms ease;
+}
+
+.thinking-button:hover {
+  border-color: #0891B2;
+}
+
+.thinking-button.active {
+  color: white;
+  background: #0891B2;
+  border-color: #0891B2;
+}
+
+.thinking-button.disabled {
+  cursor: not-allowed;
+  color: #94A3B8;
+  background: #F1F5F9;
+  border-color: #E2E8F0;
+}
+
+.thinking-hint {
+  color: #64748B;
+  font-size: 12px;
 }
 
 .checkbox-wrapper {
