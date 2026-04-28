@@ -352,7 +352,7 @@ describe('POST /api/generate', () => {
     }))
   })
 
-  it('CN 区域链接会走原始下载链路，不再尝试高低画质分支', async () => {
+  it('CN 区域链接会按 region=CN 解析下载地址', async () => {
     vi.mocked(resolveDouyinDownloadVideoUrl).mockResolvedValueOnce('https://cdn.example.com/cn-high.mp4' as any)
     vi.mocked(downloadVideoUrlToTempFile)
       .mockResolvedValueOnce({
@@ -382,7 +382,7 @@ describe('POST /api/generate', () => {
       videoUrl: 'https://cdn.example.com/cn-high.mp4'
     }))
     expect(resolveDouyinDownloadVideoUrl).toHaveBeenCalledTimes(1)
-    expect(vi.mocked(resolveDouyinDownloadVideoUrl).mock.calls[0]?.[3]).toBeUndefined()
+    expect(vi.mocked(resolveDouyinDownloadVideoUrl).mock.calls[0]?.[3]).toEqual({ region: 'CN' })
     expect(resolveDouyinLowQualityDownloadVideoUrl).not.toHaveBeenCalled()
     expect(ensureVideoUnderLimit).toHaveBeenCalledTimes(1)
     expect(vi.mocked(generateFromVideoFile).mock.calls[0]?.[0]).toEqual(expect.objectContaining({

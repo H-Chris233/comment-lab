@@ -150,7 +150,12 @@ async function downloadDouyinLinkVideo(params: {
   requestId?: string
   signal?: AbortSignal
 }) {
-  const primaryVideoUrl = await resolveDouyinDownloadVideoUrl(params.parsed, params.sourceUrl, params.requestId)
+  const primaryVideoUrl = await resolveDouyinDownloadVideoUrl(
+    params.parsed,
+    params.sourceUrl,
+    params.requestId,
+    { region: 'CN' }
+  )
 
   const downloaded = await downloadVideoUrlToTempFile({
     videoUrl: primaryVideoUrl,
