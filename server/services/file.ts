@@ -20,8 +20,8 @@ export function getMaxVideoBytes() {
 
 export function getMaxDownloadVideoBytes() {
   const config = useRuntimeConfig()
-  const fromConfig = Number(config.maxDownloadVideoSizeMb || process.env.MAX_DOWNLOAD_VIDEO_SIZE_MB || 400)
-  const mb = Number.isFinite(fromConfig) && fromConfig > 0 ? fromConfig : 400
+  const fromConfig = Number(config.maxDownloadVideoSizeMb || process.env.MAX_DOWNLOAD_VIDEO_SIZE_MB || 100)
+  const mb = Number.isFinite(fromConfig) && fromConfig > 0 ? fromConfig : 100
   return Math.floor(mb * 1024 * 1024)
 }
 

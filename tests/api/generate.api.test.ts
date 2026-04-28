@@ -384,7 +384,7 @@ describe('POST /api/generate', () => {
     expect(ensureVideoUnderLimit).toHaveBeenCalledTimes(1)
     expect(vi.mocked(downloadVideoUrlToTempFile).mock.calls[0]?.[0]).toEqual(expect.objectContaining({
       streamToDisk: true,
-      maxBytes: 400 * 1024 * 1024,
+      maxBytes: 100 * 1024 * 1024,
       videoUrl: 'https://cdn.example.com/cn-high.mp4'
     }))
     expect(vi.mocked(ensureVideoUnderLimit).mock.calls[0]?.[0]).toEqual(expect.objectContaining({

@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { downloadVideoUrlToTempFile, saveVideoUploadToTempFile } from '../../server/services/file'
+import { downloadVideoUrlToTempFile, getMaxDownloadVideoBytes, saveVideoUploadToTempFile } from '../../server/services/file'
 
 const TEN_MINUTES = 10 * 60 * 1000
 
@@ -140,5 +140,17 @@ describe('video temp retention', () => {
       code: 'FILE_TOO_LARGE'
     })
     expect(fs.writeFile).not.toHaveBeenCalled()
+  })
+})
+
+describe('download video size limit', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('默认超过 100MB 就会切换到更小的分辨率下载', () => {
+    vi.stubGlobal('useRuntimeConfig', () => ({}))
+
+    expect(getMaxDownloadVideoBytes()).toBe(100 * 1024 * 1024)
   })
 })

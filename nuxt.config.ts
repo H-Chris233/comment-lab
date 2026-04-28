@@ -17,7 +17,7 @@ export default defineNuxtConfig({
     tikhubApiKey: process.env.TIKHUB_API_KEY,
     tikhubBaseUrl: process.env.TIKHUB_BASE_URL || 'https://api.tikhub.io',
     maxVideoSizeMb: Number(process.env.MAX_VIDEO_SIZE_MB || 100),
-    maxDownloadVideoSizeMb: Number(process.env.MAX_DOWNLOAD_VIDEO_SIZE_MB || 400),
+    maxDownloadVideoSizeMb: Number(process.env.MAX_DOWNLOAD_VIDEO_SIZE_MB || 100),
     tempVideoRetentionMinutes: Number(process.env.TEMP_VIDEO_RETENTION_MINUTES || 10),
     tempVideoDir: process.env.TEMP_VIDEO_DIR,
     authLockFile: process.env.AUTH_LOCK_FILE || '.tmp/auth-lock.json',

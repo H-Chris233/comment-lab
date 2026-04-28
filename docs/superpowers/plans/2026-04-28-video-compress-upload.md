@@ -100,7 +100,7 @@ Implement the orchestration in `server/api/generate.post.ts`:
 - thread the current request `AbortSignal` and a timeout budget into the compression helper so client disconnects stop ffmpeg quickly
 
 In `server/services/file.ts`:
-- add a separate raw-download ceiling for the compressible link path (default 400MB, configurable via `MAX_DOWNLOAD_VIDEO_SIZE_MB`)
+- add a separate raw-download ceiling for the compressible link path (default 100MB, configurable via `MAX_DOWNLOAD_VIDEO_SIZE_MB`)
 - keep the current smaller cap for the non-compressing path
 - expose enough metadata so the generate route can decide whether to compress without re-fetching the file
 
