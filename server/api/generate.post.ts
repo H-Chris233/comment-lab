@@ -90,8 +90,21 @@ async function compressDownloadedDouyinVideo(params: {
 }) {
   const maxVideoBytes = getMaxVideoBytes()
   if (params.downloaded.bytes <= maxVideoBytes) {
+    console.info('[api.generate] step:link-download-compress:skip', {
+      requestId: params.requestId,
+      bytes: params.downloaded.bytes,
+      maxBytes: maxVideoBytes
+    })
     return params.downloaded
   }
+
+  console.info('[api.generate] step:link-download-compress:start', {
+    requestId: params.requestId,
+    bytes: params.downloaded.bytes,
+    maxBytes: maxVideoBytes,
+    compressionTimeoutMs: params.compressionTimeoutMs ?? null,
+    sourcePath: params.downloaded.sourcePath
+  })
 
   try {
     const compressed = await ensureVideoUnderLimit({
@@ -103,8 +116,21 @@ async function compressDownloadedDouyinVideo(params: {
     })
 
     if (!compressed.compressed) {
+      console.info('[api.generate] step:link-download-compress:noop', {
+        requestId: params.requestId,
+        bytes: compressed.bytes,
+        maxBytes: maxVideoBytes
+      })
       return params.downloaded
     }
+
+    console.info('[api.generate] step:link-download-compress:done', {
+      requestId: params.requestId,
+      sourceBytes: params.downloaded.bytes,
+      bytes: compressed.bytes,
+      maxBytes: maxVideoBytes,
+      compressed: true
+    })
 
     return {
       sourcePath: compressed.sourcePath,

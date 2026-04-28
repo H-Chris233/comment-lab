@@ -166,8 +166,24 @@ async function compressVideoFile(params: {
   const workDir = await createTempWorkDir()
   const outputPath = path.join(workDir, 'compressed.mp4')
 
+  console.info('[video-compress] start', {
+    requestId: params.requestId,
+    inputPath: path.basename(params.inputPath),
+    maxBytes: params.maxBytes,
+    timeoutMs: params.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+    profiles: COMPRESSION_PROFILES.map((profile) => `${profile.preset}@crf${profile.crf}`)
+  })
+
   try {
-    for (const profile of COMPRESSION_PROFILES) {
+    for (const [index, profile] of COMPRESSION_PROFILES.entries()) {
+      console.info('[video-compress] attempt:start', {
+        requestId: params.requestId,
+        attempt: index + 1,
+        preset: profile.preset,
+        crf: profile.crf,
+        outputPath: path.basename(outputPath)
+      })
+
       await fs.rm(outputPath, { force: true }).catch(() => {})
 
       const outputStat = await runCompressionAttempt({
@@ -179,7 +195,23 @@ async function compressVideoFile(params: {
         requestId: params.requestId
       })
 
+      console.info('[video-compress] attempt:result', {
+        requestId: params.requestId,
+        attempt: index + 1,
+        preset: profile.preset,
+        crf: profile.crf,
+        bytes: outputStat.size,
+        maxBytes: params.maxBytes,
+        compressed: outputStat.size <= params.maxBytes
+      })
+
       if (outputStat.size <= params.maxBytes) {
+        console.info('[video-compress] success', {
+          requestId: params.requestId,
+          bytes: outputStat.size,
+          maxBytes: params.maxBytes,
+          attempt: index + 1
+        })
         return {
           sourcePath: outputPath,
           cleanup: async () => {
@@ -191,9 +223,21 @@ async function compressVideoFile(params: {
       }
     }
 
+    console.warn('[video-compress] failed-over-limit', {
+      requestId: params.requestId,
+      maxBytes: params.maxBytes,
+      attempts: COMPRESSION_PROFILES.length
+    })
     throw createCompressionAppError(`压缩后视频仍然超过 ${Math.floor(params.maxBytes / 1024 / 1024)}MB`)
   } catch (error) {
     await cleanupWorkDir(workDir)
+
+    if (!(error instanceof Error && (error as { code?: unknown }).code === 'VIDEO_COMPRESS_FAILED')) {
+      console.warn('[video-compress] failed', {
+        requestId: params.requestId,
+        message: error instanceof Error ? error.message : 'unknown'
+      })
+    }
 
     if (isAbortLikeError(error)) {
       throw createAbortAppError()
@@ -234,6 +278,11 @@ export async function compressVideoIfNeeded(params: CompressVideoIfNeededParams)
   }
 
   if (stat.size <= maxBytes) {
+    console.info('[video-compress] skip', {
+      requestId: params.requestId,
+      bytes: stat.size,
+      maxBytes
+    })
     return {
       sourcePath: params.sourcePath,
       cleanup: async () => {},
@@ -241,6 +290,12 @@ export async function compressVideoIfNeeded(params: CompressVideoIfNeededParams)
       compressed: false
     }
   }
+
+  console.info('[video-compress] required', {
+    requestId: params.requestId,
+    bytes: stat.size,
+    maxBytes
+  })
 
   return await compressVideoFile({
     inputPath: params.sourcePath,
