@@ -38,6 +38,13 @@ export function formatDownloadRetryMessage(params: { attempt: number; retryTimes
   return `${base}，已下载 ${params.percent}%）`
 }
 
+export function formatDownloadResumeMessage(params: { attempt: number; retryTimes: number; percent: number | null }) {
+  const base = params.percent == null
+    ? '下载中断，正在继续下载'
+    : `下载中断，正在从 ${params.percent}% 继续下载`
+  return `${base}（第 ${params.attempt}/${params.retryTimes} 次）`
+}
+
 export function getMaxVideoBytes() {
   const config = useRuntimeConfig()
   const fromConfig = Number(config.maxVideoSizeMb || process.env.MAX_VIDEO_SIZE_MB || 1000)
@@ -356,7 +363,7 @@ async function fetchVideoBuffer(params: {
         emitDownloadStatus(params.onStatus, {
           requestId: params.requestId,
           phase: 'retrying',
-          message: formatDownloadRetryMessage({
+          message: formatDownloadResumeMessage({
             attempt: attempt + 1,
             retryTimes,
             percent: lastPercent
@@ -682,7 +689,7 @@ async function fetchVideoStreamToTempFile(params: {
         emitDownloadStatus(params.onStatus, {
           requestId: params.requestId,
           phase: 'retrying',
-          message: formatDownloadRetryMessage({
+          message: formatDownloadResumeMessage({
             attempt: attempt + 1,
             retryTimes,
             percent: lastPercent

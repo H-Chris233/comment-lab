@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { downloadVideoUrlToTempFile, formatDownloadRetryMessage, getMaxDownloadVideoBytes, getMaxVideoBytes, saveVideoUploadToTempFile } from '../../server/services/file'
+import { downloadVideoUrlToTempFile, formatDownloadResumeMessage, formatDownloadRetryMessage, getMaxDownloadVideoBytes, getMaxVideoBytes, saveVideoUploadToTempFile } from '../../server/services/file'
 
 const TEN_MINUTES = 10 * 60 * 1000
 
@@ -196,6 +196,14 @@ describe('video temp retention', () => {
     })).toBe('下载失败，正在重试（第 2/2 次，已下载 67%）')
   })
 
+  it('下载续传文案会携带上次进度', () => {
+    expect(formatDownloadResumeMessage({
+      attempt: 2,
+      retryTimes: 3,
+      percent: 47
+    })).toBe('下载中断，正在从 47% 继续下载（第 2/3 次）')
+  })
+
   it('下载视频不再依赖内部超时定时器', async () => {
     const timeoutSpy = vi.spyOn(globalThis, 'setTimeout')
 
@@ -263,12 +271,19 @@ describe('video temp retention', () => {
       })
 
     vi.stubGlobal('fetch', fetchMock)
+    const statuses: Array<{ phase: string; message: string }> = []
 
     const resultPromise = downloadVideoUrlToTempFile({
       videoUrl: 'https://example.com/video.mp4',
       requestId: 'req_test',
       streamToDisk: true,
-      retryTimes: 2
+      retryTimes: 2,
+      onStatus: (status) => {
+        statuses.push({
+          phase: status.phase,
+          message: status.message
+        })
+      }
     })
 
     const result = await resultPromise
@@ -281,6 +296,7 @@ describe('video temp retention', () => {
     }))
     expect(result.bytes).toBe(5)
     expect(result.mime).toBe('video/mp4')
+    expect(statuses.some((item) => item.phase === 'retrying' && item.message.includes('下载中断，正在从 60% 继续下载'))).toBe(true)
     await result.cleanup()
     timeoutSpy.mockRestore()
   })
