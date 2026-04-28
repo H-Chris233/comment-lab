@@ -352,20 +352,21 @@ describe('POST /api/generate', () => {
     }))
   })
 
-  it('CN 区域链接在超过 100MB 时会压缩而不是回退低画质', async () => {
+  it('CN 区域链接在超过 100MB 时会回退到低画质链接', async () => {
     vi.mocked(resolveDouyinDownloadVideoUrl).mockResolvedValueOnce('https://cdn.example.com/cn-high.mp4' as any)
-    vi.mocked(downloadVideoUrlToTempFile).mockResolvedValueOnce({
-      bytes: 120 * 1024 * 1024,
-      mime: 'video/mp4',
-      sourcePath: '/tmp/source.mp4',
-      cleanup: async () => {}
-    } as any)
-    vi.mocked(ensureVideoUnderLimit).mockResolvedValueOnce({
-      bytes: 80 * 1024 * 1024,
-      compressed: true,
-      sourcePath: '/tmp/compressed.mp4',
-      cleanup: async () => {}
-    } as any)
+    vi.mocked(resolveDouyinLowQualityDownloadVideoUrl).mockResolvedValueOnce('https://cdn.example.com/cn-low.mp4' as any)
+    vi.mocked(downloadVideoUrlToTempFile)
+      .mockRejectedValueOnce(createAppError({
+        code: 'FILE_TOO_LARGE',
+        message: '视频大小超过限制（>100MB）',
+        statusCode: 413
+      }))
+      .mockResolvedValueOnce({
+        bytes: 80 * 1024 * 1024,
+        mime: 'video/mp4',
+        sourcePath: '/tmp/low.mp4',
+        cleanup: async () => {}
+      } as any)
 
     const app = createApp()
     app.use('/api/generate', generateHandler)
@@ -380,19 +381,20 @@ describe('POST /api/generate', () => {
 
     expect(res.status).toBe(200)
     expect(res.body.ok).toBe(true)
-    expect(downloadVideoUrlToTempFile).toHaveBeenCalledTimes(1)
-    expect(ensureVideoUnderLimit).toHaveBeenCalledTimes(1)
+    expect(downloadVideoUrlToTempFile).toHaveBeenCalledTimes(2)
+    expect(ensureVideoUnderLimit).not.toHaveBeenCalled()
     expect(vi.mocked(downloadVideoUrlToTempFile).mock.calls[0]?.[0]).toEqual(expect.objectContaining({
       streamToDisk: true,
       maxBytes: 100 * 1024 * 1024,
       videoUrl: 'https://cdn.example.com/cn-high.mp4'
     }))
-    expect(vi.mocked(ensureVideoUnderLimit).mock.calls[0]?.[0]).toEqual(expect.objectContaining({
-      sourcePath: '/tmp/source.mp4',
-      maxBytes: 100 * 1024 * 1024
+    expect(vi.mocked(downloadVideoUrlToTempFile).mock.calls[1]?.[0]).toEqual(expect.objectContaining({
+      streamToDisk: true,
+      maxBytes: 100 * 1024 * 1024,
+      videoUrl: 'https://cdn.example.com/cn-low.mp4'
     }))
     expect(vi.mocked(generateFromVideoFile).mock.calls[0]?.[0]).toEqual(expect.objectContaining({
-      videoPath: '/tmp/compressed.mp4'
+      videoPath: '/tmp/low.mp4'
     }))
   })
 

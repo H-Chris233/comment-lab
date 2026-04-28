@@ -166,9 +166,6 @@ async function downloadDouyinLinkVideo(params: {
       streamToDisk: true
     })
   } catch (error) {
-    if (isAppError(error) && error.code === 'FILE_TOO_LARGE') {
-      throw error
-    }
     if (isAppError(error) && error.code === 'CLIENT_ABORTED') {
       throw error
     }
