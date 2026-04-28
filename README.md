@@ -21,6 +21,17 @@ npm run dev:all
 - Nuxt 主服务
 - Python DashScope 侧车
 
+### 桌面启动
+
+如果你要以桌面程序形式打开，可以用 Tauri：
+
+```bash
+npm run desktop:dev
+```
+
+这会先启动本地 Nuxt + Python 服务，再打开一个桌面窗口。
+当前桌面版仍然是“本地服务 + 桌面壳”的结构，不是把所有后端逻辑完全搬进 Rust。
+
 ### 分开启动
 
 ```bash

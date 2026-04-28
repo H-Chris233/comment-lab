@@ -2,6 +2,8 @@ node_modules
 .nuxt
 .output
 .tmp
+src-tauri/target/
+src-tauri/gen/
 .env
 .DS_Store
 *.log
