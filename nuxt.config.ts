@@ -10,7 +10,6 @@ export default defineNuxtConfig({
     }
   },
   runtimeConfig: {
-    generateTimeoutMs: Number(process.env.GENERATE_TIMEOUT_MS || 3_600_000),
     aliyunApiKey: process.env.ALIYUN_API_KEY,
     aliyunBaseUrl: process.env.ALIYUN_BASE_URL,
     aliyunModel: process.env.ALIYUN_MODEL,
@@ -25,8 +24,7 @@ export default defineNuxtConfig({
     public: {
       appName: 'Comment Lab',
       debugRawEnabled: parseBooleanEnv(process.env.DEBUG_RAW_ENABLED),
-      defaultModel: process.env.ALIYUN_MODEL || DEFAULT_MODEL,
-      generateTimeoutMs: Number(process.env.GENERATE_TIMEOUT_MS || 3_600_000)
+      defaultModel: process.env.ALIYUN_MODEL || DEFAULT_MODEL
     }
   }
 })

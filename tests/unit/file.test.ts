@@ -141,6 +141,18 @@ describe('video temp retention', () => {
     })
     expect(fs.writeFile).not.toHaveBeenCalled()
   })
+
+  it('下载视频不再依赖内部超时定时器', async () => {
+    const timeoutSpy = vi.spyOn(globalThis, 'setTimeout')
+
+    await downloadVideoUrlToTempFile({
+      videoUrl: 'https://example.com/video.mp4',
+      requestId: 'req_test'
+    })
+
+    expect(timeoutSpy).not.toHaveBeenCalled()
+    timeoutSpy.mockRestore()
+  })
 })
 
 describe('download video size limit', () => {

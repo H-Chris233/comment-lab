@@ -6,7 +6,6 @@ import { createAppError } from '../utils/errors'
 import { runProcess } from './process-runner'
 
 const DEFAULT_MAX_VIDEO_BYTES = 100 * 1024 * 1024
-const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000
 
 export interface CompressVideoIfNeededParams {
   sourcePath: string
@@ -150,7 +149,7 @@ async function runCompressionAttempt(params: {
       profile: params.profile
     }),
     signal: params.signal,
-    timeoutMs: params.timeoutMs ?? DEFAULT_TIMEOUT_MS
+    timeoutMs: params.timeoutMs
   })
 
   return await fs.stat(params.outputPath)
@@ -170,7 +169,7 @@ async function compressVideoFile(params: {
     requestId: params.requestId,
     inputPath: path.basename(params.inputPath),
     maxBytes: params.maxBytes,
-    timeoutMs: params.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+    timeoutMs: params.timeoutMs ?? null,
     profiles: COMPRESSION_PROFILES.map((profile) => `${profile.preset}@crf${profile.crf}`)
   })
 

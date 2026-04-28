@@ -390,6 +390,31 @@ describe('POST /api/generate', () => {
     }))
   })
 
+  it('生成接口不再额外挂超时定时器', async () => {
+    const timeoutSpy = vi.spyOn(globalThis, 'setTimeout')
+    vi.mocked(downloadVideoUrlToTempFile).mockResolvedValueOnce({
+      bytes: 4,
+      mime: 'video/mp4',
+      sourcePath: '/tmp/mock.mp4',
+      cleanup: async () => {}
+    } as any)
+
+    const app = createApp()
+    app.use('/api/generate', generateHandler)
+
+    const res = await request(toNodeListener(app))
+      .post('/api/generate')
+      .field('mode', 'link')
+      .field('inputMode', 'file')
+      .field('url', 'https://v.douyin.com/abcde/')
+      .field('count', '2')
+      .field('basePrompt', 'base')
+
+    expect(res.status).toBe(200)
+    expect(timeoutSpy).not.toHaveBeenCalled()
+    timeoutSpy.mockRestore()
+  })
+
   it('下载失败时也不会再回退到低画质链接', async () => {
     vi.mocked(resolveDouyinDownloadVideoUrl).mockResolvedValueOnce('https://cdn.example.com/cn-high.mp4' as any)
     vi.mocked(downloadVideoUrlToTempFile).mockRejectedValueOnce(new Error('HTTP 500'))

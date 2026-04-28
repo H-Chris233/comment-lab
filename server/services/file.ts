@@ -94,20 +94,18 @@ async function fetchVideoBuffer(params: {
   retryTimes?: number
   signal?: AbortSignal
 }) {
-  const timeoutMs = params.timeoutMs ?? 180_000
   const maxBytes = params.maxBytes ?? getMaxVideoBytes()
   const retryTimes = Math.max(1, params.retryTimes ?? 3)
 
   for (let attempt = 1; attempt <= retryTimes; attempt += 1) {
     const controller = new AbortController()
     const releaseAbort = wireAbortSignal(controller, params.signal)
-    const timer = setTimeout(() => controller.abort(), timeoutMs)
 
     try {
       console.info('[file.fetch-video] start', {
         requestId: params.requestId,
         host: new URL(params.videoUrl).hostname,
-        timeoutMs,
+        timeoutMs: params.timeoutMs ?? null,
         maxBytes,
         attempt,
         retryTimes
@@ -266,7 +264,6 @@ async function fetchVideoBuffer(params: {
 
       throw error
     } finally {
-      clearTimeout(timer)
       releaseAbort()
     }
   }
@@ -286,14 +283,12 @@ async function fetchVideoStreamToTempFile(params: {
   retryTimes?: number
   signal?: AbortSignal
 }) {
-  const timeoutMs = params.timeoutMs ?? 180_000
   const maxBytes = params.maxBytes ?? getMaxVideoBytes()
   const retryTimes = Math.max(1, params.retryTimes ?? 3)
 
   for (let attempt = 1; attempt <= retryTimes; attempt += 1) {
     const controller = new AbortController()
     const releaseAbort = wireAbortSignal(controller, params.signal)
-    const timer = setTimeout(() => controller.abort(), timeoutMs)
     let workDir = ''
     let filePath = ''
 
@@ -301,7 +296,7 @@ async function fetchVideoStreamToTempFile(params: {
       console.info('[file.fetch-video] start', {
         requestId: params.requestId,
         host: new URL(params.videoUrl).hostname,
-        timeoutMs,
+        timeoutMs: params.timeoutMs ?? null,
         maxBytes,
         attempt,
         retryTimes,
@@ -506,7 +501,6 @@ async function fetchVideoStreamToTempFile(params: {
 
       throw error
     } finally {
-      clearTimeout(timer)
       releaseAbort()
     }
   }

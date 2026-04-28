@@ -156,6 +156,24 @@ describe('useGenerate', () => {
     expect(enableThinking).toBe('true')
   })
 
+  it('不会给生成请求额外挂超时定时器', async () => {
+    const timeoutSpy = vi.spyOn(globalThis, 'setTimeout')
+    const { generate } = useGenerate()
+
+    await generate({
+      mode: 'link',
+      inputMode: 'file',
+      model: 'qwen3.6-plus',
+      enableThinking: true,
+      url: 'https://v.douyin.com/abcde/',
+      count: 1,
+      basePrompt: 'base'
+    })
+
+    expect(timeoutSpy).not.toHaveBeenCalled()
+    timeoutSpy.mockRestore()
+  })
+
   it('会避免同一长度桶连续超过 3 条', () => {
     const values = SHUFFLE_SAMPLE_VALUES
     const original = values.slice()

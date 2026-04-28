@@ -86,7 +86,6 @@ async function compressDownloadedDouyinVideo(params: {
   downloaded: Awaited<ReturnType<typeof downloadVideoUrlToTempFile>>
   requestId?: string
   signal?: AbortSignal
-  compressionTimeoutMs?: number
 }) {
   const maxVideoBytes = getMaxVideoBytes()
   if (params.downloaded.bytes <= maxVideoBytes) {
@@ -102,7 +101,6 @@ async function compressDownloadedDouyinVideo(params: {
     requestId: params.requestId,
     bytes: params.downloaded.bytes,
     maxBytes: maxVideoBytes,
-    compressionTimeoutMs: params.compressionTimeoutMs ?? null,
     sourcePath: params.downloaded.sourcePath
   })
 
@@ -111,8 +109,7 @@ async function compressDownloadedDouyinVideo(params: {
       sourcePath: params.downloaded.sourcePath,
       maxBytes: maxVideoBytes,
       requestId: params.requestId,
-      signal: params.signal,
-      timeoutMs: params.compressionTimeoutMs
+      signal: params.signal
     })
 
     if (!compressed.compressed) {
@@ -152,7 +149,6 @@ async function downloadDouyinLinkVideo(params: {
   sourceUrl: string
   requestId?: string
   signal?: AbortSignal
-  compressionTimeoutMs?: number
 }) {
   const primaryVideoUrl = await resolveDouyinDownloadVideoUrl(params.parsed, params.sourceUrl, params.requestId)
 
@@ -167,8 +163,7 @@ async function downloadDouyinLinkVideo(params: {
   return await compressDownloadedDouyinVideo({
     downloaded,
     requestId: params.requestId,
-    signal: params.signal,
-    compressionTimeoutMs: params.compressionTimeoutMs
+    signal: params.signal
   })
 }
 
@@ -255,31 +250,12 @@ export default defineEventHandler(async (event) => {
       model
     })
 
-    const generationTimeoutMs = Number(useRuntimeConfig().generateTimeoutMs || 3_600_000)
-    let generationTimeoutTimer: ReturnType<typeof setTimeout> | null = null
     let heartbeatTimer: ReturnType<typeof setInterval> | null = null
-
-    const clearGenerationTimeout = () => {
-      if (generationTimeoutTimer == null) return
-      clearTimeout(generationTimeoutTimer)
-      generationTimeoutTimer = null
-    }
 
     const clearHeartbeat = () => {
       if (heartbeatTimer == null) return
       clearInterval(heartbeatTimer)
       heartbeatTimer = null
-    }
-
-    const startGenerationTimeout = () => {
-      if (generationTimeoutTimer != null) return
-      generationTimeoutTimer = setTimeout(() => {
-        console.warn('[api.generate] generation timeout reached', {
-          requestId,
-          generationTimeoutMs
-        })
-        abortController.abort(new Error('REQUEST_TIMEOUT'))
-        }, generationTimeoutMs)
     }
 
     const startHeartbeat = () => {
@@ -333,8 +309,7 @@ export default defineEventHandler(async (event) => {
             parsed,
             sourceUrl,
             requestId,
-            signal: abortController.signal,
-            compressionTimeoutMs: generationTimeoutMs
+            signal: abortController.signal
           })
           localVideoPath = downloaded.sourcePath
           cleanupVideoSource = downloaded.cleanup
@@ -370,8 +345,7 @@ export default defineEventHandler(async (event) => {
             parsed,
             sourceUrl,
             requestId,
-            signal: abortController.signal,
-            compressionTimeoutMs: generationTimeoutMs
+            signal: abortController.signal
           })
           localVideoPath = downloaded.sourcePath
           cleanupVideoSource = downloaded.cleanup
@@ -409,7 +383,6 @@ export default defineEventHandler(async (event) => {
     const maxRounds = Math.max(2, Math.ceil(count / 50) + MAX_ROUNDS_BUFFER)
 
     try {
-      startGenerationTimeout()
       startHeartbeat()
       for (let round = 1; round <= maxRounds; round += 1) {
         ensureClientConnected(`round-${round}-start`)
@@ -572,7 +545,6 @@ export default defineEventHandler(async (event) => {
         }
       }
     } finally {
-      clearGenerationTimeout()
       clearHeartbeat()
       if (cleanupVideoSource) await cleanupVideoSource()
     }
