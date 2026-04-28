@@ -27,9 +27,19 @@ vi.mock('../../server/services/douyin', () => ({
   resolveDouyinLowQualityDownloadVideoUrl: vi.fn().mockResolvedValue('https://cdn.example.com/cn-low.mp4')
 }))
 
+vi.mock('../../server/services/video-compress', () => ({
+  ensureVideoUnderLimit: vi.fn(async (params: any) => ({
+    sourcePath: params.sourcePath,
+    cleanup: async () => {},
+    bytes: params.maxBytes ?? 0,
+    compressed: false
+  }))
+}))
+
 import { generateFromVideoUrl, generateFromVideoFile } from '../../server/services/ai'
 import { downloadVideoUrlToTempFile, saveVideoUploadToTempFile } from '../../server/services/file'
 import { parseDouyinLink, resolveDouyinDownloadVideoUrl, resolveDouyinLowQualityDownloadVideoUrl } from '../../server/services/douyin'
+import { ensureVideoUnderLimit } from '../../server/services/video-compress'
 import generateHandler from '../../server/api/generate.post'
 
 function styleTargetFromPrompt(prompt: string) {
@@ -267,6 +277,7 @@ describe('POST /api/generate', () => {
     expect(res.body.ok).toBe(true)
     expect(downloadVideoUrlToTempFile).toHaveBeenCalledTimes(1)
     expect(generateFromVideoFile).toHaveBeenCalledTimes(2)
+    expect(ensureVideoUnderLimit).not.toHaveBeenCalled()
   })
 
   it('CN 区域链接在 inputMode=file 时会优先下载高画质链接', async () => {
@@ -321,15 +332,55 @@ describe('POST /api/generate', () => {
     }))
   })
 
-  it('CN 区域在高画质过大时会回退到低画质链接', async () => {
+  it('CN 区域链接在超过 100MB 时会压缩而不是回退低画质', async () => {
+    vi.mocked(resolveDouyinDownloadVideoUrl).mockResolvedValueOnce('https://cdn.example.com/cn-high.mp4' as any)
+    vi.mocked(downloadVideoUrlToTempFile).mockResolvedValueOnce({
+      bytes: 120 * 1024 * 1024,
+      mime: 'video/mp4',
+      sourcePath: '/tmp/source.mp4',
+      cleanup: async () => {}
+    } as any)
+    vi.mocked(ensureVideoUnderLimit).mockResolvedValueOnce({
+      bytes: 80 * 1024 * 1024,
+      compressed: true,
+      sourcePath: '/tmp/compressed.mp4',
+      cleanup: async () => {}
+    } as any)
+
+    const app = createApp()
+    app.use('/api/generate', generateHandler)
+
+    const res = await request(toNodeListener(app))
+      .post('/api/generate')
+      .field('mode', 'link')
+      .field('inputMode', 'file')
+      .field('url', 'https://v.douyin.com/abcde/')
+      .field('count', '2')
+      .field('basePrompt', 'base')
+
+    expect(res.status).toBe(200)
+    expect(res.body.ok).toBe(true)
+    expect(downloadVideoUrlToTempFile).toHaveBeenCalledTimes(1)
+    expect(ensureVideoUnderLimit).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(downloadVideoUrlToTempFile).mock.calls[0]?.[0]).toEqual(expect.objectContaining({
+      streamToDisk: true,
+      maxBytes: 400 * 1024 * 1024,
+      videoUrl: 'https://cdn.example.com/cn-high.mp4'
+    }))
+    expect(vi.mocked(ensureVideoUnderLimit).mock.calls[0]?.[0]).toEqual(expect.objectContaining({
+      sourcePath: '/tmp/source.mp4',
+      maxBytes: 100 * 1024 * 1024
+    }))
+    expect(vi.mocked(generateFromVideoFile).mock.calls[0]?.[0]).toEqual(expect.objectContaining({
+      videoPath: '/tmp/compressed.mp4'
+    }))
+  })
+
+  it('非 size 失败时才会回退到低画质链接', async () => {
     vi.mocked(resolveDouyinDownloadVideoUrl).mockResolvedValueOnce('https://cdn.example.com/cn-high.mp4' as any)
     vi.mocked(resolveDouyinLowQualityDownloadVideoUrl).mockResolvedValueOnce('https://cdn.example.com/cn-low.mp4' as any)
     vi.mocked(downloadVideoUrlToTempFile)
-      .mockRejectedValueOnce(createAppError({
-        code: 'FILE_TOO_LARGE',
-        message: '视频大小超过限制（>100MB）',
-        statusCode: 413
-      }))
+      .mockRejectedValueOnce(new Error('HTTP 500'))
       .mockResolvedValueOnce({
         bytes: 4,
         mime: 'video/mp4',
@@ -351,9 +402,7 @@ describe('POST /api/generate', () => {
     expect(res.status).toBe(200)
     expect(res.body.ok).toBe(true)
     expect(downloadVideoUrlToTempFile).toHaveBeenCalledTimes(2)
-    expect(vi.mocked(downloadVideoUrlToTempFile).mock.calls[0]?.[0]).toEqual(expect.objectContaining({
-      videoUrl: 'https://cdn.example.com/cn-high.mp4'
-    }))
+    expect(ensureVideoUnderLimit).not.toHaveBeenCalled()
     expect(vi.mocked(downloadVideoUrlToTempFile).mock.calls[1]?.[0]).toEqual(expect.objectContaining({
       videoUrl: 'https://cdn.example.com/cn-low.mp4'
     }))
@@ -379,6 +428,7 @@ describe('POST /api/generate', () => {
     expect(res.body.ok).toBe(true)
     expect(saveVideoUploadToTempFile).toHaveBeenCalledTimes(1)
     expect(generateFromVideoFile).toHaveBeenCalledTimes(2)
+    expect(ensureVideoUnderLimit).not.toHaveBeenCalled()
     const firstCallArgs = vi.mocked(generateFromVideoFile).mock.calls[0]?.[0] as any
     expect(firstCallArgs.videoPath).toBe('/tmp/uploaded.mp4')
   })

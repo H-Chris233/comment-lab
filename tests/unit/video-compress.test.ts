@@ -135,9 +135,10 @@ describe('compressVideoIfNeeded', () => {
     const sourcePath = await createSparseVideoFile(MAX_BYTES + 1)
     const controller = new AbortController()
     const abortError = new DOMException('Aborted', 'AbortError')
+    let outputPath = ''
 
     vi.mocked(runProcess).mockImplementation(async ({ args, signal }: any) => {
-      const outputPath = args[args.length - 1] as string
+      outputPath = args[args.length - 1] as string
       await fs.mkdir(path.dirname(outputPath), { recursive: true })
       await fs.writeFile(outputPath, Buffer.from([1, 2, 3]))
 
@@ -156,7 +157,6 @@ describe('compressVideoIfNeeded', () => {
       statusCode: 499
     })
 
-    const entries = await fs.readdir(TEMP_VIDEO_CACHE_ROOT).catch(() => null)
-    expect(entries ?? []).toEqual([])
+    await expect(fs.stat(outputPath)).rejects.toThrow()
   })
 })

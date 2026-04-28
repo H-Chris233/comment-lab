@@ -63,13 +63,16 @@ export class ProcessRunnerAbortError extends ProcessRunnerError {
 }
 
 function toAbortError(reason?: unknown, timeoutMs?: number) {
-  if (reason instanceof Error) return reason
-  if (typeof reason === 'string' && reason.trim()) {
-    const error = new Error(reason)
-    error.name = 'AbortError'
-    return error
-  }
-  return new ProcessRunnerAbortError(timeoutMs ? `process timed out after ${timeoutMs}ms` : 'process aborted', timeoutMs)
+  const message = reason instanceof Error
+    ? reason.message
+    : typeof reason === 'string' && reason.trim()
+      ? reason
+      : undefined
+
+  return new ProcessRunnerAbortError(
+    message || (timeoutMs ? `process timed out after ${timeoutMs}ms` : 'process aborted'),
+    timeoutMs
+  )
 }
 
 export async function runProcess(params: RunProcessParams): Promise<RunProcessResult> {
@@ -87,6 +90,8 @@ export async function runProcess(params: RunProcessParams): Promise<RunProcessRe
     let stdout = ''
     let stderr = ''
     let settled = false
+    let exitCode: number | null = null
+    let exitSignal: NodeJS.Signals | null = null
     let timeoutTimer: ReturnType<typeof setTimeout> | null = null
 
     const cleanup = () => {
@@ -131,6 +136,33 @@ export async function runProcess(params: RunProcessParams): Promise<RunProcessRe
       stderr += chunk.toString('utf8')
     })
 
+    child.once('exit', (code, signal) => {
+      exitCode = code
+      exitSignal = signal
+    })
+
+    child.once('close', () => {
+      settle(() => {
+        if (exitCode === 0) {
+          resolve({
+            stdout,
+            stderr,
+            exitCode: 0,
+            signal: exitSignal
+          })
+          return
+        }
+
+        reject(new ProcessRunnerExitError({
+          command: params.command,
+          exitCode: exitCode ?? 1,
+          signal: exitSignal,
+          stdout,
+          stderr
+        }))
+      })
+    })
+
     child.once('error', (error: NodeJS.ErrnoException) => {
       settle(() => {
         if (error.code === 'ENOENT') {
@@ -139,28 +171,6 @@ export async function runProcess(params: RunProcessParams): Promise<RunProcessRe
         }
 
         reject(new ProcessRunnerError('PROCESS_RUNNER_FAILED', error.message || `failed to start ${params.command}`))
-      })
-    })
-
-    child.once('exit', (exitCode, signal) => {
-      settle(() => {
-        if (exitCode === 0) {
-          resolve({
-            stdout,
-            stderr,
-            exitCode: 0,
-            signal
-          })
-          return
-        }
-
-        reject(new ProcessRunnerExitError({
-          command: params.command,
-          exitCode: exitCode ?? 1,
-          signal,
-          stdout,
-          stderr
-        }))
       })
     })
   })

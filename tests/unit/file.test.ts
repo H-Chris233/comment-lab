@@ -9,7 +9,6 @@ const TEN_MINUTES = 10 * 60 * 1000
 describe('video temp retention', () => {
   beforeEach(() => {
     vi.useFakeTimers()
-    vi.spyOn(fs, 'mkdir').mockResolvedValue(undefined as any)
     vi.spyOn(fs, 'writeFile').mockResolvedValue(undefined as any)
     vi.spyOn(fs, 'rm').mockResolvedValue(undefined as any)
 
@@ -111,5 +110,35 @@ describe('video temp retention', () => {
     expect(result.bytes).toBe(3)
     expect(result.mime).toBe('video/mp4')
     expect(path.basename(result.sourcePath)).toMatch(/^video\.mp4$/)
+  })
+
+  it('streamToDisk 模式会绕过 buffer 落盘并在 raw ceiling 上提前拦截', async () => {
+    const writesBeforeStream = vi.mocked(fs.writeFile).mock.calls.length
+
+    const streamed = await downloadVideoUrlToTempFile({
+      videoUrl: 'https://example.com/video.mp4',
+      requestId: 'req_test',
+      streamToDisk: true,
+      maxBytes: 10
+    })
+
+    expect(streamed.bytes).toBe(3)
+    expect(streamed.mime).toBe('video/mp4')
+    expect(vi.mocked(fs.writeFile).mock.calls.length).toBe(writesBeforeStream)
+
+    await streamed.cleanup()
+    expect(fs.rm).toHaveBeenCalled()
+
+    vi.clearAllMocks()
+
+    await expect(downloadVideoUrlToTempFile({
+      videoUrl: 'https://example.com/video.mp4',
+      requestId: 'req_test',
+      streamToDisk: true,
+      maxBytes: 2
+    })).rejects.toMatchObject({
+      code: 'FILE_TOO_LARGE'
+    })
+    expect(fs.writeFile).not.toHaveBeenCalled()
   })
 })

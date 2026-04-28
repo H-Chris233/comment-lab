@@ -1,9 +1,10 @@
 import type { H3Event } from 'h3'
 import { readMultipartFormData } from 'h3'
 import { createAppError } from '../utils/errors'
-import { promises as fs } from 'node:fs'
+import { createWriteStream, promises as fs } from 'node:fs'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
+import { once } from 'node:events'
 
 export const ALLOWED_VIDEO_MIME_TYPES = ['video/mp4', 'video/quicktime', 'video/webm']
 const DEFAULT_DOWNLOADED_VIDEO_RETENTION_MINUTES = 10
@@ -14,6 +15,13 @@ export function getMaxVideoBytes() {
   const config = useRuntimeConfig()
   const fromConfig = Number(config.maxVideoSizeMb || process.env.MAX_VIDEO_SIZE_MB || 100)
   const mb = Number.isFinite(fromConfig) && fromConfig > 0 ? fromConfig : 100
+  return Math.floor(mb * 1024 * 1024)
+}
+
+export function getMaxDownloadVideoBytes() {
+  const config = useRuntimeConfig()
+  const fromConfig = Number(config.maxDownloadVideoSizeMb || process.env.MAX_DOWNLOAD_VIDEO_SIZE_MB || 400)
+  const mb = Number.isFinite(fromConfig) && fromConfig > 0 ? fromConfig : 400
   return Math.floor(mb * 1024 * 1024)
 }
 
@@ -47,12 +55,39 @@ function logVideoFetchProgress(params: {
   return now
 }
 
+function createClientAbortError() {
+  return createAppError({
+    code: 'CLIENT_ABORTED',
+    message: '客户端已断开连接',
+    statusCode: 499,
+    expose: false
+  })
+}
+
+function wireAbortSignal(controller: AbortController, signal?: AbortSignal) {
+  if (!signal) return () => {}
+  if (signal.aborted) {
+    controller.abort(signal.reason)
+    return () => {}
+  }
+
+  const onAbort = () => {
+    controller.abort(signal.reason)
+  }
+
+  signal.addEventListener('abort', onAbort, { once: true })
+  return () => {
+    signal.removeEventListener('abort', onAbort)
+  }
+}
+
 async function fetchVideoBuffer(params: {
   videoUrl: string
   requestId?: string
   timeoutMs?: number
   maxBytes?: number
   retryTimes?: number
+  signal?: AbortSignal
 }) {
   const timeoutMs = params.timeoutMs ?? 180_000
   const maxBytes = params.maxBytes ?? getMaxVideoBytes()
@@ -60,6 +95,7 @@ async function fetchVideoBuffer(params: {
 
   for (let attempt = 1; attempt <= retryTimes; attempt += 1) {
     const controller = new AbortController()
+    const releaseAbort = wireAbortSignal(controller, params.signal)
     const timer = setTimeout(() => controller.abort(), timeoutMs)
 
     try {
@@ -184,6 +220,7 @@ async function fetchVideoBuffer(params: {
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'unknown'
+      const isFileTooLarge = error instanceof Error && (error as { code?: unknown }).code === 'FILE_TOO_LARGE'
       const isTerminal = error instanceof Error && /terminated|aborted|timeout|timed out|econnreset/i.test(message)
       const isLastAttempt = attempt >= retryTimes
 
@@ -196,6 +233,10 @@ async function fetchVideoBuffer(params: {
         isTerminal,
         isLastAttempt
       })
+
+      if (isFileTooLarge) {
+        throw error
+      }
 
       if (!isLastAttempt) {
         const waitMs = attempt * 600
@@ -214,6 +255,231 @@ async function fetchVideoBuffer(params: {
       throw error
     } finally {
       clearTimeout(timer)
+      releaseAbort()
+    }
+  }
+
+  throw createAppError({
+    code: 'VIDEO_FETCH_FAILED',
+    message: '视频下载失败，请稍后重试',
+    statusCode: 422
+  })
+}
+
+async function fetchVideoStreamToTempFile(params: {
+  videoUrl: string
+  requestId?: string
+  timeoutMs?: number
+  maxBytes?: number
+  retryTimes?: number
+  signal?: AbortSignal
+}) {
+  const timeoutMs = params.timeoutMs ?? 180_000
+  const maxBytes = params.maxBytes ?? getMaxVideoBytes()
+  const retryTimes = Math.max(1, params.retryTimes ?? 3)
+
+  for (let attempt = 1; attempt <= retryTimes; attempt += 1) {
+    const controller = new AbortController()
+    const releaseAbort = wireAbortSignal(controller, params.signal)
+    const timer = setTimeout(() => controller.abort(), timeoutMs)
+    let workDir = ''
+    let filePath = ''
+
+    try {
+      console.info('[file.fetch-video] start', {
+        requestId: params.requestId,
+        host: new URL(params.videoUrl).hostname,
+        timeoutMs,
+        maxBytes,
+        attempt,
+        retryTimes,
+        streamToDisk: true
+      })
+
+      const res = await fetch(params.videoUrl, {
+        method: 'GET',
+        signal: controller.signal,
+        headers: {
+          'user-agent': 'Mozilla/5.0 (compatible; CommentLab/1.0)',
+          referer: 'https://www.douyin.com/',
+          origin: 'https://www.douyin.com'
+        }
+      })
+
+      if (!res.ok) {
+        throw createAppError({
+          code: 'VIDEO_FETCH_FAILED',
+          message: `视频下载失败（HTTP ${res.status}）`,
+          statusCode: 422
+        })
+      }
+
+      const mime = res.headers.get('content-type')?.split(';')[0]?.trim() || 'video/mp4'
+      const lenHeader = Number(res.headers.get('content-length') || '0')
+      if (lenHeader > 0 && lenHeader > maxBytes) {
+        throw createAppError({
+          code: 'FILE_TOO_LARGE',
+          message: `视频大小超过限制（>${Math.floor(maxBytes / 1024 / 1024)}MB）`,
+          statusCode: 413
+        })
+      }
+
+      const contentLength = lenHeader > 0 ? lenHeader : 0
+      console.info('[file.fetch-video] connected', {
+        requestId: params.requestId,
+        mime,
+        contentLength: contentLength || null,
+        attempt,
+        streamToDisk: true
+      })
+
+      workDir = path.join(getTempVideoDir(), `${Date.now()}-${randomUUID()}`)
+      await fs.mkdir(workDir, { recursive: true })
+      filePath = path.join(workDir, `video.${guessExtByMime(mime)}`)
+
+      let downloadedBytes = 0
+      let lastLoggedAt = 0
+      const source = res.body
+
+      if (!source) {
+        const arrayBuffer = await res.arrayBuffer()
+        downloadedBytes = arrayBuffer.byteLength
+        if (downloadedBytes > maxBytes) {
+          throw createAppError({
+            code: 'FILE_TOO_LARGE',
+            message: `视频大小超过限制（>${Math.floor(maxBytes / 1024 / 1024)}MB）`,
+            statusCode: 413
+          })
+        }
+        await fs.writeFile(filePath, Buffer.from(arrayBuffer))
+      } else if (typeof (source as any).getReader === 'function') {
+        const reader = (source as any).getReader()
+        const writer = createWriteStream(filePath)
+        const writerClosed = new Promise<void>((resolve, reject) => {
+          writer.once('finish', resolve)
+          writer.once('error', reject)
+        })
+
+        try {
+          while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
+            if (!value?.length) continue
+
+            const buffer = Buffer.isBuffer(value) ? value : Buffer.from(value)
+            downloadedBytes += buffer.byteLength
+            lastLoggedAt = logVideoFetchProgress({
+              requestId: params.requestId,
+              attempt,
+              downloadedBytes,
+              contentLength,
+              lastLoggedAt
+            })
+
+            if (downloadedBytes > maxBytes) {
+              await reader.cancel().catch(() => {})
+              writer.destroy()
+              throw createAppError({
+                code: 'FILE_TOO_LARGE',
+                message: `视频大小超过限制（>${Math.floor(maxBytes / 1024 / 1024)}MB）`,
+                statusCode: 413
+              })
+            }
+
+            if (!writer.write(buffer)) {
+              await once(writer, 'drain')
+            }
+          }
+
+          writer.end()
+          await writerClosed
+        } catch (error) {
+          writer.destroy()
+          await writerClosed.catch(() => {})
+          throw error
+        }
+      } else {
+        const arrayBuffer = await res.arrayBuffer()
+        downloadedBytes = arrayBuffer.byteLength
+        if (downloadedBytes > maxBytes) {
+          throw createAppError({
+            code: 'FILE_TOO_LARGE',
+            message: `视频大小超过限制（>${Math.floor(maxBytes / 1024 / 1024)}MB）`,
+            statusCode: 413
+          })
+        }
+        await fs.writeFile(filePath, Buffer.from(arrayBuffer))
+      }
+
+      if (downloadedBytes === 0) {
+        const fileStat = await fs.stat(filePath)
+        downloadedBytes = fileStat.size
+      }
+
+      console.info('[file.fetch-video] success', {
+        requestId: params.requestId,
+        mime,
+        bytes: downloadedBytes,
+        contentLength: contentLength || null,
+        attempt,
+        streamToDisk: true
+      })
+
+      return {
+        mime,
+        bytes: downloadedBytes,
+        sourcePath: filePath,
+        cleanup: async () => {
+          await fs.rm(workDir, { recursive: true, force: true }).catch(() => {})
+        }
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'unknown'
+      const isFileTooLarge = error instanceof Error && (error as { code?: unknown }).code === 'FILE_TOO_LARGE'
+      const isTerminal = error instanceof Error && /terminated|aborted|timeout|timed out|econnreset/i.test(message)
+      const isLastAttempt = attempt >= retryTimes
+
+      console.error('[file.fetch-video] failed', {
+        requestId: params.requestId,
+        message,
+        attempt,
+        retryTimes,
+        downloadedBytes: 0,
+        isTerminal,
+        isLastAttempt,
+        streamToDisk: true
+      })
+
+      if (workDir) {
+        await fs.rm(workDir, { recursive: true, force: true }).catch(() => {})
+      }
+
+      if (isFileTooLarge) {
+        throw error
+      }
+
+      if (!isLastAttempt) {
+        const waitMs = attempt * 600
+        await new Promise((resolve) => setTimeout(resolve, waitMs))
+        continue
+      }
+
+      if (params.signal?.aborted) {
+        throw createClientAbortError()
+      }
+
+      if (error instanceof Error && /terminated|aborted|timeout|timed out|econnreset/i.test(message)) {
+        throw createAppError({
+          code: 'VIDEO_FETCH_FAILED',
+          message: '视频下载超时或连接中断，请重试',
+          statusCode: 422
+        })
+      }
+
+      throw error
+    } finally {
+      clearTimeout(timer)
+      releaseAbort()
     }
   }
 
@@ -312,7 +578,13 @@ export async function downloadVideoUrlToTempFile(params: {
   requestId?: string
   timeoutMs?: number
   maxBytes?: number
+  signal?: AbortSignal
+  streamToDisk?: boolean
 }) {
+  if (params.streamToDisk) {
+    return await fetchVideoStreamToTempFile(params)
+  }
+
   const fetched = await fetchVideoBuffer(params)
   const { sourcePath, cleanup } = await writeVideoBufferToTempFile(fetched.buffer, fetched.mime, params.requestId, {
     cleanupDelayMs: getDownloadedVideoRetentionMs()
