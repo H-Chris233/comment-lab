@@ -13,7 +13,7 @@ import {
 import { normalizeComments } from '../services/normalize'
 import { countVisibleLengthWithoutEmojiAndPunctuation } from '../services/emoji'
 import type { ParsedVideoResult } from '../services/douyin'
-import { parseDouyinLink, resolveDouyinDownloadVideoUrl, resolveDouyinLowQualityDownloadVideoUrl } from '../services/douyin'
+import { parseDouyinLink, resolveDouyinDownloadVideoUrl } from '../services/douyin'
 import { ensureVideoUnderLimit } from '../services/video-compress'
 import {
   STYLE_ORDER,
@@ -154,42 +154,15 @@ async function downloadDouyinLinkVideo(params: {
   signal?: AbortSignal
   compressionTimeoutMs?: number
 }) {
-  const primaryVideoUrl = await resolveDouyinDownloadVideoUrl(params.parsed, params.sourceUrl, params.requestId, { region: 'CN' })
+  const primaryVideoUrl = await resolveDouyinDownloadVideoUrl(params.parsed, params.sourceUrl, params.requestId)
 
-  let downloaded: Awaited<ReturnType<typeof downloadVideoUrlToTempFile>>
-  try {
-    downloaded = await downloadVideoUrlToTempFile({
-      videoUrl: primaryVideoUrl,
-      requestId: params.requestId,
-      maxBytes: getMaxDownloadVideoBytes(),
-      signal: params.signal,
-      streamToDisk: true
-    })
-  } catch (error) {
-    if (isAppError(error) && error.code === 'CLIENT_ABORTED') {
-      throw error
-    }
-
-    const fallbackVideoUrl = await resolveDouyinLowQualityDownloadVideoUrl(params.parsed, params.sourceUrl, params.requestId)
-    if (fallbackVideoUrl === primaryVideoUrl) {
-      throw error
-    }
-
-    console.warn('[api.generate] step:link-download-fallback-low-quality', {
-      requestId: params.requestId,
-      reason: error instanceof Error ? error.message : 'unknown',
-      primaryHost: new URL(primaryVideoUrl).hostname,
-      fallbackHost: new URL(fallbackVideoUrl).hostname
-    })
-
-    downloaded = await downloadVideoUrlToTempFile({
-      videoUrl: fallbackVideoUrl,
-      requestId: params.requestId,
-      maxBytes: getMaxDownloadVideoBytes(),
-      signal: params.signal,
-      streamToDisk: true
-    })
-  }
+  const downloaded = await downloadVideoUrlToTempFile({
+    videoUrl: primaryVideoUrl,
+    requestId: params.requestId,
+    maxBytes: getMaxDownloadVideoBytes(),
+    signal: params.signal,
+    streamToDisk: true
+  })
 
   return await compressDownloadedDouyinVideo({
     downloaded,
