@@ -38,6 +38,10 @@ describe('buildStylePrompts', () => {
     expect(result.medium).toContain('本轮以 10~20字 的评论为主')
     expect(result.short).toContain('本轮以 3~10字 的评论为主')
 
+    expect(result.long).toContain('字数要故意打散')
+    expect(result.medium).toContain('字数要故意打散')
+    expect(result.short).toContain('字数要故意打散')
+
     expect(result.long).toContain('30%–35%')
     expect(result.medium).toContain('20–25%')
     expect(result.short).toContain('20–25%')

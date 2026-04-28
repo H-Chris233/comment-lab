@@ -122,13 +122,16 @@ function renderTemplate(template: string, params: BuildPromptParams, target: num
   const bucketLabel = params.lengthBucket?.trim()
   const bucketRange = params.lengthRange?.trim()
   const bucketSubranges = params.lengthSubranges?.trim() || ''
+  const bucketSpreadText = bucketRange
+    ? '字数要故意打散，不要趋于相同；同一批里尽量像散点一样拉开，避免连续几条都落在相近字数。'
+    : ''
   const bucketRuleText = bucketRange
     ? (/[~～\-—]/.test(bucketRange)
-        ? `每条评论字数尽量落在 ${bucketRange} 之间，且需在以下子区间内自然分布：${bucketSubranges}。长度需自然参差。`
-        : `每条评论字数尽量落在 ${bucketRange} 内，长度需自然参差。`)
+        ? `每条评论字数尽量落在 ${bucketRange} 之间，且需在以下子区间内自然分布：${bucketSubranges}。长度需自然参差。${bucketSpreadText}`
+        : `每条评论字数尽量落在 ${bucketRange} 内，长度需自然参差。${bucketSpreadText}`)
     : ''
   const bucketSection = bucketLabel && bucketRange
-    ? `当前长度桶：${bucketLabel}\n本轮以 ${bucketRange} 的评论为主，长度要在该桶内自然分散，不要挤在常见字数点。`
+    ? `当前长度桶：${bucketLabel}\n本轮以 ${bucketRange} 的评论为主，长度要在该桶内自然分散，不要挤在常见字数点。${bucketSpreadText}`
     : ''
   const contextSection = [titleSection, bucketSection, promptSection].filter(Boolean).join('\n')
 
@@ -349,9 +352,11 @@ export async function buildExactLengthBundlePrompt(
   const title = params.title?.trim()
   const titleSection = title ? `视频标题：${sanitizePromptText(title)}` : ''
   const contextSection = [titleSection, promptSection].filter(Boolean).join('\n')
+  const spreadSection = '字数要故意打散，不要趋于相同；同一组里尽量让长度像散点一样分开，不要连续扎堆。'
   const targetLines = bundle.targetLines
   return template
     .replaceAll('{{PROMPT_SECTION}}', contextSection)
+    .replaceAll('{{SPREAD_SECTION}}', spreadSection)
     .replaceAll('{{BUNDLE_LABEL}}', bundle.label)
     .replaceAll('{{BUNDLE_RANGE}}', bundle.range)
     .replaceAll('{{BUNDLE_TARGETS}}', targetLines)
