@@ -52,7 +52,7 @@ npm run desktop:build
 
 > 如果侧车打包失败或产物体积异常（例如误用了占位文件），构建会直接报错并中止，不会继续产出无效桌面包。
 
-当前 Linux 发布包默认产出 `.deb` 和 `.rpm`，先不打 AppImage，避免额外的打包依赖卡住发布流程。
+当前目标为跨平台默认打包：Linux 产出 `.deb/.rpm`，macOS 产出 `.app/.dmg`，Windows 产出 `NSIS` 安装包（均不包含 AppImage）。
 
 ### 分开启动
 
@@ -183,9 +183,11 @@ E2E_BASE_URL=http://localhost:3000 E2E_VIDEO_FILE=./your-video.mp4 npm run e2e:a
 - 每个模板都内置了通用评论规则和各自的风格限制，三份文件可以独立编辑
 - 页面里的“附加提示词”是可选项，不填也能直接生成
 
-### 自动草稿发行（GitHub Actions）
+### 自动发行（GitHub Actions）
 
-仓库已配置跨平台桌面构建工作流：推送 `v*` 标签后会自动在 Linux/macOS/Windows 构建，并生成 GitHub Draft Release。
+仓库已配置跨平台桌面构建工作流：
+- 推送到 `main`：自动更新 `draft-main` 草稿发行
+- 推送 `v*` 标签：自动发布对应正式发行
 
 ```bash
 git tag v0.1.1
