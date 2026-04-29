@@ -20,7 +20,7 @@ jobs:
           - platform: ubuntu-22.04
             args: "--bundles deb,rpm"
           - platform: macos-latest
-            args: "--bundles app,dmg"
+            args: "--bundles dmg"
           - platform: windows-latest
             args: "--bundles nsis"
 
@@ -73,6 +73,8 @@ jobs:
             Commit: ${{ github.sha }}
           releaseDraft: true
           prerelease: true
+          includeRelease: false
+          uploadPlainBinary: false
           args: ${{ matrix.args }}
 
   publish-release:
@@ -84,7 +86,7 @@ jobs:
           - platform: ubuntu-22.04
             args: "--bundles deb,rpm"
           - platform: macos-latest
-            args: "--bundles app,dmg"
+            args: "--bundles dmg"
           - platform: windows-latest
             args: "--bundles nsis"
 
@@ -136,4 +138,6 @@ jobs:
             Automated desktop release for ${{ github.ref_name }}.
           releaseDraft: false
           prerelease: false
+          includeRelease: false
+          uploadPlainBinary: false
           args: ${{ matrix.args }}
