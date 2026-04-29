@@ -61,6 +61,7 @@ NODE_OUT="$NODE_OUT_DIR/$NODE_BASE_NAME$SUFFIX"
 
 npx --yes pkg "$NODE_SRC" \
   --targets "$PKG_TARGET" \
+  --assets "$ROOT_DIR/prompts/*.txt" \
   --output "$NODE_OUT"
 
 echo "[prepare-desktop-bundle] 打包 Python 侧车 ($TARGET_TRIPLE)..."

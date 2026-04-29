@@ -34,16 +34,23 @@ pub fn run() {
     .build(tauri::generate_context!())
     .expect("error while building tauri application");
 
-  let mut node_sidecar = if cfg!(debug_assertions) {
-    None
-  } else {
-    spawn_node_sidecar(app.handle())
-  };
-
   let mut sidecar = if cfg!(debug_assertions) {
     None
   } else {
     spawn_python_sidecar(app.handle())
+  };
+
+  let mut node_sidecar = if cfg!(debug_assertions) {
+    None
+  } else {
+    let python_base_url = current_sidecar_base_url();
+    match spawn_node_sidecar(app.handle(), &python_base_url) {
+      Some((child, node_port)) => {
+        update_main_window_url(app.handle(), node_port);
+        Some(child)
+      }
+      None => None,
+    }
   };
 
   app.run(move |_app_handle, event| {
@@ -58,7 +65,7 @@ pub fn run() {
   });
 }
 
-fn spawn_node_sidecar(app: &tauri::AppHandle) -> Option<std::process::Child> {
+fn spawn_node_sidecar(app: &tauri::AppHandle, python_base_url: &str) -> Option<(std::process::Child, u16)> {
   use std::process::{Command, Stdio};
 
   let resource_dir = match app.path().resource_dir() {
@@ -81,15 +88,17 @@ fn spawn_node_sidecar(app: &tauri::AppHandle) -> Option<std::process::Child> {
     return None;
   };
 
+  let node_port = pick_available_local_port().unwrap_or(LOCAL_NUXT_PORT);
   let mut command = Command::new(&binary_path);
   command
     .stdin(Stdio::null())
     .stdout(Stdio::null())
-    .stderr(Stdio::null())
+    .stderr(open_node_log_file(app).map_or(Stdio::null(), Stdio::from))
     .env("HOST", "127.0.0.1")
-    .env("PORT", LOCAL_NUXT_PORT.to_string())
+    .env("PORT", node_port.to_string())
     .env("NITRO_HOST", "127.0.0.1")
-    .env("NITRO_PORT", LOCAL_NUXT_PORT.to_string());
+    .env("NITRO_PORT", node_port.to_string())
+    .env("PYTHON_DASHSCOPE_SERVICE_URL", python_base_url);
 
   match command.spawn() {
     Ok(mut child) => {
@@ -104,13 +113,13 @@ fn spawn_node_sidecar(app: &tauri::AppHandle) -> Option<std::process::Child> {
 
       let deadline = Instant::now() + Duration::from_secs(15);
       while Instant::now() < deadline {
-        if is_sidecar_ready(LOCAL_NUXT_PORT) {
-          return Some(child);
+        if is_sidecar_ready(node_port) {
+          return Some((child, node_port));
         }
         std::thread::sleep(Duration::from_millis(200));
       }
 
-      eprintln!("[desktop] Node 本地服务超时未就绪");
+      eprintln!("[desktop] Node 本地服务超时未就绪，port={node_port}");
       let _ = child.kill();
       let _ = child.wait();
       let msg = "Node 本地服务启动超时，请重启应用";
@@ -266,11 +275,7 @@ fn spawn_python_sidecar(app: &tauri::AppHandle) -> Option<std::process::Child> {
             );
             continue;
           }
-          emit_sidecar_error(
-            app,
-            "Python 侧车启动后立即退出，请检查侧车文件完整性",
-            &log_path,
-          );
+          emit_sidecar_error(app, &build_python_sidecar_exit_message(&log_path), &log_path);
           return None;
         }
 
@@ -291,11 +296,7 @@ fn spawn_python_sidecar(app: &tauri::AppHandle) -> Option<std::process::Child> {
           std::thread::sleep(Duration::from_millis(600));
           continue;
         }
-        emit_sidecar_error(
-          app,
-          "Python 侧车启动超时，请在设置中查看日志并重试",
-          &log_path,
-        );
+        emit_sidecar_error(app, &build_python_sidecar_exit_message(&log_path), &log_path);
         return None;
       }
       Err(error) => {
@@ -305,11 +306,7 @@ fn spawn_python_sidecar(app: &tauri::AppHandle) -> Option<std::process::Child> {
           std::thread::sleep(Duration::from_millis(600));
           continue;
         }
-        emit_sidecar_error(
-          app,
-          "启动 Python 侧车失败，请检查日志",
-          &log_path,
-        );
+        emit_sidecar_error(app, &build_python_sidecar_exit_message(&log_path), &log_path);
         return None;
       }
     }
@@ -366,6 +363,24 @@ fn open_sidecar_log_file(path: &Path) -> io::Result<std::fs::File> {
   OpenOptions::new().create(true).append(true).open(path)
 }
 
+fn open_node_log_file(app: &tauri::AppHandle) -> io::Result<std::fs::File> {
+  let path = resolve_node_log_path(app);
+  if let Some(parent) = path.parent() {
+    fs::create_dir_all(parent)?;
+  }
+  OpenOptions::new().create(true).append(true).open(path)
+}
+
+fn resolve_node_log_path(app: &tauri::AppHandle) -> PathBuf {
+  if let Ok(log_dir) = app.path().app_log_dir() {
+    return log_dir.join("node-sidecar.stderr.log");
+  }
+  if let Ok(resource_dir) = app.path().resource_dir() {
+    return resource_dir.join("node-sidecar.stderr.log");
+  }
+  PathBuf::from("node-sidecar.stderr.log")
+}
+
 fn is_sidecar_ready(port: u16) -> bool {
   let addr: SocketAddr = match format!("127.0.0.1:{port}").parse() {
     Ok(addr) => addr,
@@ -378,6 +393,32 @@ fn pick_available_local_port() -> Option<u16> {
   let listener = TcpListener::bind("127.0.0.1:0").ok()?;
   let port = listener.local_addr().ok()?.port();
   Some(port)
+}
+
+fn update_main_window_url(app: &tauri::AppHandle, node_port: u16) {
+  let url = format!("http://127.0.0.1:{node_port}");
+  if let Some(main_window) = app.get_webview_window("main") {
+    let _ = main_window.eval(&format!("window.location.replace({url:?});"));
+  } else {
+    eprintln!("[desktop] 未找到 main window，无法切换到 Node 动态端口: {url}");
+  }
+}
+
+fn build_python_sidecar_exit_message(log_path: &Path) -> String {
+  let tail = read_log_tail(log_path, 40);
+  if tail.contains("GLIBC_") || tail.contains("version `GLIBC_") || tail.contains("not found") {
+    return "Python 侧车启动失败：检测到 glibc/动态链接不兼容（构建机与目标机系统版本不匹配）".to_string();
+  }
+  "Python 侧车启动失败，请在日志中查看详细错误".to_string()
+}
+
+fn read_log_tail(path: &Path, max_lines: usize) -> String {
+  let Ok(content) = fs::read_to_string(path) else {
+    return String::new();
+  };
+  let lines: Vec<&str> = content.lines().collect();
+  let start = lines.len().saturating_sub(max_lines);
+  lines[start..].join("\n")
 }
 
 fn sidecar_base_url_cell() -> &'static Mutex<String> {
