@@ -1,11 +1,9 @@
 <script setup lang="ts">
 import AppHeader from '~/components/AppHeader.vue'
-import PasswordPanel from '~/components/PasswordPanel.vue'
 import SourceInput from '~/components/SourceInput.vue'
 import PromptEditor from '~/components/PromptEditor.vue'
 import GenerationPanel from '~/components/GenerationPanel.vue'
 import ResultsPanel from '~/components/ResultsPanel.vue'
-import { useAuth } from '~/composables/useAuth'
 import { useExport } from '~/composables/useExport'
 import { useGenerate } from '~/composables/useGenerate'
 import { DEFAULT_MODEL, DEFAULT_PROMPT, MODEL_OPTIONS, supportsThinkingMode, type ModelOption } from '~/types/prompt'
@@ -13,12 +11,6 @@ import { shouldShowDebugRaw } from '~/utils/env'
 
 const mode = ref<'link' | 'upload'>('link')
 const runtimeConfig = useRuntimeConfig()
-const auth = useAuth()
-const authLoading = auth.loading
-const authError = auth.error
-const authHasPassword = auth.hasPassword
-const authUnlocked = auth.unlocked
-const authReady = auth.ready
 const allowedModels = new Set<ModelOption>(MODEL_OPTIONS.map((option) => option.value))
 function isAllowedModel(value: string): value is ModelOption {
   return allowedModels.has(value as ModelOption)
@@ -37,10 +29,7 @@ const enableThinking = ref(false)
 const parseStatus = ref('')
 const copiedHint = ref('')
 const showRawDebug = ref(false)
-const passwordNotice = ref('')
-const passwordPanelKey = ref(0)
 const isPasswordModalOpen = ref(false)
-const settingsView = ref<'menu' | 'change-password'>('menu')
 const sidecarStartupError = ref('')
 const sidecarStartupStatus = ref('')
 const desktopDiagnostics = ref<{ app_log_dir: string; sidecar_log_path: string; sidecar_base_url: string } | null>(null)
@@ -81,8 +70,6 @@ const {
 
 const { copyAll, exportTxt, exportWord } = useExport()
 
-await auth.loadStatus()
-
 const fileMeta = computed(() => {
   if (!file.value) return { name: '', size: '', type: '' }
   const kb = file.value.size / 1024
@@ -95,8 +82,6 @@ const canShowRaw = computed(() => shouldShowDebugRaw(
   rawText.value,
   rawPromptTrace.value
 ))
-const isUnlocked = computed(() => authUnlocked.value)
-
 const isLoading = computed(() => parsing.value || generating.value)
 const hasComments = computed(() => comments.value.length > 0)
 const thinkingSupported = computed(() => supportsThinkingMode(selectedModel.value))
@@ -112,9 +97,6 @@ async function handleParseLink() {
   parseStatus.value = ''
   const res = await parseLink(url.value)
   if (!res.ok) {
-    if (res.code === 'UNAUTHORIZED') {
-      await auth.loadStatus()
-    }
     parseStatus.value = res.message || '链接解析失败，请稍后重试'
     return
   }
@@ -148,9 +130,6 @@ async function handleGenerate() {
     timeoutMs: localSettings.value.generateTimeoutMs
   })
 
-  if (!result.ok && result.code === 'UNAUTHORIZED') {
-    await auth.loadStatus()
-  }
 }
 
 async function handleRegenerate() {
@@ -185,52 +164,12 @@ function handleFileError(msg: string) {
   parseStatus.value = msg
 }
 
-async function handleLockSubmit(payload: { password: string; confirmPassword: string }) {
-  passwordNotice.value = ''
-  const hadPassword = authHasPassword.value
-  const action = hadPassword ? auth.login : auth.setPassword
-  const res = await action(payload.password, payload.confirmPassword)
-  if (res.ok) {
-    passwordNotice.value = hadPassword ? '密码正确，已进入主页面' : '密码已设置，已进入主页面'
-  }
-}
-
-async function handleChangePassword(payload: { password: string; confirmPassword: string }) {
-  passwordNotice.value = ''
-  const res = await auth.changePassword(payload.password, payload.confirmPassword)
-  if (res.ok) {
-    passwordNotice.value = '密码已修改，当前会话继续有效'
-    passwordPanelKey.value += 1
-  }
-}
-
-async function handleLogout() {
-  passwordNotice.value = ''
-  const res = await auth.logout()
-  if (res.ok) {
-    passwordNotice.value = '已退出当前会话'
-    await auth.loadStatus()
-  }
-}
-
 function openPasswordModal() {
-  passwordPanelKey.value += 1
-  passwordNotice.value = ''
-  settingsView.value = 'menu'
   isPasswordModalOpen.value = true
 }
 
 function closePasswordModal() {
   isPasswordModalOpen.value = false
-}
-
-function openChangePassword() {
-  passwordPanelKey.value += 1
-  settingsView.value = 'change-password'
-}
-
-function backToSettingsMenu() {
-  settingsView.value = 'menu'
 }
 
 async function loadLocalSettings() {
@@ -328,12 +267,6 @@ watch(isPasswordModalOpen, (open) => {
   document.body.style.overflow = open ? 'hidden' : ''
 })
 
-watch(authUnlocked, (unlocked) => {
-  if (!unlocked) {
-    closePasswordModal()
-  }
-})
-
 watch(thinkingSupported, (supported) => {
   if (!supported && enableThinking.value) {
     enableThinking.value = false
@@ -397,243 +330,186 @@ onMounted(() => {
 
     <main class="main-content">
       <div class="container">
-        <div v-if="!authReady" class="auth-loading-card glass-card">
-          <div class="loading-animation">
-            <div v-for="i in 3" :key="i" class="loading-dot" :style="{ animationDelay: `${(i - 1) * 0.15}s` }" />
+        <!-- Error Alert -->
+        <Transition name="fade">
+          <div v-if="error" class="error-alert">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10" stroke-linecap="round" stroke-linejoin="round"/>
+              <line x1="12" y1="8" x2="12" y2="12" stroke-linecap="round" stroke-linejoin="round"/>
+              <line x1="12" y1="16" x2="12.01" y2="16" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <div class="error-content">
+              <p class="error-title">出错了</p>
+              <p class="error-message">{{ error }} <span v-if="errorCode" class="error-code">({{ errorCode }})</span></p>
+              <p v-if="requestId" class="error-request-id">请求ID：{{ requestId }}</p>
+              <details v-if="errorDetail" class="error-details">
+                <summary>查看详细错误</summary>
+                <pre>{{ errorDetail }}</pre>
+              </details>
+            </div>
           </div>
-          <p class="loading-text">正在检查密码锁状态...</p>
+        </Transition>
+        <Transition name="fade">
+          <div v-if="sidecarStartupError" class="error-alert">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10" stroke-linecap="round" stroke-linejoin="round"/>
+              <line x1="12" y1="8" x2="12" y2="12" stroke-linecap="round" stroke-linejoin="round"/>
+              <line x1="12" y1="16" x2="12.01" y2="16" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <div class="error-content">
+              <p class="error-title">侧车启动异常</p>
+              <p class="error-message">{{ sidecarStartupError }}</p>
+            </div>
+          </div>
+        </Transition>
+        <Transition name="fade">
+          <div v-if="sidecarStartupStatus && !sidecarStartupError" class="auth-toast">
+            <span>{{ sidecarStartupStatus }}</span>
+          </div>
+        </Transition>
+
+        <!-- Input Section -->
+        <div class="sections-wrapper">
+          <SourceInput
+            v-model:mode="mode"
+            v-model:url="url"
+            :loading="isLoading"
+            :parse-status="parseStatus"
+            :file-name="fileMeta.name"
+            :file-size="fileMeta.size"
+            :file-type="fileMeta.type"
+            :max-size-mb="1000"
+            @update:file="file = $event"
+            @parse-link="handleParseLink"
+            @file-error="handleFileError"
+          />
+
+          <PromptEditor
+            v-model:base-prompt="basePrompt"
+          />
+
+          <GenerationPanel
+            v-model:count="count"
+            v-model:dedupe="dedupe"
+            v-model:clean-empty="cleanEmpty"
+            v-model:model="selectedModel"
+            v-model:enable-thinking="enableThinking"
+            :thinking-supported="thinkingSupported"
+            :loading="isLoading"
+            @generate="handleGenerate"
+          />
         </div>
 
-        <template v-else>
-          <!-- Error Alert -->
+        <button class="password-fab" type="button" @click="openPasswordModal">
+          设置
+        </button>
+
+        <Teleport to="body">
           <Transition name="fade">
-            <div v-if="error && isUnlocked" class="error-alert">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="12" cy="12" r="10" stroke-linecap="round" stroke-linejoin="round"/>
-                <line x1="12" y1="8" x2="12" y2="12" stroke-linecap="round" stroke-linejoin="round"/>
-                <line x1="12" y1="16" x2="12.01" y2="16" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-              <div class="error-content">
-                <p class="error-title">出错了</p>
-                <p class="error-message">{{ error }} <span v-if="errorCode" class="error-code">({{ errorCode }})</span></p>
-                <p v-if="requestId" class="error-request-id">请求ID：{{ requestId }}</p>
-                <details v-if="errorDetail" class="error-details">
-                  <summary>查看详细错误</summary>
-                  <pre>{{ errorDetail }}</pre>
-                </details>
-              </div>
-            </div>
-          </Transition>
-          <Transition name="fade">
-            <div v-if="sidecarStartupError && isUnlocked" class="error-alert">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="12" cy="12" r="10" stroke-linecap="round" stroke-linejoin="round"/>
-                <line x1="12" y1="8" x2="12" y2="12" stroke-linecap="round" stroke-linejoin="round"/>
-                <line x1="12" y1="16" x2="12.01" y2="16" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-              <div class="error-content">
-                <p class="error-title">侧车启动异常</p>
-                <p class="error-message">{{ sidecarStartupError }}</p>
-              </div>
-            </div>
-          </Transition>
-          <Transition name="fade">
-            <div v-if="sidecarStartupStatus && isUnlocked && !sidecarStartupError" class="auth-toast">
-              <span>{{ sidecarStartupStatus }}</span>
-            </div>
-          </Transition>
-
-          <template v-if="!isUnlocked">
-            <div class="auth-shell">
-              <PasswordPanel
-                :mode="authHasPassword ? 'login' : 'setup'"
-                :loading="authLoading"
-                :error="authError"
-                @submit="handleLockSubmit"
-              />
-            </div>
-          </template>
-
-          <template v-else>
-            <!-- Input Section -->
-            <div class="sections-wrapper">
-              <SourceInput
-                v-model:mode="mode"
-                v-model:url="url"
-                :loading="isLoading"
-                :parse-status="parseStatus"
-                :file-name="fileMeta.name"
-                :file-size="fileMeta.size"
-                :file-type="fileMeta.type"
-                :max-size-mb="1000"
-                @update:file="file = $event"
-                @parse-link="handleParseLink"
-                @file-error="handleFileError"
-              />
-
-              <PromptEditor
-                v-model:base-prompt="basePrompt"
-              />
-
-              <GenerationPanel
-                v-model:count="count"
-                v-model:dedupe="dedupe"
-                v-model:clean-empty="cleanEmpty"
-                v-model:model="selectedModel"
-                v-model:enable-thinking="enableThinking"
-                :thinking-supported="thinkingSupported"
-                :loading="isLoading"
-                @generate="handleGenerate"
-              />
-            </div>
-
-            <Transition name="fade">
-              <div v-if="passwordNotice" class="auth-toast">
-                <span>{{ passwordNotice }}</span>
-              </div>
-            </Transition>
-
-            <button class="password-fab" type="button" @click="openPasswordModal">
-              设置
-            </button>
-
-            <Teleport to="body">
-              <Transition name="fade">
-                <div
-                  v-if="isPasswordModalOpen"
-                  class="password-modal-backdrop"
-                  @click.self="closePasswordModal"
-                >
-                  <div class="password-modal" role="dialog" aria-modal="true" aria-labelledby="password-modal-title">
-                    <div class="password-modal-head">
-                      <div>
-                        <h3 id="password-modal-title" class="password-modal-title">
-                          {{ settingsView === 'menu' ? '设置' : '修改密码' }}
-                        </h3>
-                        <p class="password-modal-desc">
-                          {{ settingsView === 'menu'
-                            ? '在这里管理当前会话和安全项。'
-                            : '修改后当前会话继续有效，关闭浏览器后下次会使用新密码。' }}
-                        </p>
-                      </div>
-                      <button class="password-modal-close" type="button" aria-label="关闭弹窗" @click="closePasswordModal">
-                        ×
-                      </button>
-                    </div>
-                    <template v-if="settingsView === 'menu'">
-                      <div class="settings-list">
-                        <button class="settings-item-btn" type="button" @click="openChangePassword">
-                          <span class="settings-item-title">修改密码</span>
-                          <span class="settings-item-desc">修改登录密码，当前会话保持有效</span>
-                        </button>
-                        <div class="settings-block">
-                          <p class="settings-block-title">本机运行设置</p>
-                          <label class="settings-field">
-                            <span>阿里云 API Key</span>
-                            <input v-model="localSettings.aliyunApiKey" type="password" placeholder="留空则使用环境变量" />
-                          </label>
-                          <label class="settings-field">
-                            <span>阿里云 Base URL</span>
-                            <input v-model="localSettings.aliyunBaseUrl" type="text" placeholder="可留空" />
-                          </label>
-                          <label class="settings-field">
-                            <span>Python 侧车地址</span>
-                            <input
-                              v-model="localSettings.pythonServiceUrl"
-                              type="text"
-                              :placeholder="desktopDiagnostics?.sidecar_base_url || 'http://127.0.0.1:8001'"
-                            />
-                          </label>
-                          <label class="settings-field">
-                            <span>默认模型</span>
-                            <select v-model="localSettings.aliyunModel">
-                              <option value="">跟随页面默认</option>
-                              <option v-for="option in MODEL_OPTIONS" :key="option.value" :value="option.value">
-                                {{ option.label }}
-                              </option>
-                            </select>
-                          </label>
-                          <label class="settings-field">
-                            <span>生成超时（毫秒）</span>
-                            <input v-model.number="localSettings.generateTimeoutMs" type="number" min="1000" step="1000" />
-                          </label>
-                          <label class="settings-checkbox">
-                            <input v-model="localSettings.debugRawEnabled" type="checkbox" />
-                            <span>启用原始输出调试开关</span>
-                          </label>
-                          <button class="settings-save-btn" type="button" :disabled="settingsSaving" @click="saveLocalSettings">
-                            {{ settingsSaving ? '保存中...' : '保存本机设置' }}
-                          </button>
-                        </div>
-                        <div class="settings-block">
-                          <p class="settings-block-title">侧车日志</p>
-                          <p v-if="desktopDiagnostics?.sidecar_log_path" class="settings-hint">{{ desktopDiagnostics.sidecar_log_path }}</p>
-                          <div class="settings-actions-row">
-                            <button class="settings-secondary-btn" type="button" @click="openLogDir">打开日志目录</button>
-                            <button class="settings-secondary-btn" type="button" @click="copySidecarLogPath">复制日志路径</button>
-                            <button class="settings-secondary-btn" type="button" @click="exportSidecarLog">导出侧车日志</button>
-                          </div>
-                        </div>
-                        <p v-if="settingsNotice" class="settings-notice">{{ settingsNotice }}</p>
-                      </div>
-                      <div class="password-modal-actions">
-                        <button class="auth-logout-btn" type="button" @click="handleLogout">
-                          退出当前会话
-                        </button>
-                      </div>
-                    </template>
-                    <template v-else>
-                      <PasswordPanel
-                        :key="passwordPanelKey"
-                        mode="change"
-                        :loading="authLoading"
-                        :error="authError"
-                        compact
-                        embedded
-                        @submit="handleChangePassword"
-                      />
-                      <div class="password-modal-actions password-modal-actions-split">
-                        <button class="settings-back-btn" type="button" @click="backToSettingsMenu">
-                          返回设置列表
-                        </button>
-                      </div>
-                    </template>
+            <div
+              v-if="isPasswordModalOpen"
+              class="password-modal-backdrop"
+              @click.self="closePasswordModal"
+            >
+              <div class="password-modal" role="dialog" aria-modal="true" aria-labelledby="password-modal-title">
+                <div class="password-modal-head">
+                  <div>
+                    <h3 id="password-modal-title" class="password-modal-title">
+                      设置
+                    </h3>
+                    <p class="password-modal-desc">
+                      管理本机运行参数和日志排查入口。
+                    </p>
                   </div>
+                  <button class="password-modal-close" type="button" aria-label="关闭弹窗" @click="closePasswordModal">
+                    ×
+                  </button>
                 </div>
-              </Transition>
-            </Teleport>
+                <div class="settings-list">
+                  <div class="settings-block">
+                    <p class="settings-block-title">本机运行设置</p>
+                    <label class="settings-field">
+                      <span>阿里云 API Key</span>
+                      <input v-model="localSettings.aliyunApiKey" type="password" placeholder="留空则使用环境变量" />
+                    </label>
+                    <label class="settings-field">
+                      <span>阿里云 Base URL</span>
+                      <input v-model="localSettings.aliyunBaseUrl" type="text" placeholder="可留空" />
+                    </label>
+                    <label class="settings-field">
+                      <span>Python 侧车地址</span>
+                      <input
+                        v-model="localSettings.pythonServiceUrl"
+                        type="text"
+                        :placeholder="desktopDiagnostics?.sidecar_base_url || 'http://127.0.0.1:8001'"
+                      />
+                    </label>
+                    <label class="settings-field">
+                      <span>默认模型</span>
+                      <select v-model="localSettings.aliyunModel">
+                        <option value="">跟随页面默认</option>
+                        <option v-for="option in MODEL_OPTIONS" :key="option.value" :value="option.value">
+                          {{ option.label }}
+                        </option>
+                      </select>
+                    </label>
+                    <label class="settings-field">
+                      <span>生成超时（毫秒）</span>
+                      <input v-model.number="localSettings.generateTimeoutMs" type="number" min="1000" step="1000" />
+                    </label>
+                    <label class="settings-checkbox">
+                      <input v-model="localSettings.debugRawEnabled" type="checkbox" />
+                      <span>启用原始输出调试开关</span>
+                    </label>
+                    <button class="settings-save-btn" type="button" :disabled="settingsSaving" @click="saveLocalSettings">
+                      {{ settingsSaving ? '保存中...' : '保存本机设置' }}
+                    </button>
+                  </div>
+                  <div class="settings-block">
+                    <p class="settings-block-title">侧车日志</p>
+                    <p v-if="desktopDiagnostics?.sidecar_log_path" class="settings-hint">{{ desktopDiagnostics.sidecar_log_path }}</p>
+                    <div class="settings-actions-row">
+                      <button class="settings-secondary-btn" type="button" @click="openLogDir">打开日志目录</button>
+                      <button class="settings-secondary-btn" type="button" @click="copySidecarLogPath">复制日志路径</button>
+                      <button class="settings-secondary-btn" type="button" @click="exportSidecarLog">导出侧车日志</button>
+                    </div>
+                  </div>
+                  <p v-if="settingsNotice" class="settings-notice">{{ settingsNotice }}</p>
+                </div>
+              </div>
+            </div>
+          </Transition>
+        </Teleport>
 
-            <!-- Results Section -->
-            <ResultsPanel
-              v-if="generationState !== 'input'"
-              v-model:show-raw-debug="showRawDebug"
-              :comments="comments"
-              :loading="isLoading"
-              :generating="generating"
-              :parsing="parsing"
-              :requested-count="requestedCount"
-              :final-count="finalCount"
-              :before-count="beforeNormalizeCount"
-              :after-count="afterNormalizeCount"
-              :model="model"
-              :request-id="requestId"
-              :copied-hint="copiedHint"
-              :can-show-raw="canShowRaw"
-              :raw-text="rawText"
-              :raw-prompt-trace="rawPromptTrace"
-              :status-text="statusText"
-              :status-phase="statusPhase"
-              @copy-all="handleCopyAll"
-              @copy-one="handleCopyOne"
-              @delete-one="handleDeleteOne"
-              @shuffle-all="handleShuffleAll"
-              @export-txt="exportTxt(comments)"
-              @export-word="exportWord(comments)"
-              @regenerate="handleRegenerate"
-              @cancel="handleCancelGenerate"
-            />
-          </template>
-        </template>
+        <!-- Results Section -->
+        <ResultsPanel
+          v-if="generationState !== 'input'"
+          v-model:show-raw-debug="showRawDebug"
+          :comments="comments"
+          :loading="isLoading"
+          :generating="generating"
+          :parsing="parsing"
+          :requested-count="requestedCount"
+          :final-count="finalCount"
+          :before-count="beforeNormalizeCount"
+          :after-count="afterNormalizeCount"
+          :model="model"
+          :request-id="requestId"
+          :copied-hint="copiedHint"
+          :can-show-raw="canShowRaw"
+          :raw-text="rawText"
+          :raw-prompt-trace="rawPromptTrace"
+          :status-text="statusText"
+          :status-phase="statusPhase"
+          @copy-all="handleCopyAll"
+          @copy-one="handleCopyOne"
+          @delete-one="handleDeleteOne"
+          @shuffle-all="handleShuffleAll"
+          @export-txt="exportTxt(comments)"
+          @export-word="exportWord(comments)"
+          @regenerate="handleRegenerate"
+          @cancel="handleCancelGenerate"
+        />
       </div>
     </main>
 

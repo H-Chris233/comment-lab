@@ -399,7 +399,6 @@ fn configure_runtime_paths(app: &tauri::AppHandle) {
       std::env::set_var("COMMENT_LAB_APP_HOME", path.as_os_str());
       std::env::set_var("COMMENT_LAB_APP_DATA_DIR", path.as_os_str());
       std::env::set_var("TEMP_VIDEO_DIR", path.join("temp-video").as_os_str());
-      std::env::set_var("AUTH_LOCK_FILE", path.join("auth-lock.json").as_os_str());
     }
     if let Some(path) = config_dir.as_ref() {
       std::env::set_var("COMMENT_LAB_CONFIG_DIR", path.as_os_str());

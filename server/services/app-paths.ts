@@ -29,11 +29,6 @@ export function getTempVideoDir() {
     || path.join(getAppHomeDir(), 'temp-video')
 }
 
-export function getAuthLockFilePath() {
-  return normalizeAbsolutePath(process.env.AUTH_LOCK_FILE)
-    || path.join(getAppHomeDir(), 'auth-lock.json')
-}
-
 export function getAppLogDir() {
   return normalizeAbsolutePath(process.env.COMMENT_LAB_LOG_DIR)
     || path.join(getAppHomeDir(), 'logs')

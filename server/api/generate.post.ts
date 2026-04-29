@@ -24,7 +24,6 @@ import {
 import { createAppError, isAppError, toApiError } from '../utils/errors'
 import { createRequestId, failure, success } from '../utils/response'
 import { parseBoolean, validateCount, validateInputMode, validateModel, validateMode, validatePromptLength, validateUrl, validateVideoFile } from '../utils/validators'
-import { assertAuthenticated } from '../services/auth'
 import { spreadCommentsByPrefix } from '../services/normalize'
 
 const MAX_ROUNDS_BUFFER = 2
@@ -279,8 +278,6 @@ export default defineEventHandler(async (event) => {
   const executeGenerate = async (): Promise<RunOutcome> => {
     console.info('[api.generate] start', { requestId, streamMode })
     ensureClientConnected('start')
-    await assertAuthenticated(event)
-
     // 1) 解析 form-data
     const form = await readMultipart(event)
     const field = (name: string) => form.find((f) => f.name === name)?.data?.toString('utf8')
