@@ -22,6 +22,7 @@ pub fn run() {
     .invoke_handler(tauri::generate_handler![get_desktop_diagnostics, read_sidecar_log, open_app_log_dir])
     .setup(|app| {
       configure_runtime_paths(app.handle());
+      configure_sidecar_binary_envs(app.handle());
       if cfg!(debug_assertions) {
         app.handle().plugin(
           tauri_plugin_log::Builder::default()
@@ -536,6 +537,19 @@ fn configure_runtime_paths(app: &tauri::AppHandle) {
   }
   if let Some(path) = log_dir.as_ref() {
     set_process_env_var("COMMENT_LAB_LOG_DIR", path.as_os_str());
+  }
+}
+
+fn configure_sidecar_binary_envs(app: &tauri::AppHandle) {
+  let resource_dir = match app.path().resource_dir() {
+    Ok(dir) => dir,
+    Err(_) => return,
+  };
+  let ffmpeg_path = find_named_sidecar_binary(&resource_dir, "comment-lab-ffmpeg")
+    .or_else(|| find_named_sidecar_binary(&resource_dir.join("_up_"), "comment-lab-ffmpeg"))
+    .or_else(|| find_named_sidecar_binary(&resource_dir.join("bin"), "comment-lab-ffmpeg"));
+  if let Some(path) = ffmpeg_path {
+    set_process_env_var("FFMPEG_BINARY", path.as_os_str());
   }
 }
 

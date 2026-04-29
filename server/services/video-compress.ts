@@ -187,8 +187,9 @@ async function runCompressionAttempt(params: {
   signal?: AbortSignal
   requestId?: string
 }) {
+  const ffmpegCommand = (process.env.FFMPEG_BINARY || 'ffmpeg').trim() || 'ffmpeg'
   await runProcess({
-    command: 'ffmpeg',
+    command: ffmpegCommand,
     args: buildFfmpegArgs({
       inputPath: params.inputPath,
       outputPath: params.outputPath,

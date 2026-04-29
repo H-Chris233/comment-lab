@@ -6,6 +6,7 @@ PY_DIR="$ROOT_DIR/python_service"
 BIN_DIR="$ROOT_DIR/src-tauri/binaries"
 PY_BASE_NAME="comment-lab-python-sidecar"
 NODE_BASE_NAME="comment-lab-node-server"
+FFMPEG_BASE_NAME="comment-lab-ffmpeg"
 
 if ! command -v uv >/dev/null 2>&1; then
   echo "[prepare-desktop-bundle] 缺少 uv，请先安装 uv" >&2
@@ -71,6 +72,7 @@ uv run --directory "$PY_DIR" --with pyinstaller \
 PY_SRC_BIN="$PY_DIR/dist/$PY_BASE_NAME$SUFFIX"
 PY_DST_BIN="$BIN_DIR/$PY_BASE_NAME-$TARGET_TRIPLE$SUFFIX"
 NODE_DST_BIN="$BIN_DIR/$NODE_BASE_NAME-$TARGET_TRIPLE$SUFFIX"
+FFMPEG_DST_BIN="$BIN_DIR/$FFMPEG_BASE_NAME-$TARGET_TRIPLE$SUFFIX"
 
 if [[ ! -f "$PY_SRC_BIN" ]]; then
   echo "[prepare-desktop-bundle] 未找到 Python 侧车产物: $PY_SRC_BIN" >&2
@@ -80,12 +82,19 @@ if [[ ! -f "$NODE_OUT" ]]; then
   echo "[prepare-desktop-bundle] 未找到 Node 侧车产物: $NODE_OUT" >&2
   exit 1
 fi
+FFMPEG_BIN="$(command -v ffmpeg || true)"
+if [[ -z "$FFMPEG_BIN" ]]; then
+  echo "[prepare-desktop-bundle] 缺少 ffmpeg，请先安装 ffmpeg 后再构建桌面包" >&2
+  exit 1
+fi
 
 mkdir -p "$BIN_DIR"
 cp "$PY_SRC_BIN" "$PY_DST_BIN"
 cp "$NODE_OUT" "$NODE_DST_BIN"
+cp "$FFMPEG_BIN" "$FFMPEG_DST_BIN"
 chmod +x "$PY_DST_BIN" || true
 chmod +x "$NODE_DST_BIN" || true
+chmod +x "$FFMPEG_DST_BIN" || true
 
 PY_BIN_SIZE=$(wc -c < "$PY_DST_BIN" | tr -d '[:space:]')
 if [[ -z "$PY_BIN_SIZE" || "$PY_BIN_SIZE" -lt 1000000 ]]; then
@@ -99,4 +108,10 @@ if [[ -z "$NODE_BIN_SIZE" || "$NODE_BIN_SIZE" -lt 1000000 ]]; then
   exit 1
 fi
 
-echo "[prepare-desktop-bundle] 完成: $PY_DST_BIN, $NODE_DST_BIN"
+FFMPEG_BIN_SIZE=$(wc -c < "$FFMPEG_DST_BIN" | tr -d '[:space:]')
+if [[ -z "$FFMPEG_BIN_SIZE" || "$FFMPEG_BIN_SIZE" -lt 1000000 ]]; then
+  echo "[prepare-desktop-bundle] ffmpeg 体积异常($FFMPEG_BIN_SIZE bytes): $FFMPEG_DST_BIN" >&2
+  exit 1
+fi
+
+echo "[prepare-desktop-bundle] 完成: $PY_DST_BIN, $NODE_DST_BIN, $FFMPEG_DST_BIN"

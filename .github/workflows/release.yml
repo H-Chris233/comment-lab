@@ -55,10 +55,22 @@ jobs:
             libwebkit2gtk-4.1-dev \
             libappindicator3-dev \
             librsvg2-dev \
+            ffmpeg \
             patchelf
+
+      - name: Install ffmpeg (macOS)
+        if: matrix.platform == 'macos-latest'
+        run: brew install ffmpeg
+
+      - name: Install ffmpeg (Windows)
+        if: matrix.platform == 'windows-latest'
+        run: choco install ffmpeg -y
 
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Verify ffmpeg
+        run: ffmpeg -version
 
       - name: Prepare desktop sidecars
         run: pnpm run desktop:prepare
@@ -123,10 +135,22 @@ jobs:
             libwebkit2gtk-4.1-dev \
             libappindicator3-dev \
             librsvg2-dev \
+            ffmpeg \
             patchelf
+
+      - name: Install ffmpeg (macOS)
+        if: matrix.platform == 'macos-latest'
+        run: brew install ffmpeg
+
+      - name: Install ffmpeg (Windows)
+        if: matrix.platform == 'windows-latest'
+        run: choco install ffmpeg -y
 
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Verify ffmpeg
+        run: ffmpeg -version
 
       - name: Prepare desktop sidecars
         run: pnpm run desktop:prepare
