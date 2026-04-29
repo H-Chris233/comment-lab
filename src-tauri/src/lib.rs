@@ -1,12 +1,18 @@
 use std::fs::{self, OpenOptions};
 use std::io;
-use std::net::{SocketAddr, TcpStream};
+use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::Path;
 use std::time::{Duration, Instant};
 use serde::Serialize;
 use tauri::Emitter;
 use tauri::Manager;
 use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
+
+const SIDECAR_STARTUP_MAX_ATTEMPTS: usize = 3;
+const SIDECAR_STARTUP_READY_TIMEOUT_SECS: u64 = 20;
+
+static SIDECAR_BASE_URL: OnceLock<Mutex<String>> = OnceLock::new();
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -45,6 +51,7 @@ pub fn run() {
 struct DesktopDiagnostics {
   app_log_dir: String,
   sidecar_log_path: String,
+  sidecar_base_url: String,
 }
 
 #[tauri::command]
@@ -57,6 +64,7 @@ fn get_desktop_diagnostics(app: tauri::AppHandle) -> Result<DesktopDiagnostics, 
   Ok(DesktopDiagnostics {
     app_log_dir: app_log_dir.display().to_string(),
     sidecar_log_path: sidecar_log_path.display().to_string(),
+    sidecar_base_url: current_sidecar_base_url(),
   })
 }
 
@@ -124,65 +132,110 @@ fn spawn_python_sidecar(app: &tauri::AppHandle) -> Option<std::process::Child> {
   };
 
   let log_path = resolve_sidecar_log_path(app);
-  let stderr_file = open_sidecar_log_file(&log_path).ok();
-  if stderr_file.is_none() {
+  if open_sidecar_log_file(&log_path).is_err() {
     eprintln!("[desktop] 无法创建侧车日志文件: {}", log_path.display());
   }
 
-  let mut command = Command::new(binary_path);
-  if let Some(file) = stderr_file {
-    command.stderr(Stdio::from(file));
-  } else {
-    command.stderr(Stdio::null());
-  }
-  command
-    .stdin(Stdio::null())
-    .stdout(Stdio::null())
-    .env("PYTHONUNBUFFERED", "1");
-
-  match command.spawn() {
-    Ok(mut child) => {
-      std::thread::sleep(Duration::from_millis(250));
-      if let Ok(Some(status)) = child.try_wait() {
-        emit_sidecar_error(
-          app,
-          "Python 侧车启动后立即退出，请检查端口冲突或侧车文件完整性",
-          &log_path,
-        );
-        eprintln!("[desktop] Python 侧车启动后立即退出: {status}");
+  emit_sidecar_status(app, "starting", "正在准备本地推理引擎", 0, SIDECAR_STARTUP_MAX_ATTEMPTS, None);
+  for attempt in 1..=SIDECAR_STARTUP_MAX_ATTEMPTS {
+    let port = match pick_available_local_port() {
+      Some(port) => port,
+      None => {
+        emit_sidecar_error(app, "无法分配可用端口，请重启应用后重试", &log_path);
         return None;
       }
-
-      for _ in 0..60 {
-        if is_sidecar_ready() {
-          return Some(child);
-        }
-        std::thread::sleep(Duration::from_millis(500));
-      }
-
-      eprintln!(
-        "[desktop] Python 侧车在 30 秒内未就绪，日志: {}",
-        log_path.display()
-      );
-      emit_sidecar_error(
-        app,
-        "Python 侧车启动超时，可能是端口冲突或运行环境异常",
-        &log_path,
-      );
-      let _ = child.kill();
-      let _ = child.wait();
-      None
+    };
+    let base_url = format!("http://127.0.0.1:{port}");
+    set_sidecar_base_url(base_url.clone());
+    unsafe {
+      std::env::set_var("PYTHON_DASHSCOPE_SERVICE_URL", &base_url);
     }
-    Err(error) => {
-      eprintln!("[desktop] 启动 Python 侧车失败: {error}");
-      emit_sidecar_error(
-        app,
-        "启动 Python 侧车失败，请检查日志",
-        &log_path,
-      );
-      None
+    emit_sidecar_status(
+      app,
+      "starting",
+      &format!("正在启动本地引擎（第 {attempt}/{SIDECAR_STARTUP_MAX_ATTEMPTS} 次）"),
+      attempt,
+      SIDECAR_STARTUP_MAX_ATTEMPTS,
+      Some(&base_url),
+    );
+    let stderr_file = open_sidecar_log_file(&log_path).ok();
+    let mut command = Command::new(&binary_path);
+    if let Some(file) = stderr_file {
+      command.stderr(Stdio::from(file));
+    } else {
+      command.stderr(Stdio::null());
+    }
+    command
+      .stdin(Stdio::null())
+      .stdout(Stdio::null())
+      .env("PYTHONUNBUFFERED", "1")
+      .env("COMMENT_LAB_SIDECAR_PORT", port.to_string());
+
+    match command.spawn() {
+      Ok(mut child) => {
+        std::thread::sleep(Duration::from_millis(250));
+        if let Ok(Some(status)) = child.try_wait() {
+          eprintln!("[desktop] Python 侧车启动后立即退出: {status}");
+          if attempt < SIDECAR_STARTUP_MAX_ATTEMPTS {
+            emit_sidecar_status(
+              app,
+              "retrying",
+              "侧车启动失败，正在重试",
+              attempt,
+              SIDECAR_STARTUP_MAX_ATTEMPTS,
+              Some(&base_url),
+            );
+            continue;
+          }
+          emit_sidecar_error(
+            app,
+            "Python 侧车启动后立即退出，请检查侧车文件完整性",
+            &log_path,
+          );
+          return None;
+        }
+
+        let deadline = Instant::now() + Duration::from_secs(SIDECAR_STARTUP_READY_TIMEOUT_SECS);
+        while Instant::now() < deadline {
+          if is_sidecar_ready(port) {
+            emit_sidecar_status(app, "ready", "本地引擎已就绪", attempt, SIDECAR_STARTUP_MAX_ATTEMPTS, Some(&base_url));
+            return Some(child);
+          }
+          std::thread::sleep(Duration::from_millis(300));
+        }
+
+        eprintln!("[desktop] Python 侧车超时未就绪，attempt={attempt}, port={port}");
+        let _ = child.kill();
+        let _ = child.wait();
+        if attempt < SIDECAR_STARTUP_MAX_ATTEMPTS {
+          emit_sidecar_status(app, "retrying", "本地引擎启动超时，正在重试", attempt, SIDECAR_STARTUP_MAX_ATTEMPTS, Some(&base_url));
+          std::thread::sleep(Duration::from_millis(600));
+          continue;
+        }
+        emit_sidecar_error(
+          app,
+          "Python 侧车启动超时，请在设置中查看日志并重试",
+          &log_path,
+        );
+        return None;
+      }
+      Err(error) => {
+        eprintln!("[desktop] 启动 Python 侧车失败: {error}");
+        if attempt < SIDECAR_STARTUP_MAX_ATTEMPTS {
+          emit_sidecar_status(app, "retrying", "侧车进程拉起失败，正在重试", attempt, SIDECAR_STARTUP_MAX_ATTEMPTS, Some(&base_url));
+          std::thread::sleep(Duration::from_millis(600));
+          continue;
+        }
+        emit_sidecar_error(
+          app,
+          "启动 Python 侧车失败，请检查日志",
+          &log_path,
+        );
+        return None;
+      }
     }
   }
+  None
 }
 
 fn find_sidecar_binary(dir: &std::path::Path) -> Option<PathBuf> {
@@ -231,12 +284,35 @@ fn open_sidecar_log_file(path: &Path) -> io::Result<std::fs::File> {
   OpenOptions::new().create(true).append(true).open(path)
 }
 
-fn is_sidecar_ready() -> bool {
-  let addr: SocketAddr = match "127.0.0.1:8001".parse() {
+fn is_sidecar_ready(port: u16) -> bool {
+  let addr: SocketAddr = match format!("127.0.0.1:{port}").parse() {
     Ok(addr) => addr,
     Err(_) => return false,
   };
   TcpStream::connect_timeout(&addr, Duration::from_millis(200)).is_ok()
+}
+
+fn pick_available_local_port() -> Option<u16> {
+  let listener = TcpListener::bind("127.0.0.1:0").ok()?;
+  let port = listener.local_addr().ok()?.port();
+  Some(port)
+}
+
+fn sidecar_base_url_cell() -> &'static Mutex<String> {
+  SIDECAR_BASE_URL.get_or_init(|| Mutex::new("http://127.0.0.1:8001".to_string()))
+}
+
+fn set_sidecar_base_url(value: String) {
+  if let Ok(mut current) = sidecar_base_url_cell().lock() {
+    *current = value;
+  }
+}
+
+fn current_sidecar_base_url() -> String {
+  if let Ok(current) = sidecar_base_url_cell().lock() {
+    return current.clone();
+  }
+  "http://127.0.0.1:8001".to_string()
 }
 
 #[derive(Serialize, Clone)]
@@ -251,6 +327,33 @@ fn emit_sidecar_error(app: &tauri::AppHandle, message: &str, log_path: &Path) {
     log_path: log_path.display().to_string(),
   };
   let _ = app.emit("sidecar-error", payload);
+}
+
+#[derive(Serialize, Clone)]
+struct SidecarStatusPayload {
+  phase: String,
+  message: String,
+  attempt: usize,
+  max_attempts: usize,
+  base_url: Option<String>,
+}
+
+fn emit_sidecar_status(
+  app: &tauri::AppHandle,
+  phase: &str,
+  message: &str,
+  attempt: usize,
+  max_attempts: usize,
+  base_url: Option<&str>,
+) {
+  let payload = SidecarStatusPayload {
+    phase: phase.to_string(),
+    message: message.to_string(),
+    attempt,
+    max_attempts,
+    base_url: base_url.map(|v| v.to_string()),
+  };
+  let _ = app.emit("sidecar-status", payload);
 }
 
 

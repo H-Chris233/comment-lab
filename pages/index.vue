@@ -42,7 +42,8 @@ const passwordPanelKey = ref(0)
 const isPasswordModalOpen = ref(false)
 const settingsView = ref<'menu' | 'change-password'>('menu')
 const sidecarStartupError = ref('')
-const desktopDiagnostics = ref<{ app_log_dir: string; sidecar_log_path: string } | null>(null)
+const sidecarStartupStatus = ref('')
+const desktopDiagnostics = ref<{ app_log_dir: string; sidecar_log_path: string; sidecar_base_url: string } | null>(null)
 const localSettings = ref({
   aliyunApiKey: '',
   aliyunBaseUrl: '',
@@ -276,7 +277,7 @@ async function loadDesktopDiagnostics() {
   const isDesktop = typeof (window as any).__TAURI_INTERNALS__ !== 'undefined'
   if (!isDesktop) return
   const { invoke } = await import('@tauri-apps/api/core')
-  const diagnostics = await invoke<{ app_log_dir: string; sidecar_log_path: string }>('get_desktop_diagnostics').catch(() => null)
+  const diagnostics = await invoke<{ app_log_dir: string; sidecar_log_path: string; sidecar_base_url: string }>('get_desktop_diagnostics').catch(() => null)
   if (diagnostics) desktopDiagnostics.value = diagnostics
 }
 
@@ -357,6 +358,15 @@ onMounted(() => {
         const logPath = event.payload?.log_path ? `（日志: ${event.payload.log_path}）` : ''
         sidecarStartupError.value = `${message}${logPath}`
       })
+      void listen<{ message?: string; phase?: string; base_url?: string }>('sidecar-status', (event) => {
+        sidecarStartupStatus.value = event.payload?.message || ''
+        if (event.payload?.phase === 'ready') {
+          sidecarStartupStatus.value = ''
+          if (!localSettings.value.pythonServiceUrl && event.payload.base_url) {
+            localSettings.value.pythonServiceUrl = event.payload.base_url
+          }
+        }
+      })
     })
   }
 
@@ -425,6 +435,11 @@ onMounted(() => {
                 <p class="error-title">侧车启动异常</p>
                 <p class="error-message">{{ sidecarStartupError }}</p>
               </div>
+            </div>
+          </Transition>
+          <Transition name="fade">
+            <div v-if="sidecarStartupStatus && isUnlocked && !sidecarStartupError" class="auth-toast">
+              <span>{{ sidecarStartupStatus }}</span>
             </div>
           </Transition>
 
@@ -523,7 +538,11 @@ onMounted(() => {
                           </label>
                           <label class="settings-field">
                             <span>Python 侧车地址</span>
-                            <input v-model="localSettings.pythonServiceUrl" type="text" placeholder="http://127.0.0.1:8001" />
+                            <input
+                              v-model="localSettings.pythonServiceUrl"
+                              type="text"
+                              :placeholder="desktopDiagnostics?.sidecar_base_url || 'http://127.0.0.1:8001'"
+                            />
                           </label>
                           <label class="settings-field">
                             <span>默认模型</span>

@@ -225,4 +225,5 @@ async def generate(request: GenerateRequest):
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("app:app", host="127.0.0.1", port=8001)
+    port = int(os.getenv("COMMENT_LAB_SIDECAR_PORT", "8001"))
+    uvicorn.run("app:app", host="127.0.0.1", port=port)

@@ -2,8 +2,8 @@ import { createAppError } from '../utils/errors'
 import { readLocalSettings } from './local-settings'
 
 const DEFAULT_FPS = 1
-const SIDE_CAR_RETRY_DELAYS_MS = [300, 800, 1600]
-const SIDE_CAR_RETRY_STATUS_CODES = new Set([502, 503, 504])
+const SIDE_CAR_REQUEST_RETRY_DELAYS_MS = [300, 800, 1600]
+const SIDE_CAR_REQUEST_RETRY_STATUS_CODES = new Set([502, 503, 504])
 
 type GenerateBaseParams = {
   model: string
@@ -117,7 +117,7 @@ function isRetryableNetworkError(error: unknown) {
 }
 
 function isRetryableSidecarStatus(status: number) {
-  return SIDE_CAR_RETRY_STATUS_CODES.has(status)
+  return SIDE_CAR_REQUEST_RETRY_STATUS_CODES.has(status)
 }
 
 function sleepWithAbort(ms: number, signal?: AbortSignal) {
@@ -216,7 +216,7 @@ async function callPythonSidecar(params: {
 async function callPythonSidecarWithRetry(params: Parameters<typeof callPythonSidecar>[0]) {
   let lastError: unknown = null
 
-  for (let attempt = 0; attempt <= SIDE_CAR_RETRY_DELAYS_MS.length; attempt += 1) {
+  for (let attempt = 0; attempt <= SIDE_CAR_REQUEST_RETRY_DELAYS_MS.length; attempt += 1) {
     try {
       return await callPythonSidecar(params)
     } catch (error) {
@@ -232,10 +232,10 @@ async function callPythonSidecarWithRetry(params: Parameters<typeof callPythonSi
         }
       }
 
-      const delayMs = SIDE_CAR_RETRY_DELAYS_MS[attempt]
+      const delayMs = SIDE_CAR_REQUEST_RETRY_DELAYS_MS[attempt]
       if (delayMs == null) break
 
-      console.warn('[ai.generate] sidecar retry', {
+      console.warn('[ai.generate] sidecar request-phase retry', {
         requestId: params.requestId,
         attempt: attempt + 1,
         delayMs,
