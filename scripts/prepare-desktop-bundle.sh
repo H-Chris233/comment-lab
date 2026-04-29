@@ -116,9 +116,16 @@ if [[ -z "$NODE_BIN_SIZE" || "$NODE_BIN_SIZE" -lt 1000000 ]]; then
   exit 1
 fi
 
-if ! PATH="$BIN_DIR:$PATH" "$FFMPEG_DST_BIN" -version >/dev/null 2>&1; then
-  echo "[prepare-desktop-bundle] ffmpeg 可执行校验失败: $FFMPEG_DST_BIN" >&2
-  exit 1
+if [[ "$TARGET_TRIPLE" == *"windows"* ]]; then
+  if ! "$FFMPEG_BIN" -version >/dev/null 2>&1; then
+    echo "[prepare-desktop-bundle] ffmpeg 源可执行校验失败: $FFMPEG_BIN" >&2
+    exit 1
+  fi
+else
+  if ! PATH="$BIN_DIR:$PATH" "$FFMPEG_DST_BIN" -version >/dev/null 2>&1; then
+    echo "[prepare-desktop-bundle] ffmpeg 可执行校验失败: $FFMPEG_DST_BIN" >&2
+    exit 1
+  fi
 fi
 
 echo "[prepare-desktop-bundle] 完成: $PY_DST_BIN, $NODE_DST_BIN, $FFMPEG_DST_BIN"
