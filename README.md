@@ -97,11 +97,7 @@ npm run docker:up
 - Nuxt App 容器
 - Python DashScope 侧车容器
 
-首次访问会先进入密码锁：如果还没设置密码，先创建一个全站统一密码；如果已经设置过，先输入密码解锁。解锁状态只保持到当前浏览器会话结束，刷新页面仍然有效。
-
 两者共享同一个临时视频卷，确保下载到本地的视频在两个容器里都能访问。
-
-密码状态会单独写入一个 `commentlab_auth` named volume，容器重建后仍会保留；如果你希望重置密码，删除这个 volume 即可。
 
 默认对外端口是 `3000`，如果宿主机这个端口已被占用，可以这样改：
 
@@ -124,7 +120,6 @@ npm run docker:down
 - `TIKHUB_BASE_URL`: TikHub API 地址（默认 `https://api.tikhub.io`）
 - `MAX_VIDEO_SIZE_MB`: 前端/服务端上传大小限制（默认 1000）
 - `GENERATE_TIMEOUT_MS`: 前端/服务端生成请求超时（默认 3600000，即 1 小时）
-- `AUTH_LOCK_FILE`: 密码锁状态文件路径（本地默认 `.tmp/auth-lock.json`；Docker Compose 会改用独立持久化卷）
 - `PYTHON_DASHSCOPE_SERVICE_URL`: Python 侧车地址（默认 `http://127.0.0.1:8001`）
 
 > 说明：Docker Compose 会把这份 `.env` 同时传给两个容器，并额外注入 `NUXT_*` 变量供 Nuxt runtimeConfig 覆盖。
