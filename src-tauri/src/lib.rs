@@ -11,6 +11,7 @@ use std::sync::{Mutex, OnceLock};
 
 const SIDECAR_STARTUP_MAX_ATTEMPTS: usize = 3;
 const SIDECAR_STARTUP_READY_TIMEOUT_SECS: u64 = 20;
+const LOCAL_NUXT_PORT: u16 = 3000;
 
 static SIDECAR_BASE_URL: OnceLock<Mutex<String>> = OnceLock::new();
 static ENV_WRITE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -33,6 +34,12 @@ pub fn run() {
     .build(tauri::generate_context!())
     .expect("error while building tauri application");
 
+  let mut node_sidecar = if cfg!(debug_assertions) {
+    None
+  } else {
+    spawn_node_sidecar(app.handle())
+  };
+
   let mut sidecar = if cfg!(debug_assertions) {
     None
   } else {
@@ -41,11 +48,84 @@ pub fn run() {
 
   app.run(move |_app_handle, event| {
     if matches!(event, tauri::RunEvent::Exit) {
+      if let Some(child) = node_sidecar.as_mut() {
+        graceful_stop_sidecar(child);
+      }
       if let Some(child) = sidecar.as_mut() {
         graceful_stop_sidecar(child);
       }
     }
   });
+}
+
+fn spawn_node_sidecar(app: &tauri::AppHandle) -> Option<std::process::Child> {
+  use std::process::{Command, Stdio};
+
+  let resource_dir = match app.path().resource_dir() {
+    Ok(dir) => dir,
+    Err(error) => {
+      eprintln!("[desktop] 无法读取资源目录: {error}");
+      return None;
+    }
+  };
+
+  let sidecar_path = find_named_sidecar_binary(&resource_dir, "comment-lab-node-server")
+    .or_else(|| find_named_sidecar_binary(&resource_dir.join("_up_"), "comment-lab-node-server"))
+    .or_else(|| find_named_sidecar_binary(&resource_dir.join("bin"), "comment-lab-node-server"));
+
+  let Some(binary_path) = sidecar_path else {
+    let msg = "未找到 Node 本地服务侧车可执行文件，请重新安装桌面应用";
+    eprintln!("[desktop] {msg}");
+    let log_path = resolve_sidecar_log_path(app);
+    emit_sidecar_error(app, msg, &log_path);
+    return None;
+  };
+
+  let mut command = Command::new(&binary_path);
+  command
+    .stdin(Stdio::null())
+    .stdout(Stdio::null())
+    .stderr(Stdio::null())
+    .env("HOST", "127.0.0.1")
+    .env("PORT", LOCAL_NUXT_PORT.to_string())
+    .env("NITRO_HOST", "127.0.0.1")
+    .env("NITRO_PORT", LOCAL_NUXT_PORT.to_string());
+
+  match command.spawn() {
+    Ok(mut child) => {
+      std::thread::sleep(Duration::from_millis(300));
+      if let Ok(Some(status)) = child.try_wait() {
+        eprintln!("[desktop] Node 本地服务启动后立即退出: {status}");
+        let msg = "Node 本地服务启动失败，请检查安装包完整性";
+        let log_path = resolve_sidecar_log_path(app);
+        emit_sidecar_error(app, msg, &log_path);
+        return None;
+      }
+
+      let deadline = Instant::now() + Duration::from_secs(15);
+      while Instant::now() < deadline {
+        if is_sidecar_ready(LOCAL_NUXT_PORT) {
+          return Some(child);
+        }
+        std::thread::sleep(Duration::from_millis(200));
+      }
+
+      eprintln!("[desktop] Node 本地服务超时未就绪");
+      let _ = child.kill();
+      let _ = child.wait();
+      let msg = "Node 本地服务启动超时，请重启应用";
+      let log_path = resolve_sidecar_log_path(app);
+      emit_sidecar_error(app, msg, &log_path);
+      None
+    }
+    Err(error) => {
+      eprintln!("[desktop] 启动 Node 本地服务失败: {error}");
+      let msg = "启动 Node 本地服务失败，请检查安装包权限";
+      let log_path = resolve_sidecar_log_path(app);
+      emit_sidecar_error(app, msg, &log_path);
+      None
+    }
+  }
 }
 
 #[derive(Serialize)]
@@ -238,14 +318,17 @@ fn spawn_python_sidecar(app: &tauri::AppHandle) -> Option<std::process::Child> {
 }
 
 fn find_sidecar_binary(dir: &std::path::Path) -> Option<PathBuf> {
-  const BASE_NAME: &str = "comment-lab-python-sidecar";
+  find_named_sidecar_binary(dir, "comment-lab-python-sidecar")
+}
 
-  let direct = dir.join(BASE_NAME);
+fn find_named_sidecar_binary(dir: &std::path::Path, base_name: &str) -> Option<PathBuf> {
+
+  let direct = dir.join(base_name);
   if direct.is_file() {
     return Some(direct);
   }
 
-  let direct_exe = dir.join(format!("{BASE_NAME}.exe"));
+  let direct_exe = dir.join(format!("{base_name}.exe"));
   if direct_exe.is_file() {
     return Some(direct_exe);
   }
@@ -257,7 +340,7 @@ fn find_sidecar_binary(dir: &std::path::Path) -> Option<PathBuf> {
       continue;
     }
     if let Some(file_name) = path.file_name().and_then(|v| v.to_str()) {
-      if file_name.starts_with(BASE_NAME) {
+      if file_name.starts_with(base_name) {
         return Some(path);
       }
     }

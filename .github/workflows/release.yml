@@ -34,7 +34,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
+          cache: pnpm
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -61,6 +61,9 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Prepare desktop sidecars
+        run: pnpm run desktop:prepare
+
       - name: Build bundles and create/update draft release
         uses: tauri-apps/tauri-action@v0
         env:
@@ -73,7 +76,7 @@ jobs:
             Commit: ${{ github.sha }}
           releaseDraft: true
           prerelease: true
-          includeRelease: false
+          includeRelease: true
           uploadPlainBinary: false
           args: ${{ matrix.args }}
 
@@ -100,7 +103,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
+          cache: pnpm
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -127,6 +130,9 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Prepare desktop sidecars
+        run: pnpm run desktop:prepare
+
       - name: Build bundles and publish release
         uses: tauri-apps/tauri-action@v0
         env:
@@ -138,6 +144,6 @@ jobs:
             Automated desktop release for ${{ github.ref_name }}.
           releaseDraft: false
           prerelease: false
-          includeRelease: false
+          includeRelease: true
           uploadPlainBinary: false
           args: ${{ matrix.args }}

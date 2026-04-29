@@ -4,7 +4,8 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PY_DIR="$ROOT_DIR/python_service"
 BIN_DIR="$ROOT_DIR/src-tauri/binaries"
-BASE_NAME="comment-lab-python-sidecar"
+PY_BASE_NAME="comment-lab-python-sidecar"
+NODE_BASE_NAME="comment-lab-node-server"
 
 if ! command -v uv >/dev/null 2>&1; then
   echo "[prepare-desktop-bundle] 缺少 uv，请先安装 uv" >&2
@@ -22,35 +23,79 @@ if [[ -z "$TARGET_TRIPLE" ]]; then
 fi
 
 SUFFIX=""
+PKG_TARGET=""
 if [[ "$TARGET_TRIPLE" == *"windows"* ]]; then
   SUFFIX=".exe"
+  PKG_TARGET="node18-win-x64"
+elif [[ "$TARGET_TRIPLE" == *"apple-darwin"* ]]; then
+  if [[ "$TARGET_TRIPLE" == aarch64* ]]; then
+    PKG_TARGET="node18-macos-arm64"
+  else
+    PKG_TARGET="node18-macos-x64"
+  fi
+elif [[ "$TARGET_TRIPLE" == *"unknown-linux-gnu"* ]]; then
+  if [[ "$TARGET_TRIPLE" == aarch64* ]]; then
+    PKG_TARGET="node18-linux-arm64"
+  else
+    PKG_TARGET="node18-linux-x64"
+  fi
+else
+  echo "[prepare-desktop-bundle] 暂不支持 target triple: $TARGET_TRIPLE" >&2
+  exit 1
 fi
+
+echo "[prepare-desktop-bundle] 构建 Nuxt 产物..."
+cd "$ROOT_DIR"
+npm run build
+
+echo "[prepare-desktop-bundle] 打包 Node 本地服务侧车 ($PKG_TARGET)..."
+NODE_SRC="$ROOT_DIR/.output/server/index.mjs"
+if [[ ! -f "$NODE_SRC" ]]; then
+  echo "[prepare-desktop-bundle] 未找到 Nuxt server 入口: $NODE_SRC" >&2
+  exit 1
+fi
+
+NODE_OUT_DIR="$ROOT_DIR/.output/desktop"
+mkdir -p "$NODE_OUT_DIR"
+NODE_OUT="$NODE_OUT_DIR/$NODE_BASE_NAME$SUFFIX"
+
+npx --yes pkg "$NODE_SRC" \
+  --targets "$PKG_TARGET" \
+  --output "$NODE_OUT"
 
 echo "[prepare-desktop-bundle] 打包 Python 侧车 ($TARGET_TRIPLE)..."
 uv run --directory "$PY_DIR" --with pyinstaller \
-  pyinstaller --noconfirm --clean --onefile app.py --name "$BASE_NAME"
+  pyinstaller --noconfirm --clean --onefile app.py --name "$PY_BASE_NAME"
 
-SRC_BIN="$PY_DIR/dist/$BASE_NAME$SUFFIX"
-DST_BIN="$BIN_DIR/$BASE_NAME-$TARGET_TRIPLE$SUFFIX"
+PY_SRC_BIN="$PY_DIR/dist/$PY_BASE_NAME$SUFFIX"
+PY_DST_BIN="$BIN_DIR/$PY_BASE_NAME-$TARGET_TRIPLE$SUFFIX"
+NODE_DST_BIN="$BIN_DIR/$NODE_BASE_NAME-$TARGET_TRIPLE$SUFFIX"
 
-if [[ ! -f "$SRC_BIN" ]]; then
-  echo "[prepare-desktop-bundle] 未找到侧车产物: $SRC_BIN" >&2
+if [[ ! -f "$PY_SRC_BIN" ]]; then
+  echo "[prepare-desktop-bundle] 未找到 Python 侧车产物: $PY_SRC_BIN" >&2
+  exit 1
+fi
+if [[ ! -f "$NODE_OUT" ]]; then
+  echo "[prepare-desktop-bundle] 未找到 Node 侧车产物: $NODE_OUT" >&2
   exit 1
 fi
 
 mkdir -p "$BIN_DIR"
-cp "$SRC_BIN" "$DST_BIN"
-chmod +x "$DST_BIN" || true
+cp "$PY_SRC_BIN" "$PY_DST_BIN"
+cp "$NODE_OUT" "$NODE_DST_BIN"
+chmod +x "$PY_DST_BIN" || true
+chmod +x "$NODE_DST_BIN" || true
 
-BIN_SIZE=$(wc -c < "$DST_BIN" | tr -d '[:space:]')
-if [[ -z "$BIN_SIZE" || "$BIN_SIZE" -lt 1000000 ]]; then
-  echo "[prepare-desktop-bundle] 侧车体积异常($BIN_SIZE bytes): $DST_BIN" >&2
-  echo "[prepare-desktop-bundle] 预期为 PyInstaller 产物，请检查 uv/pyinstaller 是否执行成功" >&2
+PY_BIN_SIZE=$(wc -c < "$PY_DST_BIN" | tr -d '[:space:]')
+if [[ -z "$PY_BIN_SIZE" || "$PY_BIN_SIZE" -lt 1000000 ]]; then
+  echo "[prepare-desktop-bundle] Python 侧车体积异常($PY_BIN_SIZE bytes): $PY_DST_BIN" >&2
   exit 1
 fi
 
-echo "[prepare-desktop-bundle] 构建 Nuxt 前端产物..."
-cd "$ROOT_DIR"
-npm run build
+NODE_BIN_SIZE=$(wc -c < "$NODE_DST_BIN" | tr -d '[:space:]')
+if [[ -z "$NODE_BIN_SIZE" || "$NODE_BIN_SIZE" -lt 1000000 ]]; then
+  echo "[prepare-desktop-bundle] Node 侧车体积异常($NODE_BIN_SIZE bytes): $NODE_DST_BIN" >&2
+  exit 1
+fi
 
-echo "[prepare-desktop-bundle] 完成: $DST_BIN"
+echo "[prepare-desktop-bundle] 完成: $PY_DST_BIN, $NODE_DST_BIN"

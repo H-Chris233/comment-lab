@@ -44,9 +44,10 @@ npm run desktop:dev
 npm run desktop:build
 ```
 
-打包流程会自动执行两步：
-1. 用 `PyInstaller` 将 `python_service/app.py` 打成独立侧车可执行文件（内含 Python 运行时 + DashScope SDK）。
-2. 再执行 Tauri 打包，把该侧车随桌面应用一起发布。
+打包流程会自动执行三步：
+1. 先构建 Nuxt 产物。
+2. 用 `pkg` 将 Nuxt Nitro server（`.output/server/index.mjs`）打成 Node 本地服务侧车可执行文件。
+3. 用 `PyInstaller` 将 `python_service/app.py` 打成独立 Python 侧车可执行文件（内含 Python 运行时 + DashScope SDK），再由 Tauri 一起打包发布。
 
 因此目标机器不需要单独安装 Node.js / Python 运行时。
 
