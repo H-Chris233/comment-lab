@@ -22,7 +22,6 @@ export interface GenerateRequestPayload {
   basePrompt: string
   dedupe?: boolean
   cleanEmpty?: boolean
-  timeoutMs?: number
 }
 
 export interface GenerateResultData {

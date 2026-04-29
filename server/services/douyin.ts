@@ -256,17 +256,13 @@ async function callTikHubForDouyinVideo(shareUrl: string, requestId?: string) {
         queryKey
       })
 
-      const controller = new AbortController()
-      const timer = setTimeout(() => controller.abort(), 15_000)
-
       try {
         const res = await fetch(apiUrl.toString(), {
           method: 'GET',
           headers: {
             Authorization: `Bearer ${apiKey}`,
             Accept: 'application/json'
-          },
-          signal: controller.signal
+          }
         })
 
         if (!res.ok) {
@@ -326,8 +322,6 @@ async function callTikHubForDouyinVideo(shareUrl: string, requestId?: string) {
           queryKey,
           message: lastError
         })
-      } finally {
-        clearTimeout(timer)
       }
     }
   }
@@ -366,32 +360,24 @@ async function callTikHubForDouyinHighQualityPlayUrl(params: {
     hasShareUrl: Boolean(params.shareUrl)
   })
 
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), 15_000)
+  const res = await fetch(apiUrl.toString(), {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      Accept: 'application/json'
+    }
+  })
 
-  try {
-    const res = await fetch(apiUrl.toString(), {
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        Accept: 'application/json'
-      },
-      signal: controller.signal
-    })
+  if (!res.ok) return undefined
 
-    if (!res.ok) return undefined
+  const json = await res.json().catch(() => null)
+  if (!json || typeof json !== 'object') return undefined
 
-    const json = await res.json().catch(() => null)
-    if (!json || typeof json !== 'object') return undefined
+  const url = getByPath(json, 'data.original_video_url')
+    ?? getByPath(json, 'original_video_url')
+    ?? getByPath(json, 'data.video_data.original_video_url')
 
-    const url = getByPath(json, 'data.original_video_url')
-      ?? getByPath(json, 'original_video_url')
-      ?? getByPath(json, 'data.video_data.original_video_url')
-
-    return typeof url === 'string' && isHttpUrl(url) ? url : undefined
-  } finally {
-    clearTimeout(timer)
-  }
+  return typeof url === 'string' && isHttpUrl(url) ? url : undefined
 }
 
 export async function normalizeDouyinVideoUrl(inputUrl: string) {

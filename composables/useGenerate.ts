@@ -288,22 +288,12 @@ export function useGenerate() {
       }
     }
 
-    const status = e.statusCode || e.status
-    if (status === 504 || status === 524) {
-      return {
-        ok: false,
-        code: 'REQUEST_TIMEOUT',
-        message: '请求超时（后端可能仍在处理中），请稍后重试并减少生成数量',
-        requestId: requestId.value
-      }
-    }
-
     const msg = e.message || ''
-    if (/aborted|timeout|timed out|fetch failed|network/i.test(msg)) {
+    if (/aborted|fetch failed|network/i.test(msg)) {
       return {
         ok: false,
-        code: 'REQUEST_TIMEOUT',
-        message: '请求超时或网络中断，请重试',
+        code: 'NETWORK_ERROR',
+        message: '请求失败，请检查网络后重试',
         requestId: requestId.value
       }
     }
@@ -361,16 +351,10 @@ export function useGenerate() {
     finalCount.value = 0
     streamedCommentSet = new Set<string>()
 
-    let timeoutTimer: ReturnType<typeof setTimeout> | null = null
     let controller: AbortController | null = null
     try {
       controller = new AbortController()
       abortController.value = controller
-      if (payload.timeoutMs && payload.timeoutMs > 0) {
-        timeoutTimer = setTimeout(() => {
-          controller?.abort(new Error('REQUEST_TIMEOUT'))
-        }, payload.timeoutMs)
-      }
       const form = new FormData()
       form.append('mode', payload.mode)
       if (payload.inputMode) form.append('inputMode', payload.inputMode)
@@ -391,11 +375,6 @@ export function useGenerate() {
         body: form,
         signal: controller.signal
       })
-      if (timeoutTimer) {
-        clearTimeout(timeoutTimer)
-        timeoutTimer = null
-      }
-
       if (!response.ok) {
         const errorData = await response.json().catch(() => null)
         if (errorData && typeof errorData === 'object' && errorData.ok === false) {
@@ -516,9 +495,7 @@ export function useGenerate() {
       return doneResponse
     } catch (e) {
       if ((e as any)?.name === 'AbortError') {
-        const reason = controller?.signal?.reason
-        const isTimeoutAbort = reason instanceof Error && reason.message === 'REQUEST_TIMEOUT'
-        error.value = isTimeoutAbort ? '生成超时，请重试或调大超时时间' : '已取消本次生成'
+        error.value = '已取消本次生成'
         errorCode.value = 'REQUEST_ABORTED'
         errorDetail.value = ''
         return {
@@ -543,9 +520,6 @@ export function useGenerate() {
         requestId: mapped.requestId || requestId.value
       }
     } finally {
-      if (timeoutTimer) {
-        clearTimeout(timeoutTimer)
-      }
       if (abortController.value === controller) {
         abortController.value = null
       }

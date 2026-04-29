@@ -24,12 +24,7 @@ function createMockChild() {
 }
 
 describe('runProcess', () => {
-  beforeEach(() => {
-    vi.useFakeTimers()
-  })
-
   afterEach(() => {
-    vi.useRealTimers()
     vi.restoreAllMocks()
   })
 
@@ -80,26 +75,6 @@ describe('runProcess', () => {
       name: 'AbortError',
       code: 'PROCESS_ABORTED'
     })
-    expect(child.kill).toHaveBeenCalledWith('SIGKILL')
-  })
-
-  it('kills the child and rejects on timeout', async () => {
-    const child = createMockChild()
-    vi.mocked(spawn).mockReturnValueOnce(child as any)
-
-    const promise = runProcess({
-      command: 'ffmpeg',
-      args: ['-i', 'input.mp4', 'output.mp4'],
-      timeoutMs: 1000
-    })
-
-    const assertion = expect(promise).rejects.toMatchObject({
-      name: 'AbortError',
-      code: 'PROCESS_TIMEOUT'
-    })
-    await vi.advanceTimersByTimeAsync(1000)
-
-    await assertion
     expect(child.kill).toHaveBeenCalledWith('SIGKILL')
   })
 })

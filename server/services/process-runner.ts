@@ -6,7 +6,6 @@ export type RunProcessParams = {
   cwd?: string
   env?: NodeJS.ProcessEnv
   signal?: AbortSignal
-  timeoutMs?: number
 }
 
 export type RunProcessResult = {
@@ -53,31 +52,25 @@ export class ProcessRunnerExitError extends ProcessRunnerError {
 }
 
 export class ProcessRunnerAbortError extends ProcessRunnerError {
-  timeoutMs?: number
-
-  constructor(message: string, timeoutMs?: number) {
-    super(timeoutMs ? 'PROCESS_TIMEOUT' : 'PROCESS_ABORTED', message)
+  constructor(message: string) {
+    super('PROCESS_ABORTED', message)
     this.name = 'AbortError'
-    this.timeoutMs = timeoutMs
   }
 }
 
-function toAbortError(reason?: unknown, timeoutMs?: number) {
+function toAbortError(reason?: unknown) {
   const message = reason instanceof Error
     ? reason.message
     : typeof reason === 'string' && reason.trim()
       ? reason
       : undefined
 
-  return new ProcessRunnerAbortError(
-    message || (timeoutMs ? `process timed out after ${timeoutMs}ms` : 'process aborted'),
-    timeoutMs
-  )
+  return new ProcessRunnerAbortError(message || 'process aborted')
 }
 
 export async function runProcess(params: RunProcessParams): Promise<RunProcessResult> {
   if (params.signal?.aborted) {
-    throw toAbortError(params.signal.reason, params.timeoutMs)
+    throw toAbortError(params.signal.reason)
   }
 
   return await new Promise<RunProcessResult>((resolve, reject) => {
@@ -92,13 +85,8 @@ export async function runProcess(params: RunProcessParams): Promise<RunProcessRe
     let settled = false
     let exitCode: number | null = null
     let exitSignal: NodeJS.Signals | null = null
-    let timeoutTimer: ReturnType<typeof setTimeout> | null = null
 
     const cleanup = () => {
-      if (timeoutTimer) {
-        clearTimeout(timeoutTimer)
-        timeoutTimer = null
-      }
       params.signal?.removeEventListener('abort', onAbort)
     }
 
@@ -110,22 +98,13 @@ export async function runProcess(params: RunProcessParams): Promise<RunProcessRe
     }
 
     const onAbort = () => {
-      const abortError = toAbortError(params.signal?.reason, params.timeoutMs)
+      const abortError = toAbortError(params.signal?.reason)
       child.kill('SIGKILL')
       settle(() => reject(abortError))
     }
 
     if (params.signal) {
       params.signal.addEventListener('abort', onAbort, { once: true })
-    }
-
-    if (params.timeoutMs && params.timeoutMs > 0) {
-      timeoutTimer = setTimeout(() => {
-        const timeoutError = new ProcessRunnerAbortError(`process timed out after ${params.timeoutMs}ms`, params.timeoutMs)
-        child.kill('SIGKILL')
-        settle(() => reject(timeoutError))
-      }, params.timeoutMs)
-      timeoutTimer.unref?.()
     }
 
     child.stdout?.on('data', (chunk: Buffer) => {

@@ -8,7 +8,6 @@ export type LocalSettings = {
   tikhubApiKey?: string
   pythonServiceUrl?: string
   aliyunModel?: string
-  generateTimeoutMs?: number
   debugRawEnabled?: boolean
 }
 
@@ -22,14 +21,12 @@ function normalizeString(value: unknown) {
 }
 
 function sanitize(input: Partial<LocalSettings> | null | undefined): LocalSettings {
-  const timeout = Number(input?.generateTimeoutMs)
   return {
     aliyunApiKey: normalizeString(input?.aliyunApiKey),
     aliyunBaseUrl: normalizeString(input?.aliyunBaseUrl),
     tikhubApiKey: normalizeString(input?.tikhubApiKey),
     pythonServiceUrl: normalizeString(input?.pythonServiceUrl),
     aliyunModel: normalizeString(input?.aliyunModel),
-    generateTimeoutMs: Number.isFinite(timeout) && timeout > 0 ? Math.floor(timeout) : undefined,
     debugRawEnabled: typeof input?.debugRawEnabled === 'boolean' ? input.debugRawEnabled : undefined
   }
 }

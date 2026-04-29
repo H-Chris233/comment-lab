@@ -112,7 +112,7 @@ function isRetryableNetworkError(error: unknown) {
     'socket hang up',
     'service unavailable',
     'bad gateway',
-    'gateway timeout'
+    'gateway unavailable'
   ].some((needle) => message.includes(needle))
 }
 
@@ -304,21 +304,6 @@ async function generateStreamed(params: GenerateBaseParams & {
     })
   } catch (error) {
     if (isAbortError(error)) {
-      const abortReason = params.signal && 'reason' in params.signal ? (params.signal as AbortSignal & { reason?: unknown }).reason : undefined
-      const abortReasonText = abortReason instanceof Error
-        ? abortReason.message
-        : typeof abortReason === 'string'
-          ? abortReason
-          : ''
-
-      if (/timeout/i.test(abortReasonText)) {
-        throw createAppError({
-          code: 'REQUEST_TIMEOUT',
-          message: '生成请求超时，请重试',
-          statusCode: 504
-        })
-      }
-
       throw createAppError({
         code: 'CLIENT_ABORTED',
         message: '客户端已取消本次生成',

@@ -95,10 +95,10 @@ describe('file download regressions', () => {
         streamToDisk: true,
         maxBytes: 2
       }).then(() => 'resolved').catch((error) => error),
-      new Promise((resolve) => setTimeout(() => resolve('timeout'), 100))
+      new Promise((resolve) => setTimeout(() => resolve('delayed'), 100))
     ])
 
-    expect(outcome).not.toBe('timeout')
+    expect(outcome).not.toBe('delayed')
     expect(outcome).toMatchObject({
       code: 'FILE_TOO_LARGE'
     })

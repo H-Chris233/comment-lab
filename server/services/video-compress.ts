@@ -13,7 +13,6 @@ export interface CompressVideoIfNeededParams {
   sourcePath: string
   maxBytes?: number
   signal?: AbortSignal
-  timeoutMs?: number
   requestId?: string
   onStatus?: (status: GenerateStatusData) => void
 }
@@ -52,10 +51,8 @@ function isAbortLikeError(error: unknown) {
   const maybe = error as { name?: unknown; code?: unknown; message?: unknown }
   return maybe.name === 'AbortError'
     || maybe.code === 'PROCESS_ABORTED'
-    || maybe.code === 'PROCESS_TIMEOUT'
     || maybe.message === 'CLIENT_ABORTED'
-    || maybe.message === 'REQUEST_TIMEOUT'
-    || /aborted|timeout|timed out/i.test(String(maybe.message || ''))
+    || /aborted/i.test(String(maybe.message || ''))
 }
 
 function isMissingBinaryError(error: unknown) {
@@ -188,7 +185,6 @@ async function runCompressionAttempt(params: {
   outputPath: string
   profile: CompressionProfile
   signal?: AbortSignal
-  timeoutMs?: number
   requestId?: string
 }) {
   await runProcess({
@@ -198,8 +194,7 @@ async function runCompressionAttempt(params: {
       outputPath: params.outputPath,
       profile: params.profile
     }),
-    signal: params.signal,
-    timeoutMs: params.timeoutMs
+    signal: params.signal
   })
 
   return await fs.stat(params.outputPath)
@@ -209,7 +204,6 @@ async function compressVideoFile(params: {
   inputPath: string
   maxBytes: number
   signal?: AbortSignal
-  timeoutMs?: number
   requestId?: string
   onStatus?: CompressVideoIfNeededParams['onStatus']
 }) {
@@ -220,7 +214,6 @@ async function compressVideoFile(params: {
     requestId: params.requestId,
     inputPath: path.basename(params.inputPath),
     maxBytes: params.maxBytes,
-    timeoutMs: params.timeoutMs ?? null,
     profiles: COMPRESSION_PROFILES.map((profile) => `${profile.preset}@crf${profile.crf}`)
   })
 
@@ -254,7 +247,6 @@ async function compressVideoFile(params: {
           outputPath,
           profile,
           signal: params.signal,
-          timeoutMs: params.timeoutMs,
           requestId: params.requestId
         })
       } catch (error) {
@@ -403,7 +395,6 @@ export async function compressVideoIfNeeded(params: CompressVideoIfNeededParams)
     inputPath: params.sourcePath,
     maxBytes,
     signal: params.signal,
-    timeoutMs: params.timeoutMs,
     requestId: params.requestId,
     onStatus: params.onStatus
   })

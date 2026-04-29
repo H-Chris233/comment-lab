@@ -119,7 +119,6 @@ npm run docker:down
 - `TIKHUB_API_KEY`: TikHub API Key（抖音解析）
 - `TIKHUB_BASE_URL`: TikHub API 地址（默认 `https://api.tikhub.io`）
 - `MAX_VIDEO_SIZE_MB`: 前端/服务端上传大小限制（默认 1000）
-- `GENERATE_TIMEOUT_MS`: 前端/服务端生成请求超时（默认 3600000，即 1 小时）
 - `PYTHON_DASHSCOPE_SERVICE_URL`: Python 侧车地址（默认 `http://127.0.0.1:8001`）
 - `COMMENT_LAB_ALLOW_REMOTE`: 是否允许非本机访问（默认 `0`，仅本机可访问；仅在明确需要远程部署时设为 `1`）
 
@@ -128,7 +127,7 @@ npm run docker:down
 ## 限制说明
 
 - 产品当前前端上传限制：1000MB（可通过 `MAX_VIDEO_SIZE_MB` 调整）
-- 模型能力可支持长视频理解，但实际体验仍受上传体积、网络和服务超时影响
+- 模型能力可支持长视频理解，但实际体验仍受上传体积和网络影响
 
 ## API
 

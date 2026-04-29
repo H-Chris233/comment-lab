@@ -10,7 +10,6 @@ export default defineEventHandler(async (event) => {
     tikhubApiKey?: string
     pythonServiceUrl?: string
     aliyunModel?: string
-    generateTimeoutMs?: number
     debugRawEnabled?: boolean
   }>(event)
   const data = await writeLocalSettings(body || {})

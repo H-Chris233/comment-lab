@@ -117,7 +117,7 @@ function createRetryableDownloadError(params: {
 
 function isAbortLikeError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error ?? 'unknown')
-  return /terminated|aborted|timeout|timed out|econnreset/i.test(message)
+  return /terminated|aborted|econnreset/i.test(message)
 }
 
 function wireAbortSignal(controller: AbortController, signal?: AbortSignal) {
@@ -157,7 +157,6 @@ async function getFileSize(filePath: string) {
 async function fetchVideoBuffer(params: {
   videoUrl: string
   requestId?: string
-  timeoutMs?: number
   maxBytes?: number
   retryTimes?: number
   signal?: AbortSignal
@@ -177,7 +176,6 @@ async function fetchVideoBuffer(params: {
       console.info('[file.fetch-video] start', {
         requestId: params.requestId,
         host: new URL(params.videoUrl).hostname,
-        timeoutMs: params.timeoutMs ?? null,
         maxBytes,
         attempt,
         retryTimes
@@ -388,7 +386,7 @@ async function fetchVideoBuffer(params: {
       if (isAbortLikeError(error)) {
         throw createAppError({
           code: 'VIDEO_FETCH_FAILED',
-          message: '视频下载超时或连接中断，请重试',
+          message: '视频下载中断，请重试',
           statusCode: 422,
           data: {
             reason: message,
@@ -418,7 +416,6 @@ async function fetchVideoBuffer(params: {
 async function fetchVideoStreamToTempFile(params: {
   videoUrl: string
   requestId?: string
-  timeoutMs?: number
   maxBytes?: number
   retryTimes?: number
   signal?: AbortSignal
@@ -442,7 +439,6 @@ async function fetchVideoStreamToTempFile(params: {
       console.info('[file.fetch-video] start', {
         requestId: params.requestId,
         host: new URL(params.videoUrl).hostname,
-        timeoutMs: params.timeoutMs ?? null,
         maxBytes,
         attempt,
         retryTimes,
@@ -720,7 +716,7 @@ async function fetchVideoStreamToTempFile(params: {
       if (isAbortLikeError(error)) {
         throw createAppError({
           code: 'VIDEO_FETCH_FAILED',
-          message: '视频下载超时或连接中断，请重试',
+          message: '视频下载中断，请重试',
           statusCode: 422,
           data: {
             reason: message,
@@ -836,7 +832,6 @@ async function writeVideoBufferToTempFile(
 export async function downloadVideoUrlToTempFile(params: {
   videoUrl: string
   requestId?: string
-  timeoutMs?: number
   maxBytes?: number
   retryTimes?: number
   signal?: AbortSignal

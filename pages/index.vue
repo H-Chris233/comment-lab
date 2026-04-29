@@ -39,7 +39,6 @@ const localSettings = ref({
   tikhubApiKey: '',
   pythonServiceUrl: '',
   aliyunModel: '',
-  generateTimeoutMs: 3600000,
   debugRawEnabled: false
 })
 const settingsSaving = ref(false)
@@ -127,8 +126,6 @@ async function handleGenerate() {
     dedupe: dedupe.value,
     cleanEmpty: cleanEmpty.value,
     enableThinking: thinkingSupported.value ? enableThinking.value : false
-    ,
-    timeoutMs: localSettings.value.generateTimeoutMs
   })
 
 }
@@ -182,7 +179,6 @@ async function loadLocalSettings() {
     tikhubApiKey: data.tikhubApiKey || '',
     pythonServiceUrl: data.pythonServiceUrl || '',
     aliyunModel: data.aliyunModel || '',
-    generateTimeoutMs: Number(data.generateTimeoutMs || 3600000),
     debugRawEnabled: Boolean(data.debugRawEnabled)
   }
   if (localSettings.value.aliyunModel && isAllowedModel(localSettings.value.aliyunModel)) {
@@ -458,10 +454,6 @@ onMounted(() => {
                           {{ option.label }}
                         </option>
                       </select>
-                    </label>
-                    <label class="settings-field">
-                      <span>生成超时（毫秒）</span>
-                      <input v-model.number="localSettings.generateTimeoutMs" type="number" min="1000" step="1000" />
                     </label>
                     <label class="settings-checkbox">
                       <input v-model="localSettings.debugRawEnabled" type="checkbox" />

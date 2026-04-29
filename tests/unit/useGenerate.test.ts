@@ -156,8 +156,8 @@ describe('useGenerate', () => {
     expect(enableThinking).toBe('true')
   })
 
-  it('不会给生成请求额外挂超时定时器', async () => {
-    const timeoutSpy = vi.spyOn(globalThis, 'setTimeout')
+  it('不会给生成请求额外挂计时器', async () => {
+    const timerSpy = vi.spyOn(globalThis, 'setTimeout')
     const { generate } = useGenerate()
 
     await generate({
@@ -170,8 +170,8 @@ describe('useGenerate', () => {
       basePrompt: 'base'
     })
 
-    expect(timeoutSpy).not.toHaveBeenCalled()
-    timeoutSpy.mockRestore()
+    expect(timerSpy).not.toHaveBeenCalled()
+    timerSpy.mockRestore()
   })
 
   it('会把错误响应里的详细信息暴露给界面', async () => {

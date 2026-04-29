@@ -176,7 +176,7 @@ describe('compressVideoIfNeeded', () => {
       })
     })
 
-    const promise = compressVideoIfNeeded({ sourcePath, signal: controller.signal, timeoutMs: 30_000 })
+    const promise = compressVideoIfNeeded({ sourcePath, signal: controller.signal })
 
     controller.abort(abortError)
 
