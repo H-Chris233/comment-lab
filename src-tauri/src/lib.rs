@@ -13,6 +13,7 @@ const SIDECAR_STARTUP_MAX_ATTEMPTS: usize = 3;
 const SIDECAR_STARTUP_READY_TIMEOUT_SECS: u64 = 20;
 
 static SIDECAR_BASE_URL: OnceLock<Mutex<String>> = OnceLock::new();
+static ENV_WRITE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -147,9 +148,7 @@ fn spawn_python_sidecar(app: &tauri::AppHandle) -> Option<std::process::Child> {
     };
     let base_url = format!("http://127.0.0.1:{port}");
     set_sidecar_base_url(base_url.clone());
-    unsafe {
-      std::env::set_var("PYTHON_DASHSCOPE_SERVICE_URL", &base_url);
-    }
+    set_process_env_var("PYTHON_DASHSCOPE_SERVICE_URL", &base_url);
     emit_sidecar_status(
       app,
       "starting",
@@ -373,10 +372,10 @@ fn graceful_stop_sidecar(child: &mut std::process::Child) {
 
   #[cfg(target_family = "unix")]
   {
-    let _ = std::process::Command::new("kill")
-      .arg("-TERM")
-      .arg(child.id().to_string())
-      .status();
+    // SAFETY: pid comes from Child::id and SIGTERM is best-effort.
+    unsafe {
+      let _ = libc::kill(child.id() as libc::pid_t, libc::SIGTERM);
+    }
   }
 
   #[cfg(target_os = "windows")]
@@ -403,17 +402,34 @@ fn configure_runtime_paths(app: &tauri::AppHandle) {
   let config_dir = app.path().app_config_dir().ok();
   let log_dir = app.path().app_log_dir().ok();
 
+  if let Some(path) = app_home.as_ref() {
+    set_process_env_var("COMMENT_LAB_APP_HOME", path.as_os_str());
+    set_process_env_var("COMMENT_LAB_APP_DATA_DIR", path.as_os_str());
+    set_process_env_var("TEMP_VIDEO_DIR", path.join("temp-video").as_os_str());
+  }
+  if let Some(path) = config_dir.as_ref() {
+    set_process_env_var("COMMENT_LAB_CONFIG_DIR", path.as_os_str());
+  }
+  if let Some(path) = log_dir.as_ref() {
+    set_process_env_var("COMMENT_LAB_LOG_DIR", path.as_os_str());
+  }
+}
+
+fn env_write_lock() -> &'static Mutex<()> {
+  ENV_WRITE_LOCK.get_or_init(|| Mutex::new(()))
+}
+
+fn set_process_env_var<K, V>(key: K, value: V)
+where
+  K: AsRef<std::ffi::OsStr>,
+  V: AsRef<std::ffi::OsStr>,
+{
+  let _guard = env_write_lock().lock().unwrap_or_else(|poisoned| {
+    eprintln!("[desktop] env write lock poisoned; recovering");
+    poisoned.into_inner()
+  });
+  // SAFETY: process-global env writes are serialized through ENV_WRITE_LOCK.
   unsafe {
-    if let Some(path) = app_home.as_ref() {
-      std::env::set_var("COMMENT_LAB_APP_HOME", path.as_os_str());
-      std::env::set_var("COMMENT_LAB_APP_DATA_DIR", path.as_os_str());
-      std::env::set_var("TEMP_VIDEO_DIR", path.join("temp-video").as_os_str());
-    }
-    if let Some(path) = config_dir.as_ref() {
-      std::env::set_var("COMMENT_LAB_CONFIG_DIR", path.as_os_str());
-    }
-    if let Some(path) = log_dir.as_ref() {
-      std::env::set_var("COMMENT_LAB_LOG_DIR", path.as_os_str());
-    }
+    std::env::set_var(key, value);
   }
 }
