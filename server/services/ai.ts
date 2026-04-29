@@ -1,4 +1,5 @@
 import { createAppError } from '../utils/errors'
+import { readLocalSettings } from './local-settings'
 
 const DEFAULT_FPS = 1
 const SIDE_CAR_RETRY_DELAYS_MS = [300, 800, 1600]
@@ -37,6 +38,8 @@ function buildSidecarPayload(params: {
   inputMode: 'url' | 'file'
   videoUrl?: string
   videoPath?: string
+  aliyunApiKey?: string
+  aliyunBaseUrl?: string
 }) {
   return {
     model: params.model,
@@ -45,7 +48,9 @@ function buildSidecarPayload(params: {
     enable_thinking: params.enableThinking ?? false,
     input_mode: params.inputMode,
     video_url: params.videoUrl,
-    video_path: params.videoPath
+    video_path: params.videoPath,
+    aliyun_api_key: params.aliyunApiKey,
+    aliyun_base_url: params.aliyunBaseUrl
   }
 }
 
@@ -152,7 +157,8 @@ async function callPythonSidecar(params: {
   requestId: string
   signal?: AbortSignal
 }) {
-  const baseUrl = getPythonServiceBaseUrl()
+  const localSettings = await readLocalSettings()
+  const baseUrl = (localSettings.pythonServiceUrl || getPythonServiceBaseUrl()).replace(/\/+$/, '')
   const response = await fetch(`${baseUrl}/generate`, {
     method: 'POST',
     headers: {
@@ -160,7 +166,9 @@ async function callPythonSidecar(params: {
       'x-request-id': params.requestId
     },
     body: JSON.stringify(buildSidecarPayload({
-      ...params
+      ...params,
+      aliyunApiKey: localSettings.aliyunApiKey,
+      aliyunBaseUrl: localSettings.aliyunBaseUrl
     })),
     signal: params.signal
   })

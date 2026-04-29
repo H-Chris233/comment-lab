@@ -3,12 +3,15 @@ use std::io;
 use std::net::{SocketAddr, TcpStream};
 use std::path::Path;
 use std::time::Duration;
+use serde::Serialize;
+use tauri::Emitter;
 use tauri::Manager;
 use std::path::PathBuf;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   let app = tauri::Builder::default()
+    .invoke_handler(tauri::generate_handler![get_desktop_diagnostics, read_sidecar_log, open_app_log_dir])
     .setup(|app| {
       if cfg!(debug_assertions) {
         app.handle().plugin(
@@ -36,6 +39,65 @@ pub fn run() {
       }
     }
   });
+}
+
+#[derive(Serialize)]
+struct DesktopDiagnostics {
+  app_log_dir: String,
+  sidecar_log_path: String,
+}
+
+#[tauri::command]
+fn get_desktop_diagnostics(app: tauri::AppHandle) -> Result<DesktopDiagnostics, String> {
+  let app_log_dir = app
+    .path()
+    .app_log_dir()
+    .map_err(|e| format!("无法读取日志目录: {e}"))?;
+  let sidecar_log_path = app_log_dir.join("python-sidecar.stderr.log");
+  Ok(DesktopDiagnostics {
+    app_log_dir: app_log_dir.display().to_string(),
+    sidecar_log_path: sidecar_log_path.display().to_string(),
+  })
+}
+
+#[tauri::command]
+fn read_sidecar_log(app: tauri::AppHandle) -> Result<String, String> {
+  let log_path = resolve_sidecar_log_path(&app);
+  fs::read_to_string(log_path).map_err(|e| format!("读取侧车日志失败: {e}"))
+}
+
+#[tauri::command]
+fn open_app_log_dir(app: tauri::AppHandle) -> Result<(), String> {
+  let dir = app
+    .path()
+    .app_log_dir()
+    .map_err(|e| format!("无法读取日志目录: {e}"))?;
+  #[cfg(target_os = "macos")]
+  {
+    std::process::Command::new("open")
+      .arg(&dir)
+      .spawn()
+      .map_err(|e| format!("打开日志目录失败: {e}"))?;
+    return Ok(());
+  }
+  #[cfg(target_os = "windows")]
+  {
+    std::process::Command::new("explorer")
+      .arg(&dir)
+      .spawn()
+      .map_err(|e| format!("打开日志目录失败: {e}"))?;
+    return Ok(());
+  }
+  #[cfg(all(unix, not(target_os = "macos")))]
+  {
+    std::process::Command::new("xdg-open")
+      .arg(&dir)
+      .spawn()
+      .map_err(|e| format!("打开日志目录失败: {e}"))?;
+    return Ok(());
+  }
+  #[allow(unreachable_code)]
+  Err("当前平台暂不支持自动打开目录".to_string())
 }
 
 fn spawn_python_sidecar(app: &tauri::AppHandle) -> Option<std::process::Child> {
@@ -79,6 +141,11 @@ fn spawn_python_sidecar(app: &tauri::AppHandle) -> Option<std::process::Child> {
     Ok(mut child) => {
       std::thread::sleep(Duration::from_millis(250));
       if let Ok(Some(status)) = child.try_wait() {
+        emit_sidecar_error(
+          app,
+          "Python 侧车启动后立即退出，请检查端口冲突或侧车文件完整性",
+          &log_path,
+        );
         eprintln!("[desktop] Python 侧车启动后立即退出: {status}");
         return None;
       }
@@ -94,12 +161,22 @@ fn spawn_python_sidecar(app: &tauri::AppHandle) -> Option<std::process::Child> {
         "[desktop] Python 侧车在 30 秒内未就绪，日志: {}",
         log_path.display()
       );
+      emit_sidecar_error(
+        app,
+        "Python 侧车启动超时，可能是端口冲突或运行环境异常",
+        &log_path,
+      );
       let _ = child.kill();
       let _ = child.wait();
       None
     }
     Err(error) => {
       eprintln!("[desktop] 启动 Python 侧车失败: {error}");
+      emit_sidecar_error(
+        app,
+        "启动 Python 侧车失败，请检查日志",
+        &log_path,
+      );
       None
     }
   }
@@ -157,4 +234,18 @@ fn is_sidecar_ready() -> bool {
     Err(_) => return false,
   };
   TcpStream::connect_timeout(&addr, Duration::from_millis(200)).is_ok()
+}
+
+#[derive(Serialize, Clone)]
+struct SidecarErrorPayload {
+  message: String,
+  log_path: String,
+}
+
+fn emit_sidecar_error(app: &tauri::AppHandle, message: &str, log_path: &Path) {
+  let payload = SidecarErrorPayload {
+    message: message.to_string(),
+    log_path: log_path.display().to_string(),
+  };
+  let _ = app.emit("sidecar-error", payload);
 }

@@ -9,6 +9,7 @@ import { randomUUID } from 'node:crypto'
 
 export const ALLOWED_VIDEO_MIME_TYPES = ['video/mp4', 'video/quicktime', 'video/webm']
 let tempVideoExitHookRegistered = false
+let tempVideoStartupCleanupDone = false
 
 export type UploadVideo = { type?: string; data?: Buffer; filename?: string }
 type DownloadStatusEmitter = (status: GenerateStatusData) => void
@@ -760,8 +761,13 @@ function guessExtByMime(mime: string) {
 }
 
 function getTempVideoDir() {
-  const config = useRuntimeConfig()
-  const configured = config.tempVideoDir || path.join(process.cwd(), '.tmp', 'video-cache')
+  let configured = process.env.TEMP_VIDEO_DIR || '.tmp/video-cache'
+  try {
+    const config = useRuntimeConfig()
+    configured = config.tempVideoDir || configured
+  } catch {
+    // no runtime context yet
+  }
   return path.isAbsolute(configured) ? configured : path.resolve(process.cwd(), configured)
 }
 
@@ -775,6 +781,10 @@ function cleanupTempVideoRootSync() {
 }
 
 function ensureTempVideoExitCleanupHook() {
+  if (!tempVideoStartupCleanupDone) {
+    tempVideoStartupCleanupDone = true
+    cleanupTempVideoRootSync()
+  }
   if (tempVideoExitHookRegistered) return
   tempVideoExitHookRegistered = true
 

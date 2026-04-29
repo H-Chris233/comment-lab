@@ -41,6 +41,18 @@ const passwordNotice = ref('')
 const passwordPanelKey = ref(0)
 const isPasswordModalOpen = ref(false)
 const settingsView = ref<'menu' | 'change-password'>('menu')
+const sidecarStartupError = ref('')
+const desktopDiagnostics = ref<{ app_log_dir: string; sidecar_log_path: string } | null>(null)
+const localSettings = ref({
+  aliyunApiKey: '',
+  aliyunBaseUrl: '',
+  pythonServiceUrl: '',
+  aliyunModel: '',
+  generateTimeoutMs: 3600000,
+  debugRawEnabled: false
+})
+const settingsSaving = ref(false)
+const settingsNotice = ref('')
 
 const {
   parsing,
@@ -77,7 +89,11 @@ const fileMeta = computed(() => {
   return { name: file.value.name, size, type: file.value.type || '-' }
 })
 
-const canShowRaw = computed(() => shouldShowDebugRaw(Boolean(runtimeConfig.public.debugRawEnabled), rawText.value, rawPromptTrace.value))
+const canShowRaw = computed(() => shouldShowDebugRaw(
+  Boolean(runtimeConfig.public.debugRawEnabled) || Boolean(localSettings.value.debugRawEnabled),
+  rawText.value,
+  rawPromptTrace.value
+))
 const isUnlocked = computed(() => authUnlocked.value)
 
 const isLoading = computed(() => parsing.value || generating.value)
@@ -127,6 +143,8 @@ async function handleGenerate() {
     dedupe: dedupe.value,
     cleanEmpty: cleanEmpty.value,
     enableThinking: thinkingSupported.value ? enableThinking.value : false
+    ,
+    timeoutMs: localSettings.value.generateTimeoutMs
   })
 
   if (!result.ok && result.code === 'UNAUTHORIZED') {
@@ -214,6 +232,90 @@ function backToSettingsMenu() {
   settingsView.value = 'menu'
 }
 
+async function loadLocalSettings() {
+  const res = await $fetch<any>('/api/settings').catch(() => null)
+  const data = res?.ok ? (res.data || {}) : {}
+  localSettings.value = {
+    aliyunApiKey: data.aliyunApiKey || '',
+    aliyunBaseUrl: data.aliyunBaseUrl || '',
+    pythonServiceUrl: data.pythonServiceUrl || '',
+    aliyunModel: data.aliyunModel || '',
+    generateTimeoutMs: Number(data.generateTimeoutMs || 3600000),
+    debugRawEnabled: Boolean(data.debugRawEnabled)
+  }
+  if (localSettings.value.aliyunModel && isAllowedModel(localSettings.value.aliyunModel)) {
+    selectedModel.value = localSettings.value.aliyunModel as ModelOption
+  }
+}
+
+async function saveLocalSettings() {
+  settingsNotice.value = ''
+  settingsSaving.value = true
+  try {
+    const res = await $fetch<any>('/api/settings', {
+      method: 'POST',
+      body: localSettings.value
+    })
+    if (res?.ok) {
+      if (localSettings.value.aliyunModel && isAllowedModel(localSettings.value.aliyunModel)) {
+        selectedModel.value = localSettings.value.aliyunModel as ModelOption
+      }
+      settingsNotice.value = '设置已保存（本机生效）'
+    } else {
+      settingsNotice.value = '设置保存失败'
+    }
+  } catch {
+    settingsNotice.value = '设置保存失败'
+  } finally {
+    settingsSaving.value = false
+  }
+}
+
+async function loadDesktopDiagnostics() {
+  if (!process.client) return
+  const isDesktop = typeof (window as any).__TAURI_INTERNALS__ !== 'undefined'
+  if (!isDesktop) return
+  const { invoke } = await import('@tauri-apps/api/core')
+  const diagnostics = await invoke<{ app_log_dir: string; sidecar_log_path: string }>('get_desktop_diagnostics').catch(() => null)
+  if (diagnostics) desktopDiagnostics.value = diagnostics
+}
+
+async function exportSidecarLog() {
+  if (!process.client) return
+  const isDesktop = typeof (window as any).__TAURI_INTERNALS__ !== 'undefined'
+  if (!isDesktop) return
+  const { invoke } = await import('@tauri-apps/api/core')
+  const content = await invoke<string>('read_sidecar_log').catch(() => '')
+  if (!content) {
+    settingsNotice.value = '侧车日志为空或读取失败'
+    return
+  }
+  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `python-sidecar-${Date.now()}.log`
+  a.click()
+  URL.revokeObjectURL(url)
+  settingsNotice.value = '侧车日志已导出'
+}
+
+async function copySidecarLogPath() {
+  const path = desktopDiagnostics.value?.sidecar_log_path
+  if (!path) return
+  await navigator.clipboard.writeText(path)
+  settingsNotice.value = '日志路径已复制'
+}
+
+async function openLogDir() {
+  if (!process.client) return
+  const isDesktop = typeof (window as any).__TAURI_INTERNALS__ !== 'undefined'
+  if (!isDesktop) return
+  const { invoke } = await import('@tauri-apps/api/core')
+  const ok = await invoke('open_app_log_dir').then(() => true).catch(() => false)
+  settingsNotice.value = ok ? '已打开日志目录' : '打开日志目录失败'
+}
+
 function handlePasswordModalKeydown(event: KeyboardEvent) {
   if (event.key === 'Escape' && isPasswordModalOpen.value) {
     closePasswordModal()
@@ -246,6 +348,17 @@ onBeforeUnmount(() => {
 onMounted(() => {
   if (!process.client) return
   window.addEventListener('keydown', handlePasswordModalKeydown)
+  void loadLocalSettings()
+  void loadDesktopDiagnostics()
+  if (typeof (window as any).__TAURI_INTERNALS__ !== 'undefined') {
+    import('@tauri-apps/api/event').then(({ listen }) => {
+      void listen<{ message?: string; log_path?: string }>('sidecar-error', (event) => {
+        const message = event.payload?.message || 'Python 侧车启动失败'
+        const logPath = event.payload?.log_path ? `（日志: ${event.payload.log_path}）` : ''
+        sidecarStartupError.value = `${message}${logPath}`
+      })
+    })
+  }
 
   const storedModel = localStorage.getItem('comment-lab:selected-model')
   if (storedModel && isAllowedModel(storedModel)) {
@@ -298,6 +411,19 @@ onMounted(() => {
                   <summary>查看详细错误</summary>
                   <pre>{{ errorDetail }}</pre>
                 </details>
+              </div>
+            </div>
+          </Transition>
+          <Transition name="fade">
+            <div v-if="sidecarStartupError && isUnlocked" class="error-alert">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10" stroke-linecap="round" stroke-linejoin="round"/>
+                <line x1="12" y1="8" x2="12" y2="12" stroke-linecap="round" stroke-linejoin="round"/>
+                <line x1="12" y1="16" x2="12.01" y2="16" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              <div class="error-content">
+                <p class="error-title">侧车启动异常</p>
+                <p class="error-message">{{ sidecarStartupError }}</p>
               </div>
             </div>
           </Transition>
@@ -385,6 +511,51 @@ onMounted(() => {
                           <span class="settings-item-title">修改密码</span>
                           <span class="settings-item-desc">修改登录密码，当前会话保持有效</span>
                         </button>
+                        <div class="settings-block">
+                          <p class="settings-block-title">本机运行设置</p>
+                          <label class="settings-field">
+                            <span>阿里云 API Key</span>
+                            <input v-model="localSettings.aliyunApiKey" type="password" placeholder="留空则使用环境变量" />
+                          </label>
+                          <label class="settings-field">
+                            <span>阿里云 Base URL</span>
+                            <input v-model="localSettings.aliyunBaseUrl" type="text" placeholder="可留空" />
+                          </label>
+                          <label class="settings-field">
+                            <span>Python 侧车地址</span>
+                            <input v-model="localSettings.pythonServiceUrl" type="text" placeholder="http://127.0.0.1:8001" />
+                          </label>
+                          <label class="settings-field">
+                            <span>默认模型</span>
+                            <select v-model="localSettings.aliyunModel">
+                              <option value="">跟随页面默认</option>
+                              <option v-for="option in MODEL_OPTIONS" :key="option.value" :value="option.value">
+                                {{ option.label }}
+                              </option>
+                            </select>
+                          </label>
+                          <label class="settings-field">
+                            <span>生成超时（毫秒）</span>
+                            <input v-model.number="localSettings.generateTimeoutMs" type="number" min="1000" step="1000" />
+                          </label>
+                          <label class="settings-checkbox">
+                            <input v-model="localSettings.debugRawEnabled" type="checkbox" />
+                            <span>启用原始输出调试开关</span>
+                          </label>
+                          <button class="settings-save-btn" type="button" :disabled="settingsSaving" @click="saveLocalSettings">
+                            {{ settingsSaving ? '保存中...' : '保存本机设置' }}
+                          </button>
+                        </div>
+                        <div class="settings-block">
+                          <p class="settings-block-title">侧车日志</p>
+                          <p v-if="desktopDiagnostics?.sidecar_log_path" class="settings-hint">{{ desktopDiagnostics.sidecar_log_path }}</p>
+                          <div class="settings-actions-row">
+                            <button class="settings-secondary-btn" type="button" @click="openLogDir">打开日志目录</button>
+                            <button class="settings-secondary-btn" type="button" @click="copySidecarLogPath">复制日志路径</button>
+                            <button class="settings-secondary-btn" type="button" @click="exportSidecarLog">导出侧车日志</button>
+                          </div>
+                        </div>
+                        <p v-if="settingsNotice" class="settings-notice">{{ settingsNotice }}</p>
                       </div>
                       <div class="password-modal-actions">
                         <button class="auth-logout-btn" type="button" @click="handleLogout">
@@ -665,6 +836,88 @@ body {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.settings-block {
+  border: 1px solid #E2E8F0;
+  border-radius: 16px;
+  padding: 14px;
+  background: #F8FAFC;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.settings-block-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: #0F172A;
+}
+
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  color: #475569;
+}
+
+.settings-field input {
+  border: 1px solid #CBD5E1;
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
+.settings-field select {
+  border: 1px solid #CBD5E1;
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-size: 13px;
+  background: white;
+}
+
+.settings-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #334155;
+}
+
+.settings-save-btn,
+.settings-secondary-btn {
+  border: 1px solid #CBD5E1;
+  border-radius: 999px;
+  background: white;
+  color: #334155;
+  padding: 8px 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.settings-save-btn {
+  align-self: flex-start;
+}
+
+.settings-actions-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.settings-hint {
+  margin: 0;
+  font-size: 12px;
+  color: #64748B;
+  word-break: break-all;
+}
+
+.settings-notice {
+  margin: 0;
+  font-size: 12px;
+  color: #0F766E;
 }
 
 .settings-item-btn {

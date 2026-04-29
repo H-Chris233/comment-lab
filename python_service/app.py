@@ -23,6 +23,8 @@ class GenerateRequest(BaseModel):
     video_path: Optional[str] = None
     enable_thinking: bool = False
     fps: float = Field(default=1.0, ge=0.1, le=10)
+    aliyun_api_key: Optional[str] = None
+    aliyun_base_url: Optional[str] = None
 
 
 app = FastAPI(title="Comment Lab DashScope Sidecar")
@@ -33,7 +35,9 @@ load_dotenv(_PROJECT_ROOT / ".env", override=False)
 load_dotenv(_PROJECT_ROOT / ".env.local", override=False)
 
 
-def get_api_key() -> str:
+def get_api_key(override: Optional[str] = None) -> str:
+    if override and override.strip():
+        return override.strip()
     return (
         os.getenv("DASHSCOPE_API_KEY")
         or os.getenv("ALIYUN_API_KEY")
@@ -42,8 +46,10 @@ def get_api_key() -> str:
     ).strip()
 
 
-def normalize_base_url() -> str:
+def normalize_base_url(override: Optional[str] = None) -> str:
     base_url = (
+        override
+        or
         os.getenv("DASHSCOPE_HTTP_BASE_URL")
         or os.getenv("ALIYUN_BASE_URL")
         or DEFAULT_BASE_URL
@@ -169,7 +175,7 @@ async def run_conversation(request: GenerateRequest) -> dict[str, object]:
         }
     ]
 
-    api_key = get_api_key()
+    api_key = get_api_key(request.aliyun_api_key)
     if not api_key:
         raise HTTPException(status_code=500, detail="DashScope API Key 未配置")
 
@@ -179,7 +185,7 @@ async def run_conversation(request: GenerateRequest) -> dict[str, object]:
     except ModuleNotFoundError as exc:  # pragma: no cover - surfaced in runtime env
         raise HTTPException(status_code=500, detail="DashScope SDK 未安装") from exc
 
-    dashscope.base_http_api_url = normalize_base_url()
+    dashscope.base_http_api_url = normalize_base_url(request.aliyun_base_url)
 
     def _call():
         call_kwargs = build_thinking_kwargs(request.model, request.enable_thinking)
