@@ -108,9 +108,8 @@ if [[ -z "$NODE_BIN_SIZE" || "$NODE_BIN_SIZE" -lt 1000000 ]]; then
   exit 1
 fi
 
-FFMPEG_BIN_SIZE=$(wc -c < "$FFMPEG_DST_BIN" | tr -d '[:space:]')
-if [[ -z "$FFMPEG_BIN_SIZE" || "$FFMPEG_BIN_SIZE" -lt 1000000 ]]; then
-  echo "[prepare-desktop-bundle] ffmpeg 体积异常($FFMPEG_BIN_SIZE bytes): $FFMPEG_DST_BIN" >&2
+if ! "$FFMPEG_DST_BIN" -version >/dev/null 2>&1; then
+  echo "[prepare-desktop-bundle] ffmpeg 可执行校验失败: $FFMPEG_DST_BIN" >&2
   exit 1
 fi
 
