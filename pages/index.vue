@@ -36,6 +36,7 @@ const desktopDiagnostics = ref<{ app_log_dir: string; sidecar_log_path: string; 
 const localSettings = ref({
   aliyunApiKey: '',
   aliyunBaseUrl: '',
+  tikhubApiKey: '',
   pythonServiceUrl: '',
   aliyunModel: '',
   generateTimeoutMs: 3600000,
@@ -178,6 +179,7 @@ async function loadLocalSettings() {
   localSettings.value = {
     aliyunApiKey: data.aliyunApiKey || '',
     aliyunBaseUrl: data.aliyunBaseUrl || '',
+    tikhubApiKey: data.tikhubApiKey || '',
     pythonServiceUrl: data.pythonServiceUrl || '',
     aliyunModel: data.aliyunModel || '',
     generateTimeoutMs: Number(data.generateTimeoutMs || 3600000),
@@ -435,6 +437,10 @@ onMounted(() => {
                     <label class="settings-field">
                       <span>阿里云 Base URL</span>
                       <input v-model="localSettings.aliyunBaseUrl" type="text" placeholder="可留空" />
+                    </label>
+                    <label class="settings-field">
+                      <span>TikHub API Key</span>
+                      <input v-model="localSettings.tikhubApiKey" type="password" placeholder="留空则使用环境变量" />
                     </label>
                     <label class="settings-field">
                       <span>Python 侧车地址</span>

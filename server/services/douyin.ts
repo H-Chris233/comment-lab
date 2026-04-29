@@ -1,5 +1,6 @@
 import { createAppError } from '../utils/errors'
 import { validateUrl } from '../utils/validators'
+import { readLocalSettings } from './local-settings'
 
 export interface ParsedVideoResult {
   ok: boolean
@@ -219,7 +220,9 @@ function extractLowestQualityVideoUrlFromTikHub(payload: any) {
 }
 
 async function callTikHubForDouyinVideo(shareUrl: string, requestId?: string) {
-  const { baseUrl, apiKey } = getTikHubConfig()
+  const { baseUrl, apiKey: runtimeApiKey } = getTikHubConfig()
+  const local = await readLocalSettings()
+  const apiKey = (local.tikhubApiKey || runtimeApiKey || '').trim()
   console.info('[douyin.tikhub] start', {
     requestId,
     baseUrl,
