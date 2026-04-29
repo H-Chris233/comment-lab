@@ -82,9 +82,16 @@ if [[ ! -f "$NODE_OUT" ]]; then
   echo "[prepare-desktop-bundle] 未找到 Node 侧车产物: $NODE_OUT" >&2
   exit 1
 fi
-FFMPEG_BIN="$(command -v ffmpeg || true)"
+FFMPEG_BIN="${FFMPEG_BINARY:-}"
+if [[ -z "$FFMPEG_BIN" ]]; then
+  FFMPEG_BIN="$(command -v ffmpeg || true)"
+fi
 if [[ -z "$FFMPEG_BIN" ]]; then
   echo "[prepare-desktop-bundle] 缺少 ffmpeg，请先安装 ffmpeg 后再构建桌面包" >&2
+  exit 1
+fi
+if [[ ! -f "$FFMPEG_BIN" ]]; then
+  echo "[prepare-desktop-bundle] FFMPEG_BINARY 不存在: $FFMPEG_BIN" >&2
   exit 1
 fi
 
