@@ -39,6 +39,7 @@ describe('video temp retention', () => {
     vi.useRealTimers()
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
+    delete process.env.TEMP_VIDEO_DIR
   })
 
   it('下载的视频在任务结束后立即清理', async () => {
@@ -81,9 +82,7 @@ describe('video temp retention', () => {
   })
 
   it('相对路径的视频缓存目录会按仓库根目录解析为绝对路径', async () => {
-    vi.stubGlobal('useRuntimeConfig', () => ({
-      tempVideoDir: '.tmp/douyin-downloads'
-    }))
+    process.env.TEMP_VIDEO_DIR = '.tmp/douyin-downloads'
 
     const result = await downloadVideoUrlToTempFile({
       videoUrl: 'https://example.com/video.mp4',

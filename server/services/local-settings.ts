@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs'
-import path from 'node:path'
-import os from 'node:os'
+import { createAppError } from '../utils/errors'
+import { getSettingsDir, getSettingsFilePath, toActionableStorageError } from './app-paths'
 
 export type LocalSettings = {
   aliyunApiKey?: string
@@ -11,8 +11,8 @@ export type LocalSettings = {
   debugRawEnabled?: boolean
 }
 
-const SETTINGS_DIR = path.join(os.homedir(), '.comment-lab')
-const SETTINGS_FILE = path.join(SETTINGS_DIR, 'settings.json')
+const SETTINGS_DIR = getSettingsDir()
+const SETTINGS_FILE = getSettingsFilePath()
 
 function normalizeString(value: unknown) {
   if (typeof value !== 'string') return undefined
@@ -47,7 +47,13 @@ export async function writeLocalSettings(input: Partial<LocalSettings>): Promise
     ...current,
     ...input
   })
-  await fs.mkdir(SETTINGS_DIR, { recursive: true })
-  await fs.writeFile(SETTINGS_FILE, JSON.stringify(next, null, 2), 'utf8')
-  return next
+
+  try {
+    await fs.mkdir(SETTINGS_DIR, { recursive: true })
+    await fs.writeFile(SETTINGS_FILE, JSON.stringify(next, null, 2), 'utf8')
+    return next
+  } catch (error) {
+    const mapped = toActionableStorageError(error, 'SETTINGS_WRITE_FAILED', '设置保存失败')
+    throw createAppError(mapped)
+  }
 }

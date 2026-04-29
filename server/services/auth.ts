@@ -4,9 +4,9 @@ import { createHmac, pbkdf2Sync, randomBytes, timingSafeEqual } from 'node:crypt
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { createAppError } from '../utils/errors'
+import { getAuthLockFilePath as resolveAuthLockFilePath, toActionableStorageError } from './app-paths'
 
 export const AUTH_COOKIE_NAME = 'comment-lab-session'
-const DEFAULT_AUTH_LOCK_FILE = '.tmp/auth-lock.json'
 const PASSWORD_MIN_LENGTH = 4
 const PBKDF2_ITERATIONS = 120_000
 const PBKDF2_KEYLEN = 64
@@ -26,9 +26,7 @@ export interface AuthStatus {
 }
 
 function getAuthLockFilePath() {
-  const config = useRuntimeConfig()
-  const configured = (config.authLockFile || process.env.AUTH_LOCK_FILE || DEFAULT_AUTH_LOCK_FILE).toString().trim()
-  return path.isAbsolute(configured) ? configured : path.resolve(process.cwd(), configured)
+  return resolveAuthLockFilePath()
 }
 
 function normalizePassword(value?: string) {
@@ -116,13 +114,18 @@ function toNormalizedState(raw: unknown): AuthState | null {
 
 async function saveAuthState(state: AuthState) {
   const filePath = getAuthLockFilePath()
-  await fs.mkdir(path.dirname(filePath), { recursive: true })
-  const tempPath = `${filePath}.tmp-${randomBytes(6).toString('hex')}`
-  await fs.writeFile(tempPath, `${JSON.stringify(state, null, 2)}\n`, 'utf8')
-  await fs.rename(tempPath, filePath).catch(async () => {
-    await fs.rm(filePath, { force: true }).catch(() => {})
-    await fs.rename(tempPath, filePath)
-  })
+  try {
+    await fs.mkdir(path.dirname(filePath), { recursive: true })
+    const tempPath = `${filePath}.tmp-${randomBytes(6).toString('hex')}`
+    await fs.writeFile(tempPath, `${JSON.stringify(state, null, 2)}\n`, 'utf8')
+    await fs.rename(tempPath, filePath).catch(async () => {
+      await fs.rm(filePath, { force: true }).catch(() => {})
+      await fs.rename(tempPath, filePath)
+    })
+  } catch (error) {
+    const mapped = toActionableStorageError(error, 'AUTH_STATE_SAVE_FAILED', '无法保存本地密码状态')
+    throw createAppError(mapped)
+  }
 }
 
 export async function loadAuthState(): Promise<AuthState | null> {

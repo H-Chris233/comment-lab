@@ -5,6 +5,7 @@ import type { GenerateStatusData } from '../../types/api'
 import { promises as fs } from 'node:fs'
 import { rmSync } from 'node:fs'
 import path from 'node:path'
+import { getTempVideoDir as resolveTempVideoDir, toActionableStorageError } from './app-paths'
 import { randomUUID } from 'node:crypto'
 
 export const ALLOWED_VIDEO_MIME_TYPES = ['video/mp4', 'video/quicktime', 'video/webm']
@@ -761,14 +762,7 @@ function guessExtByMime(mime: string) {
 }
 
 function getTempVideoDir() {
-  let configured = process.env.TEMP_VIDEO_DIR || '.tmp/video-cache'
-  try {
-    const config = useRuntimeConfig()
-    configured = config.tempVideoDir || configured
-  } catch {
-    // no runtime context yet
-  }
-  return path.isAbsolute(configured) ? configured : path.resolve(process.cwd(), configured)
+  return resolveTempVideoDir()
 }
 
 function cleanupTempVideoRootSync() {
@@ -800,28 +794,33 @@ async function writeVideoBufferToTempFile(
   const root = getTempVideoDir()
   ensureTempVideoExitCleanupHook()
   const workDir = path.join(root, `${Date.now()}-${randomUUID()}`)
-  await fs.mkdir(workDir, { recursive: true })
+  try {
+    await fs.mkdir(workDir, { recursive: true })
 
-  const filePath = path.join(workDir, `video.${guessExtByMime(mime)}`)
-  await fs.writeFile(filePath, buffer)
+    const filePath = path.join(workDir, `video.${guessExtByMime(mime)}`)
+    await fs.writeFile(filePath, buffer)
 
-  console.info('[file.cache-video] saved', {
-    requestId,
-    filePath: path.basename(filePath),
-    bytes: buffer.byteLength
-  })
+    console.info('[file.cache-video] saved', {
+      requestId,
+      filePath: path.basename(filePath),
+      bytes: buffer.byteLength
+    })
 
-  return {
-    sourcePath: filePath,
-    bytes: buffer.byteLength,
-    mime,
-    cleanup: async () => {
-      await fs.rm(workDir, { recursive: true, force: true }).catch(() => {})
-      console.info('[file.cache-video] cleaned', {
-        requestId,
-        workDir: path.basename(workDir)
-      })
+    return {
+      sourcePath: filePath,
+      bytes: buffer.byteLength,
+      mime,
+      cleanup: async () => {
+        await fs.rm(workDir, { recursive: true, force: true }).catch(() => {})
+        console.info('[file.cache-video] cleaned', {
+          requestId,
+          workDir: path.basename(workDir)
+        })
+      }
     }
+  } catch (error) {
+    const mapped = toActionableStorageError(error, 'TEMP_VIDEO_WRITE_FAILED', '无法写入本地临时视频文件')
+    throw createAppError(mapped)
   }
 }
 

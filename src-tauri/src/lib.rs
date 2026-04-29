@@ -2,7 +2,7 @@ use std::fs::{self, OpenOptions};
 use std::io;
 use std::net::{SocketAddr, TcpStream};
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use serde::Serialize;
 use tauri::Emitter;
 use tauri::Manager;
@@ -13,6 +13,7 @@ pub fn run() {
   let app = tauri::Builder::default()
     .invoke_handler(tauri::generate_handler![get_desktop_diagnostics, read_sidecar_log, open_app_log_dir])
     .setup(|app| {
+      configure_runtime_paths(app.handle());
       if cfg!(debug_assertions) {
         app.handle().plugin(
           tauri_plugin_log::Builder::default()
@@ -34,8 +35,7 @@ pub fn run() {
   app.run(move |_app_handle, event| {
     if matches!(event, tauri::RunEvent::Exit) {
       if let Some(child) = sidecar.as_mut() {
-        let _ = child.kill();
-        let _ = child.wait();
+        graceful_stop_sidecar(child);
       }
     }
   });
@@ -116,7 +116,10 @@ fn spawn_python_sidecar(app: &tauri::AppHandle) -> Option<std::process::Child> {
     .or_else(|| find_sidecar_binary(&resource_dir.join("bin")));
 
   let Some(binary_path) = sidecar_path else {
-    eprintln!("[desktop] 未找到 Python 侧车可执行文件，跳过自动启动");
+    let msg = "未找到 Python 侧车可执行文件，请重新安装桌面应用或检查构建产物";
+    eprintln!("[desktop] {msg}");
+    let log_path = resolve_sidecar_log_path(app);
+    emit_sidecar_error(app, msg, &log_path);
     return None;
   };
 
@@ -248,4 +251,58 @@ fn emit_sidecar_error(app: &tauri::AppHandle, message: &str, log_path: &Path) {
     log_path: log_path.display().to_string(),
   };
   let _ = app.emit("sidecar-error", payload);
+}
+
+
+fn graceful_stop_sidecar(child: &mut std::process::Child) {
+  if child.try_wait().ok().flatten().is_some() {
+    return;
+  }
+
+  #[cfg(target_family = "unix")]
+  {
+    let _ = std::process::Command::new("kill")
+      .arg("-TERM")
+      .arg(child.id().to_string())
+      .status();
+  }
+
+  #[cfg(target_os = "windows")]
+  {
+    let _ = std::process::Command::new("taskkill")
+      .args(["/PID", &child.id().to_string()])
+      .status();
+  }
+
+  let deadline = Instant::now() + Duration::from_secs(3);
+  while Instant::now() < deadline {
+    if child.try_wait().ok().flatten().is_some() {
+      return;
+    }
+    std::thread::sleep(Duration::from_millis(100));
+  }
+
+  let _ = child.kill();
+  let _ = child.wait();
+}
+
+fn configure_runtime_paths(app: &tauri::AppHandle) {
+  let app_home = app.path().app_data_dir().ok();
+  let config_dir = app.path().app_config_dir().ok();
+  let log_dir = app.path().app_log_dir().ok();
+
+  unsafe {
+    if let Some(path) = app_home.as_ref() {
+      std::env::set_var("COMMENT_LAB_APP_HOME", path.as_os_str());
+      std::env::set_var("COMMENT_LAB_APP_DATA_DIR", path.as_os_str());
+      std::env::set_var("TEMP_VIDEO_DIR", path.join("temp-video").as_os_str());
+      std::env::set_var("AUTH_LOCK_FILE", path.join("auth-lock.json").as_os_str());
+    }
+    if let Some(path) = config_dir.as_ref() {
+      std::env::set_var("COMMENT_LAB_CONFIG_DIR", path.as_os_str());
+    }
+    if let Some(path) = log_dir.as_ref() {
+      std::env::set_var("COMMENT_LAB_LOG_DIR", path.as_os_str());
+    }
+  }
 }

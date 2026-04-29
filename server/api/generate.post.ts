@@ -30,6 +30,38 @@ import { spreadCommentsByPrefix } from '../services/normalize'
 const MAX_ROUNDS_BUFFER = 2
 const SSE_HEARTBEAT_INTERVAL_MS = 15_000
 
+function mapUserFacingGenerateError(mapped: { code: string; message: string; statusCode?: number; data?: Record<string, unknown> }) {
+  const next = { ...mapped }
+
+  if (next.code === 'MODEL_CALL_FAILED') {
+    next.message = '模型服务暂时不可用，请检查设置中的 Python 服务地址并重试'
+    next.data = {
+      ...next.data,
+      action: '请先打开设置，确认 Python 服务地址和 API Key，然后重试。'
+    }
+    return next
+  }
+
+  if (next.code === 'VIDEO_FETCH_FAILED' || next.code === 'FILE_TOO_LARGE') {
+    next.data = {
+      ...next.data,
+      action: '请检查视频链接是否可访问，或改用本地上传后重试。'
+    }
+    return next
+  }
+
+  if (next.code === 'STORAGE_PERMISSION_DENIED' || next.code === 'STORAGE_DISK_FULL' || next.code === 'STORAGE_PATH_MISSING') {
+    next.statusCode = 507
+    next.data = {
+      ...next.data,
+      action: '请检查本机磁盘空间和目录权限，必要时在设置中导出日志排查。'
+    }
+    return next
+  }
+
+  return next
+}
+
 type TempVideoSource = {
   sourcePath: string
   bytes: number
@@ -808,11 +840,11 @@ export default defineEventHandler(async (event) => {
       stack: error instanceof Error ? error.stack : undefined
     })
 
-    const mapped = toApiError(error, requestId, {
+    const mapped = mapUserFacingGenerateError(toApiError(error, requestId, {
       code: 'MODEL_CALL_FAILED',
       message: '模型调用失败，请稍后重试',
       statusCode: 502
-    })
+    }))
 
     if (streamMode && sse) {
       if (clientDisconnected || (error as any)?.code === 'CLIENT_ABORTED') return

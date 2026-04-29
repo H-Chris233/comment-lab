@@ -28,8 +28,8 @@ async function createSparseVideoFile(bytes: number, filename = 'input.mp4') {
 
 describe('compressVideoIfNeeded', () => {
   beforeEach(() => {
+    process.env.TEMP_VIDEO_DIR = path.join('.tmp', 'video-cache')
     vi.stubGlobal('useRuntimeConfig', () => ({
-      tempVideoDir: path.join('.tmp', 'video-cache'),
       maxVideoSizeMb: 1000,
       maxCompressVideoSizeMb: 100
     }))
@@ -40,6 +40,7 @@ describe('compressVideoIfNeeded', () => {
     vi.restoreAllMocks()
     await fs.rm(TEST_ROOT, { recursive: true, force: true }).catch(() => {})
     await fs.rm(TEMP_VIDEO_CACHE_ROOT, { recursive: true, force: true }).catch(() => {})
+    delete process.env.TEMP_VIDEO_DIR
   })
 
   it('keeps files at or below 100MB unchanged', async () => {

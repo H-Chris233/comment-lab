@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
+import { getTempVideoDir as resolveTempVideoDir, toActionableStorageError } from './app-paths'
 
 import type { GenerateStatusData } from '../../types/api'
 import { createAppError } from '../utils/errors'
@@ -35,9 +36,7 @@ const COMPRESSION_PROFILES: CompressionProfile[] = [
 ]
 
 function getTempVideoDir() {
-  const config = useRuntimeConfig()
-  const configured = config.tempVideoDir || path.join(process.cwd(), '.tmp', 'video-cache')
-  return path.isAbsolute(configured) ? configured : path.resolve(process.cwd(), configured)
+  return resolveTempVideoDir()
 }
 
 export function getMaxCompressVideoBytes() {
@@ -124,8 +123,13 @@ async function cleanupWorkDir(workDir: string) {
 async function createTempWorkDir() {
   const root = getTempVideoDir()
   const workDir = path.join(root, `${Date.now()}-${randomUUID()}`)
-  await fs.mkdir(workDir, { recursive: true })
-  return workDir
+  try {
+    await fs.mkdir(workDir, { recursive: true })
+    return workDir
+  } catch (error) {
+    const mapped = toActionableStorageError(error, 'TEMP_VIDEO_WRITE_FAILED', '无法创建本地视频工作目录')
+    throw createAppError(mapped)
+  }
 }
 
 function buildFfmpegArgs(params: {
