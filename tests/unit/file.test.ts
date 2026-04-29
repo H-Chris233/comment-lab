@@ -4,8 +4,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { downloadVideoUrlToTempFile, formatDownloadResumeMessage, formatDownloadRetryMessage, getMaxDownloadVideoBytes, getMaxVideoBytes, saveVideoUploadToTempFile } from '../../server/services/file'
 
-const TEN_MINUTES = 10 * 60 * 1000
-
 describe('video temp retention', () => {
   beforeEach(() => {
     vi.useFakeTimers()
@@ -43,19 +41,13 @@ describe('video temp retention', () => {
     vi.restoreAllMocks()
   })
 
-  it('下载的视频会在 10 分钟后才清理', async () => {
+  it('下载的视频在任务结束后立即清理', async () => {
     const result = await downloadVideoUrlToTempFile({
       videoUrl: 'https://example.com/video.mp4',
       requestId: 'req_test'
     })
 
     await result.cleanup()
-    expect(fs.rm).not.toHaveBeenCalled()
-
-    await vi.advanceTimersByTimeAsync(TEN_MINUTES - 1)
-    expect(fs.rm).not.toHaveBeenCalled()
-
-    await vi.advanceTimersByTimeAsync(1)
     expect(fs.rm).toHaveBeenCalledTimes(1)
   })
 
@@ -74,7 +66,7 @@ describe('video temp retention', () => {
     expect(fs.rm).toHaveBeenCalledTimes(1)
   })
 
-  it('下载视频保留时间可以通过 runtimeConfig 覆盖', async () => {
+  it('下载视频不再使用保留时间配置', async () => {
     vi.stubGlobal('useRuntimeConfig', () => ({
       tempVideoRetentionMinutes: 3
     }))
@@ -85,7 +77,6 @@ describe('video temp retention', () => {
     })
 
     await result.cleanup()
-    await vi.advanceTimersByTimeAsync(3 * 60 * 1000)
     expect(fs.rm).toHaveBeenCalledTimes(1)
   })
 

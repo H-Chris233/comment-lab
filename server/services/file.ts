@@ -3,11 +3,12 @@ import { readMultipartFormData } from 'h3'
 import { createAppError } from '../utils/errors'
 import type { GenerateStatusData } from '../../types/api'
 import { promises as fs } from 'node:fs'
+import { rmSync } from 'node:fs'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 
 export const ALLOWED_VIDEO_MIME_TYPES = ['video/mp4', 'video/quicktime', 'video/webm']
-const DEFAULT_DOWNLOADED_VIDEO_RETENTION_MINUTES = 10
+let tempVideoExitHookRegistered = false
 
 export type UploadVideo = { type?: string; data?: Buffer; filename?: string }
 type DownloadStatusEmitter = (status: GenerateStatusData) => void
@@ -764,22 +765,30 @@ function getTempVideoDir() {
   return path.isAbsolute(configured) ? configured : path.resolve(process.cwd(), configured)
 }
 
-function getDownloadedVideoRetentionMs() {
-  const config = useRuntimeConfig()
-  const fromConfig = Number(
-    config.tempVideoRetentionMinutes || process.env.TEMP_VIDEO_RETENTION_MINUTES || DEFAULT_DOWNLOADED_VIDEO_RETENTION_MINUTES
-  )
-  const minutes = Number.isFinite(fromConfig) && fromConfig > 0 ? fromConfig : DEFAULT_DOWNLOADED_VIDEO_RETENTION_MINUTES
-  return Math.floor(minutes * 60 * 1000)
+function cleanupTempVideoRootSync() {
+  const root = getTempVideoDir()
+  try {
+    rmSync(root, { recursive: true, force: true })
+  } catch {
+    // ignore cleanup errors on shutdown
+  }
+}
+
+function ensureTempVideoExitCleanupHook() {
+  if (tempVideoExitHookRegistered) return
+  tempVideoExitHookRegistered = true
+
+  process.once('beforeExit', cleanupTempVideoRootSync)
+  process.once('exit', cleanupTempVideoRootSync)
 }
 
 async function writeVideoBufferToTempFile(
   buffer: Buffer,
   mime: string,
-  requestId?: string,
-  options?: { cleanupDelayMs?: number }
+  requestId?: string
 ) {
   const root = getTempVideoDir()
+  ensureTempVideoExitCleanupHook()
   const workDir = path.join(root, `${Date.now()}-${randomUUID()}`)
   await fs.mkdir(workDir, { recursive: true })
 
@@ -797,33 +806,10 @@ async function writeVideoBufferToTempFile(
     bytes: buffer.byteLength,
     mime,
     cleanup: async () => {
-      const cleanupDelayMs = Math.max(0, options?.cleanupDelayMs ?? 0)
-
-      if (cleanupDelayMs === 0) {
-        await fs.rm(workDir, { recursive: true, force: true }).catch(() => {})
-        console.info('[file.cache-video] cleaned', {
-          requestId,
-          workDir: path.basename(workDir)
-        })
-        return
-      }
-
-      const timer = setTimeout(() => {
-        void fs.rm(workDir, { recursive: true, force: true })
-          .then(() => {
-            console.info('[file.cache-video] cleaned', {
-              requestId,
-              workDir: path.basename(workDir),
-              delayMs: cleanupDelayMs
-            })
-          })
-          .catch(() => {})
-      }, cleanupDelayMs)
-      timer.unref?.()
-      console.info('[file.cache-video] cleanup scheduled', {
+      await fs.rm(workDir, { recursive: true, force: true }).catch(() => {})
+      console.info('[file.cache-video] cleaned', {
         requestId,
-        workDir: path.basename(workDir),
-        delayMs: cleanupDelayMs
+        workDir: path.basename(workDir)
       })
     }
   }
@@ -844,9 +830,7 @@ export async function downloadVideoUrlToTempFile(params: {
   }
 
   const fetched = await fetchVideoBuffer(params)
-  const { sourcePath, cleanup } = await writeVideoBufferToTempFile(fetched.buffer, fetched.mime, params.requestId, {
-    cleanupDelayMs: getDownloadedVideoRetentionMs()
-  })
+  const { sourcePath, cleanup } = await writeVideoBufferToTempFile(fetched.buffer, fetched.mime, params.requestId)
 
   return {
     bytes: fetched.bytes,

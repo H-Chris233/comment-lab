@@ -25,7 +25,6 @@ Object.assign(globalThis, {
     public: {
       defaultModel: 'qwen3.5-omni-plus'
     },
-    tempVideoRetentionMinutes: 10,
     pythonDashscopeServiceUrl: 'http://127.0.0.1:8001',
     authLockFile
   })
