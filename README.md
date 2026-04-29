@@ -34,6 +34,12 @@ npm run desktop:dev
 
 ### 桌面打包
 
+前置条件：
+- Node.js >= 20
+- Rust toolchain (建议 stable)
+- `uv`（用于 Python 侧车打包）
+  - 安装示例：`curl -LsSf https://astral.sh/uv/install.sh | sh`
+
 ```bash
 npm run desktop:build
 ```
