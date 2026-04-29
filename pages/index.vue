@@ -40,6 +40,7 @@ const showRawDebug = ref(false)
 const passwordNotice = ref('')
 const passwordPanelKey = ref(0)
 const isPasswordModalOpen = ref(false)
+const settingsView = ref<'menu' | 'change-password'>('menu')
 
 const {
   parsing,
@@ -196,11 +197,21 @@ async function handleLogout() {
 function openPasswordModal() {
   passwordPanelKey.value += 1
   passwordNotice.value = ''
+  settingsView.value = 'menu'
   isPasswordModalOpen.value = true
 }
 
 function closePasswordModal() {
   isPasswordModalOpen.value = false
+}
+
+function openChangePassword() {
+  passwordPanelKey.value += 1
+  settingsView.value = 'change-password'
+}
+
+function backToSettingsMenu() {
+  settingsView.value = 'menu'
 }
 
 function handlePasswordModalKeydown(event: KeyboardEvent) {
@@ -342,7 +353,7 @@ onMounted(() => {
             </Transition>
 
             <button class="password-fab" type="button" @click="openPasswordModal">
-              修改密码
+              设置
             </button>
 
             <Teleport to="body">
@@ -355,29 +366,48 @@ onMounted(() => {
                   <div class="password-modal" role="dialog" aria-modal="true" aria-labelledby="password-modal-title">
                     <div class="password-modal-head">
                       <div>
-                        <h3 id="password-modal-title" class="password-modal-title">密码锁</h3>
-                        <p class="password-modal-desc">修改后当前会话继续有效，关闭浏览器后下次会使用新密码。</p>
+                        <h3 id="password-modal-title" class="password-modal-title">
+                          {{ settingsView === 'menu' ? '设置' : '修改密码' }}
+                        </h3>
+                        <p class="password-modal-desc">
+                          {{ settingsView === 'menu'
+                            ? '在这里管理当前会话和安全项。'
+                            : '修改后当前会话继续有效，关闭浏览器后下次会使用新密码。' }}
+                        </p>
                       </div>
                       <button class="password-modal-close" type="button" aria-label="关闭弹窗" @click="closePasswordModal">
                         ×
                       </button>
                     </div>
-
-                    <PasswordPanel
-                      :key="passwordPanelKey"
-                      mode="change"
-                      :loading="authLoading"
-                      :error="authError"
-                      compact
-                      embedded
-                      @submit="handleChangePassword"
-                    />
-
-                    <div class="password-modal-actions">
-                      <button class="auth-logout-btn" type="button" @click="handleLogout">
-                        退出当前会话
-                      </button>
-                    </div>
+                    <template v-if="settingsView === 'menu'">
+                      <div class="settings-list">
+                        <button class="settings-item-btn" type="button" @click="openChangePassword">
+                          <span class="settings-item-title">修改密码</span>
+                          <span class="settings-item-desc">修改登录密码，当前会话保持有效</span>
+                        </button>
+                      </div>
+                      <div class="password-modal-actions">
+                        <button class="auth-logout-btn" type="button" @click="handleLogout">
+                          退出当前会话
+                        </button>
+                      </div>
+                    </template>
+                    <template v-else>
+                      <PasswordPanel
+                        :key="passwordPanelKey"
+                        mode="change"
+                        :loading="authLoading"
+                        :error="authError"
+                        compact
+                        embedded
+                        @submit="handleChangePassword"
+                      />
+                      <div class="password-modal-actions password-modal-actions-split">
+                        <button class="settings-back-btn" type="button" @click="backToSettingsMenu">
+                          返回设置列表
+                        </button>
+                      </div>
+                    </template>
                   </div>
                 </div>
               </Transition>
@@ -625,6 +655,63 @@ body {
   display: flex;
   justify-content: flex-end;
   margin-top: 16px;
+}
+
+.password-modal-actions-split {
+  justify-content: flex-start;
+}
+
+.settings-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.settings-item-btn {
+  width: 100%;
+  border: 1px solid #D1D5DB;
+  border-radius: 16px;
+  background: white;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.settings-item-btn:hover {
+  border-color: #0891B2;
+  box-shadow: 0 10px 20px rgba(8, 145, 178, 0.1);
+  transform: translateY(-1px);
+}
+
+.settings-item-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #0F172A;
+}
+
+.settings-item-desc {
+  font-size: 12px;
+  color: #64748B;
+}
+
+.settings-back-btn {
+  border: 1px solid #CBD5E1;
+  border-radius: 999px;
+  background: #F8FAFC;
+  color: #334155;
+  padding: 8px 14px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.settings-back-btn:hover {
+  border-color: #0891B2;
+  color: #0891B2;
 }
 
 /* Error Alert */
