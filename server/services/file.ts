@@ -10,6 +10,7 @@ import { randomUUID } from 'node:crypto'
 export const ALLOWED_VIDEO_MIME_TYPES = ['video/mp4', 'video/quicktime', 'video/webm']
 let tempVideoExitHookRegistered = false
 let tempVideoStartupCleanupDone = false
+let tempVideoCleanupInFlight: Promise<void> | null = null
 
 export type UploadVideo = { type?: string; data?: Buffer; filename?: string }
 type DownloadStatusEmitter = (status: GenerateStatusData) => void
@@ -765,8 +766,14 @@ function getTempVideoDir() {
 }
 
 async function cleanupTempVideoRoot() {
+  if (tempVideoCleanupInFlight) return tempVideoCleanupInFlight
   const root = getTempVideoDir()
-  await fs.rm(root, { recursive: true, force: true }).catch(() => {})
+  tempVideoCleanupInFlight = fs.rm(root, { recursive: true, force: true })
+    .catch(() => {})
+    .finally(() => {
+      tempVideoCleanupInFlight = null
+    })
+  return tempVideoCleanupInFlight
 }
 
 function ensureTempVideoExitCleanupHook() {

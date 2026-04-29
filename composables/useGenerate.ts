@@ -516,7 +516,9 @@ export function useGenerate() {
       return doneResponse
     } catch (e) {
       if ((e as any)?.name === 'AbortError') {
-        error.value = '已取消本次生成'
+        const reason = controller?.signal?.reason
+        const isTimeoutAbort = reason instanceof Error && reason.message === 'REQUEST_TIMEOUT'
+        error.value = isTimeoutAbort ? '生成超时，请重试或调大超时时间' : '已取消本次生成'
         errorCode.value = 'REQUEST_ABORTED'
         errorDetail.value = ''
         return {
