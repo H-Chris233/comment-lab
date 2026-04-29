@@ -76,7 +76,21 @@ jobs:
         if: matrix.platform == 'ubuntu-22.04'
         run: |
           mkdir -p .tools/ffmpeg
-          curl -L "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz" -o .tools/ffmpeg/ffmpeg.tar.xz
+          FFMPEG_URLS=(
+            "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz"
+            "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz"
+          )
+          DOWNLOADED=0
+          for url in "${FFMPEG_URLS[@]}"; do
+            if curl -fL --retry 4 --retry-all-errors --connect-timeout 20 --max-time 300 "$url" -o .tools/ffmpeg/ffmpeg.tar.xz; then
+              DOWNLOADED=1
+              break
+            fi
+          done
+          if [[ "$DOWNLOADED" -ne 1 ]]; then
+            echo "All Linux ffmpeg download mirrors failed" >&2
+            exit 1
+          fi
           tar -xf .tools/ffmpeg/ffmpeg.tar.xz -C .tools/ffmpeg
           FFMPEG_PATH="$(find .tools/ffmpeg -type f -name ffmpeg | head -n 1)"
           echo "FFMPEG_BINARY=$GITHUB_WORKSPACE/$FFMPEG_PATH" >> "$GITHUB_ENV"
@@ -198,7 +212,21 @@ jobs:
         if: matrix.platform == 'ubuntu-22.04'
         run: |
           mkdir -p .tools/ffmpeg
-          curl -L "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz" -o .tools/ffmpeg/ffmpeg.tar.xz
+          FFMPEG_URLS=(
+            "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz"
+            "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz"
+          )
+          DOWNLOADED=0
+          for url in "${FFMPEG_URLS[@]}"; do
+            if curl -fL --retry 4 --retry-all-errors --connect-timeout 20 --max-time 300 "$url" -o .tools/ffmpeg/ffmpeg.tar.xz; then
+              DOWNLOADED=1
+              break
+            fi
+          done
+          if [[ "$DOWNLOADED" -ne 1 ]]; then
+            echo "All Linux ffmpeg download mirrors failed" >&2
+            exit 1
+          fi
           tar -xf .tools/ffmpeg/ffmpeg.tar.xz -C .tools/ffmpeg
           FFMPEG_PATH="$(find .tools/ffmpeg -type f -name ffmpeg | head -n 1)"
           echo "FFMPEG_BINARY=$GITHUB_WORKSPACE/$FFMPEG_PATH" >> "$GITHUB_ENV"
