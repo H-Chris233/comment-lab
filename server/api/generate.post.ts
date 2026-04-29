@@ -30,7 +30,7 @@ import { spreadCommentsByPrefix } from '../services/normalize'
 const MAX_ROUNDS_BUFFER = 2
 const SSE_HEARTBEAT_INTERVAL_MS = 15_000
 
-function mapUserFacingGenerateError(mapped: { code: string; message: string; statusCode?: number; data?: Record<string, unknown> }) {
+function mapUserFacingGenerateError(mapped: { code: string; message: string; requestId: string; statusCode?: number; data?: Record<string, unknown> }) {
   const next = { ...mapped }
 
   if (next.code === 'MODEL_CALL_FAILED') {
