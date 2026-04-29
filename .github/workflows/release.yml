@@ -46,6 +46,12 @@ jobs:
       - name: Setup uv
         uses: astral-sh/setup-uv@v5
 
+      - name: Setup Python (pkg build compatibility)
+        if: matrix.platform == 'macos-latest'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
       - name: Install Linux dependencies
         if: matrix.platform == 'ubuntu-22.04'
         run: |
@@ -98,7 +104,13 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Verify ffmpeg
-        run: ffmpeg -version
+        shell: bash
+        run: |
+          if [[ -n "${FFMPEG_BINARY:-}" ]]; then
+            "$FFMPEG_BINARY" -version
+          else
+            ffmpeg -version
+          fi
 
       - name: Prepare desktop sidecars
         env:
@@ -156,6 +168,12 @@ jobs:
       - name: Setup uv
         uses: astral-sh/setup-uv@v5
 
+      - name: Setup Python (pkg build compatibility)
+        if: matrix.platform == 'macos-latest'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
       - name: Install Linux dependencies
         if: matrix.platform == 'ubuntu-22.04'
         run: |
@@ -208,7 +226,13 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Verify ffmpeg
-        run: ffmpeg -version
+        shell: bash
+        run: |
+          if [[ -n "${FFMPEG_BINARY:-}" ]]; then
+            "$FFMPEG_BINARY" -version
+          else
+            ffmpeg -version
+          fi
 
       - name: Prepare desktop sidecars
         env:
