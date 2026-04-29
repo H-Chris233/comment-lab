@@ -7,7 +7,7 @@
     "frontendDist": "../.output/public",
     "devUrl": "http://127.0.0.1:3000",
     "beforeDevCommand": "npm run dev:all",
-    "beforeBuildCommand": "bash src-tauri/scripts/prepare-desktop-bundle.sh"
+    "beforeBuildCommand": "npm run desktop:prepare"
   },
   "app": {
     "windows": [

@@ -44,6 +44,8 @@ npm run desktop:build
 
 因此目标机器不需要单独安装 Node.js / Python 运行时。
 
+> 如果侧车打包失败或产物体积异常（例如误用了占位文件），构建会直接报错并中止，不会继续产出无效桌面包。
+
 当前 Linux 发布包默认产出 `.deb` 和 `.rpm`，先不打 AppImage，避免额外的打包依赖卡住发布流程。
 
 ### 分开启动
@@ -174,3 +176,12 @@ E2E_BASE_URL=http://localhost:3000 E2E_VIDEO_FILE=./your-video.mp4 npm run e2e:a
 - 三路生成模板放在 `prompts/long.txt`、`prompts/medium.txt`、`prompts/short.txt`
 - 每个模板都内置了通用评论规则和各自的风格限制，三份文件可以独立编辑
 - 页面里的“附加提示词”是可选项，不填也能直接生成
+
+### 自动草稿发行（GitHub Actions）
+
+仓库已配置跨平台桌面构建工作流：推送 `v*` 标签后会自动在 Linux/macOS/Windows 构建，并生成 GitHub Draft Release。
+
+```bash
+git tag v0.1.1
+git push origin v0.1.1
+```

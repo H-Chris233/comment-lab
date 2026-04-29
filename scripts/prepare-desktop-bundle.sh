@@ -42,6 +42,13 @@ mkdir -p "$BIN_DIR"
 cp "$SRC_BIN" "$DST_BIN"
 chmod +x "$DST_BIN" || true
 
+BIN_SIZE=$(wc -c < "$DST_BIN" | tr -d '[:space:]')
+if [[ -z "$BIN_SIZE" || "$BIN_SIZE" -lt 1000000 ]]; then
+  echo "[prepare-desktop-bundle] 侧车体积异常($BIN_SIZE bytes): $DST_BIN" >&2
+  echo "[prepare-desktop-bundle] 预期为 PyInstaller 产物，请检查 uv/pyinstaller 是否执行成功" >&2
+  exit 1
+fi
+
 echo "[prepare-desktop-bundle] 构建 Nuxt 前端产物..."
 cd "$ROOT_DIR"
 npm run build

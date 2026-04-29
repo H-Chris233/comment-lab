@@ -18,7 +18,8 @@
     "python:dev": "uv run --directory python_service --python 3.13 uvicorn app:app --reload --port 8001",
     "dev:all": "bash scripts/dev-all.sh",
     "start:prod": "bash scripts/prod-all.sh",
-    "e2e:aliyun": "node scripts/e2e-aliyun-generate.mjs"
+    "e2e:aliyun": "node scripts/e2e-aliyun-generate.mjs",
+    "desktop:prepare": "bash scripts/prepare-desktop-bundle.sh"
   },
   "dependencies": {
     "nuxt": "^3.20.0"
