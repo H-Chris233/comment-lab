@@ -362,11 +362,13 @@ export function useGenerate() {
     streamedCommentSet = new Set<string>()
 
     let timeoutTimer: ReturnType<typeof setTimeout> | null = null
+    let controller: AbortController | null = null
     try {
-      abortController.value = new AbortController()
+      controller = new AbortController()
+      abortController.value = controller
       if (payload.timeoutMs && payload.timeoutMs > 0) {
         timeoutTimer = setTimeout(() => {
-          abortController.value?.abort(new Error('REQUEST_TIMEOUT'))
+          controller?.abort(new Error('REQUEST_TIMEOUT'))
         }, payload.timeoutMs)
       }
       const form = new FormData()
@@ -387,7 +389,7 @@ export function useGenerate() {
           Accept: 'text/event-stream'
         },
         body: form,
-        signal: abortController.value.signal
+        signal: controller.signal
       })
       if (timeoutTimer) {
         clearTimeout(timeoutTimer)
@@ -542,7 +544,9 @@ export function useGenerate() {
       if (timeoutTimer) {
         clearTimeout(timeoutTimer)
       }
-      abortController.value = null
+      if (abortController.value === controller) {
+        abortController.value = null
+      }
       generating.value = false
     }
   }

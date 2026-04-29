@@ -3,7 +3,6 @@ import { readMultipartFormData } from 'h3'
 import { createAppError } from '../utils/errors'
 import type { GenerateStatusData } from '../../types/api'
 import { promises as fs } from 'node:fs'
-import { rmSync } from 'node:fs'
 import path from 'node:path'
 import { getTempVideoDir as resolveTempVideoDir, toActionableStorageError } from './app-paths'
 import { randomUUID } from 'node:crypto'
@@ -765,25 +764,28 @@ function getTempVideoDir() {
   return resolveTempVideoDir()
 }
 
-function cleanupTempVideoRootSync() {
+async function cleanupTempVideoRoot() {
   const root = getTempVideoDir()
-  try {
-    rmSync(root, { recursive: true, force: true })
-  } catch {
-    // ignore cleanup errors on shutdown
-  }
+  await fs.rm(root, { recursive: true, force: true }).catch(() => {})
 }
 
 function ensureTempVideoExitCleanupHook() {
   if (!tempVideoStartupCleanupDone) {
     tempVideoStartupCleanupDone = true
-    cleanupTempVideoRootSync()
+    void cleanupTempVideoRoot()
   }
   if (tempVideoExitHookRegistered) return
   tempVideoExitHookRegistered = true
 
-  process.once('beforeExit', cleanupTempVideoRootSync)
-  process.once('exit', cleanupTempVideoRootSync)
+  process.once('beforeExit', () => {
+    void cleanupTempVideoRoot()
+  })
+  process.once('SIGINT', () => {
+    void cleanupTempVideoRoot().finally(() => process.exit(0))
+  })
+  process.once('SIGTERM', () => {
+    void cleanupTempVideoRoot().finally(() => process.exit(0))
+  })
 }
 
 async function writeVideoBufferToTempFile(

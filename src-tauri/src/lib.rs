@@ -303,16 +303,25 @@ fn sidecar_base_url_cell() -> &'static Mutex<String> {
 }
 
 fn set_sidecar_base_url(value: String) {
-  if let Ok(mut current) = sidecar_base_url_cell().lock() {
-    *current = value;
+  match sidecar_base_url_cell().lock() {
+    Ok(mut current) => {
+      *current = value;
+    }
+    Err(poisoned) => {
+      eprintln!("[desktop] sidecar base url lock poisoned while setting; recovering");
+      *poisoned.into_inner() = value;
+    }
   }
 }
 
 fn current_sidecar_base_url() -> String {
-  if let Ok(current) = sidecar_base_url_cell().lock() {
-    return current.clone();
+  match sidecar_base_url_cell().lock() {
+    Ok(current) => current.clone(),
+    Err(poisoned) => {
+      eprintln!("[desktop] sidecar base url lock poisoned while reading; recovering");
+      poisoned.into_inner().clone()
+    }
   }
-  "http://127.0.0.1:8001".to_string()
 }
 
 #[derive(Serialize, Clone)]

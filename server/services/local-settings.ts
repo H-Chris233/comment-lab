@@ -52,7 +52,9 @@ export async function writeLocalSettings(input: Partial<LocalSettings>): Promise
 
   try {
     await fs.mkdir(SETTINGS_DIR, { recursive: true })
-    await fs.writeFile(SETTINGS_FILE, JSON.stringify(next, null, 2), 'utf8')
+    await fs.chmod(SETTINGS_DIR, 0o700).catch(() => {})
+    await fs.writeFile(SETTINGS_FILE, JSON.stringify(next, null, 2), { encoding: 'utf8', mode: 0o600 })
+    await fs.chmod(SETTINGS_FILE, 0o600).catch(() => {})
     return next
   } catch (error) {
     const mapped = toActionableStorageError(error, 'SETTINGS_WRITE_FAILED', '设置保存失败')
