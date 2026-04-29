@@ -95,6 +95,15 @@ install -m 0755 "$PY_SRC_BIN" "$PY_DST_BIN"
 install -m 0755 "$NODE_OUT" "$NODE_DST_BIN"
 install -m 0755 "$FFMPEG_BIN" "$FFMPEG_DST_BIN"
 
+if [[ "$TARGET_TRIPLE" == *"windows"* ]]; then
+  FFMPEG_SRC_DIR="$(cd "$(dirname "$FFMPEG_BIN")" && pwd)"
+  shopt -s nullglob
+  for dll in "$FFMPEG_SRC_DIR"/*.dll; do
+    install -m 0644 "$dll" "$BIN_DIR/$(basename "$dll")"
+  done
+  shopt -u nullglob
+fi
+
 PY_BIN_SIZE=$(wc -c < "$PY_DST_BIN" | tr -d '[:space:]')
 if [[ -z "$PY_BIN_SIZE" || "$PY_BIN_SIZE" -lt 1000000 ]]; then
   echo "[prepare-desktop-bundle] Python 侧车体积异常($PY_BIN_SIZE bytes): $PY_DST_BIN" >&2
@@ -107,7 +116,7 @@ if [[ -z "$NODE_BIN_SIZE" || "$NODE_BIN_SIZE" -lt 1000000 ]]; then
   exit 1
 fi
 
-if ! "$FFMPEG_DST_BIN" -version >/dev/null 2>&1; then
+if ! PATH="$BIN_DIR:$PATH" "$FFMPEG_DST_BIN" -version >/dev/null 2>&1; then
   echo "[prepare-desktop-bundle] ffmpeg 可执行校验失败: $FFMPEG_DST_BIN" >&2
   exit 1
 fi
