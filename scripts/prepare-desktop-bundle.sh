@@ -89,12 +89,11 @@ if [[ -z "$FFMPEG_BIN" ]]; then
 fi
 
 mkdir -p "$BIN_DIR"
-cp "$PY_SRC_BIN" "$PY_DST_BIN"
-cp "$NODE_OUT" "$NODE_DST_BIN"
-cp "$FFMPEG_BIN" "$FFMPEG_DST_BIN"
-chmod +x "$PY_DST_BIN" || true
-chmod +x "$NODE_DST_BIN" || true
-chmod +x "$FFMPEG_DST_BIN" || true
+chmod u+w "$PY_DST_BIN" "$NODE_DST_BIN" "$FFMPEG_DST_BIN" 2>/dev/null || true
+rm -f "$PY_DST_BIN" "$NODE_DST_BIN" "$FFMPEG_DST_BIN"
+install -m 0755 "$PY_SRC_BIN" "$PY_DST_BIN"
+install -m 0755 "$NODE_OUT" "$NODE_DST_BIN"
+install -m 0755 "$FFMPEG_BIN" "$FFMPEG_DST_BIN"
 
 PY_BIN_SIZE=$(wc -c < "$PY_DST_BIN" | tr -d '[:space:]')
 if [[ -z "$PY_BIN_SIZE" || "$PY_BIN_SIZE" -lt 1000000 ]]; then
