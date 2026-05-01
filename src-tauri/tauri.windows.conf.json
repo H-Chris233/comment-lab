@@ -3,6 +3,7 @@
     "targets": ["nsis"],
     "externalBin": [
       "binaries/comment-lab-python-sidecar",
+      "binaries/comment-lab-node-server",
       "binaries/comment-lab-node-runtime",
       "binaries/comment-lab-ffmpeg"
     ]

@@ -126,6 +126,7 @@ chmod u+w "$PY_DST_BIN" "$NODE_DST_BIN" "$NODE_RUNTIME_DST_BIN" "$FFMPEG_DST_BIN
 rm -f "$PY_DST_BIN" "$NODE_DST_BIN" "$NODE_RUNTIME_DST_BIN" "$FFMPEG_DST_BIN"
 install -m 0755 "$PY_SRC_BIN" "$PY_DST_BIN"
 if [[ "$TARGET_TRIPLE" == *"windows"* ]]; then
+  install -m 0755 "$NODE_OUT" "$NODE_DST_BIN"
   install -m 0755 "$NODE_OUT" "$NODE_RUNTIME_DST_BIN"
 else
   install -m 0755 "$NODE_OUT" "$NODE_DST_BIN"
@@ -153,6 +154,16 @@ if [[ "$TARGET_TRIPLE" == *"windows"* ]]; then
     echo "[prepare-desktop-bundle] Node runtime 体积异常($NODE_BIN_SIZE bytes): $NODE_RUNTIME_DST_BIN" >&2
     exit 1
   fi
+  NODE_SERVER_DST_BIN="$BIN_DIR/$NODE_BASE_NAME-$TARGET_TRIPLE$SUFFIX"
+  if [[ ! -f "$NODE_SERVER_DST_BIN" ]]; then
+    echo "[prepare-desktop-bundle] 未找到 Windows Node 侧车兼容副本: $NODE_SERVER_DST_BIN" >&2
+    exit 1
+  fi
+  NODE_SERVER_BIN_SIZE=$(wc -c < "$NODE_SERVER_DST_BIN" | tr -d '[:space:]')
+  if [[ -z "$NODE_SERVER_BIN_SIZE" || "$NODE_SERVER_BIN_SIZE" -lt 1000000 ]]; then
+    echo "[prepare-desktop-bundle] Node server 兼容副本体积异常($NODE_SERVER_BIN_SIZE bytes): $NODE_SERVER_DST_BIN" >&2
+    exit 1
+  fi
 else
   NODE_BIN_SIZE=$(wc -c < "$NODE_DST_BIN" | tr -d '[:space:]')
   if [[ -z "$NODE_BIN_SIZE" || "$NODE_BIN_SIZE" -lt 1000000 ]]; then
@@ -174,7 +185,7 @@ else
 fi
 
 if [[ "$TARGET_TRIPLE" == *"windows"* ]]; then
-  echo "[prepare-desktop-bundle] 完成: $PY_DST_BIN, $NODE_RUNTIME_DST_BIN, $FFMPEG_DST_BIN"
+  echo "[prepare-desktop-bundle] 完成: $PY_DST_BIN, $NODE_DST_BIN, $NODE_RUNTIME_DST_BIN, $FFMPEG_DST_BIN"
 else
   echo "[prepare-desktop-bundle] 完成: $PY_DST_BIN, $NODE_DST_BIN, $FFMPEG_DST_BIN"
 fi

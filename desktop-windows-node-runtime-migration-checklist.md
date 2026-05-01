@@ -4,6 +4,7 @@
 - [x] Tauri 启动逻辑改为 Windows 下通过 node runtime 启动 server/index.mjs。
 - [x] 将 `server/` 与 `prompts/` 作为桌面资源打包，确保运行时可读。
 - [x] 运行校验并回填结果。
+- [ ] Windows 安装包同时覆盖 `comment-lab-node-server.exe` / `comment-lab-node-runtime.exe`，避免旧 pkg 产物残留后继续被用户执行。
 
 
 验证结果：
