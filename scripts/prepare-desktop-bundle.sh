@@ -6,6 +6,7 @@ PY_DIR="$ROOT_DIR/python_service"
 BIN_DIR="$ROOT_DIR/src-tauri/binaries"
 PY_BASE_NAME="comment-lab-python-sidecar"
 NODE_BASE_NAME="comment-lab-node-server"
+NODE_RUNTIME_BASE_NAME="comment-lab-node-runtime"
 FFMPEG_BASE_NAME="comment-lab-ffmpeg"
 
 if ! command -v uv >/dev/null 2>&1; then
@@ -59,11 +60,20 @@ fi
 NODE_OUT_DIR="$ROOT_DIR/.output/desktop"
 mkdir -p "$NODE_OUT_DIR"
 NODE_OUT="$NODE_OUT_DIR/$NODE_BASE_NAME$SUFFIX"
-PKG_STAGE_DIR="$NODE_OUT_DIR/pkg-input"
-rm -rf "$PKG_STAGE_DIR"
-mkdir -p "$PKG_STAGE_DIR"
-cp -R "$ROOT_DIR/.output/server" "$PKG_STAGE_DIR/server"
-cat > "$PKG_STAGE_DIR/launcher.cjs" <<'EOF'
+if [[ "$TARGET_TRIPLE" == *"windows"* ]]; then
+  NODE_RUNTIME_BIN="$(command -v node || true)"
+  if [[ -z "$NODE_RUNTIME_BIN" || ! -f "$NODE_RUNTIME_BIN" ]]; then
+    echo "[prepare-desktop-bundle] 未找到 node runtime，可执行文件不存在" >&2
+    exit 1
+  fi
+  cp "$NODE_RUNTIME_BIN" "$NODE_OUT"
+  chmod +x "$NODE_OUT" || true
+else
+  PKG_STAGE_DIR="$NODE_OUT_DIR/pkg-input"
+  rm -rf "$PKG_STAGE_DIR"
+  mkdir -p "$PKG_STAGE_DIR"
+  cp -R "$ROOT_DIR/.output/server" "$PKG_STAGE_DIR/server"
+  cat > "$PKG_STAGE_DIR/launcher.cjs" <<'EOF'
 const { pathToFileURL } = require('node:url');
 const path = require('node:path');
 
@@ -73,12 +83,12 @@ import(entry).catch((error) => {
   process.exit(1);
 });
 EOF
-
-npx --yes pkg "$PKG_STAGE_DIR/launcher.cjs" \
-  --targets "$PKG_TARGET" \
-  --assets "$PKG_STAGE_DIR/server/**/*" \
-  --assets "$ROOT_DIR/prompts/*.txt" \
-  --output "$NODE_OUT"
+  npx --yes pkg "$PKG_STAGE_DIR/launcher.cjs" \
+    --targets "$PKG_TARGET" \
+    --assets "$PKG_STAGE_DIR/server/**/*" \
+    --assets "$ROOT_DIR/prompts/*.txt" \
+    --output "$NODE_OUT"
+fi
 
 echo "[prepare-desktop-bundle] 打包 Python 侧车 ($TARGET_TRIPLE)..."
 uv run --directory "$PY_DIR" --with pyinstaller \
@@ -87,6 +97,7 @@ uv run --directory "$PY_DIR" --with pyinstaller \
 PY_SRC_BIN="$PY_DIR/dist/$PY_BASE_NAME$SUFFIX"
 PY_DST_BIN="$BIN_DIR/$PY_BASE_NAME-$TARGET_TRIPLE$SUFFIX"
 NODE_DST_BIN="$BIN_DIR/$NODE_BASE_NAME-$TARGET_TRIPLE$SUFFIX"
+NODE_RUNTIME_DST_BIN="$BIN_DIR/$NODE_RUNTIME_BASE_NAME-$TARGET_TRIPLE$SUFFIX"
 FFMPEG_DST_BIN="$BIN_DIR/$FFMPEG_BASE_NAME-$TARGET_TRIPLE$SUFFIX"
 
 if [[ ! -f "$PY_SRC_BIN" ]]; then
@@ -111,10 +122,14 @@ if [[ ! -f "$FFMPEG_BIN" ]]; then
 fi
 
 mkdir -p "$BIN_DIR"
-chmod u+w "$PY_DST_BIN" "$NODE_DST_BIN" "$FFMPEG_DST_BIN" 2>/dev/null || true
-rm -f "$PY_DST_BIN" "$NODE_DST_BIN" "$FFMPEG_DST_BIN"
+chmod u+w "$PY_DST_BIN" "$NODE_DST_BIN" "$NODE_RUNTIME_DST_BIN" "$FFMPEG_DST_BIN" 2>/dev/null || true
+rm -f "$PY_DST_BIN" "$NODE_DST_BIN" "$NODE_RUNTIME_DST_BIN" "$FFMPEG_DST_BIN"
 install -m 0755 "$PY_SRC_BIN" "$PY_DST_BIN"
-install -m 0755 "$NODE_OUT" "$NODE_DST_BIN"
+if [[ "$TARGET_TRIPLE" == *"windows"* ]]; then
+  install -m 0755 "$NODE_OUT" "$NODE_RUNTIME_DST_BIN"
+else
+  install -m 0755 "$NODE_OUT" "$NODE_DST_BIN"
+fi
 install -m 0755 "$FFMPEG_BIN" "$FFMPEG_DST_BIN"
 
 if [[ "$TARGET_TRIPLE" == *"windows"* ]]; then
@@ -132,10 +147,18 @@ if [[ -z "$PY_BIN_SIZE" || "$PY_BIN_SIZE" -lt 1000000 ]]; then
   exit 1
 fi
 
-NODE_BIN_SIZE=$(wc -c < "$NODE_DST_BIN" | tr -d '[:space:]')
-if [[ -z "$NODE_BIN_SIZE" || "$NODE_BIN_SIZE" -lt 1000000 ]]; then
-  echo "[prepare-desktop-bundle] Node 侧车体积异常($NODE_BIN_SIZE bytes): $NODE_DST_BIN" >&2
-  exit 1
+if [[ "$TARGET_TRIPLE" == *"windows"* ]]; then
+  NODE_BIN_SIZE=$(wc -c < "$NODE_RUNTIME_DST_BIN" | tr -d '[:space:]')
+  if [[ -z "$NODE_BIN_SIZE" || "$NODE_BIN_SIZE" -lt 1000000 ]]; then
+    echo "[prepare-desktop-bundle] Node runtime 体积异常($NODE_BIN_SIZE bytes): $NODE_RUNTIME_DST_BIN" >&2
+    exit 1
+  fi
+else
+  NODE_BIN_SIZE=$(wc -c < "$NODE_DST_BIN" | tr -d '[:space:]')
+  if [[ -z "$NODE_BIN_SIZE" || "$NODE_BIN_SIZE" -lt 1000000 ]]; then
+    echo "[prepare-desktop-bundle] Node 侧车体积异常($NODE_BIN_SIZE bytes): $NODE_DST_BIN" >&2
+    exit 1
+  fi
 fi
 
 if [[ "$TARGET_TRIPLE" == *"windows"* ]]; then
@@ -150,4 +173,8 @@ else
   fi
 fi
 
-echo "[prepare-desktop-bundle] 完成: $PY_DST_BIN, $NODE_DST_BIN, $FFMPEG_DST_BIN"
+if [[ "$TARGET_TRIPLE" == *"windows"* ]]; then
+  echo "[prepare-desktop-bundle] 完成: $PY_DST_BIN, $NODE_RUNTIME_DST_BIN, $FFMPEG_DST_BIN"
+else
+  echo "[prepare-desktop-bundle] 完成: $PY_DST_BIN, $NODE_DST_BIN, $FFMPEG_DST_BIN"
+fi

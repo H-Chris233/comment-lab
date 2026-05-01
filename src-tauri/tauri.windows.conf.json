@@ -1,5 +1,10 @@
 {
   "bundle": {
-    "targets": ["nsis"]
+    "targets": ["nsis"],
+    "externalBin": [
+      "binaries/comment-lab-python-sidecar",
+      "binaries/comment-lab-node-runtime",
+      "binaries/comment-lab-ffmpeg"
+    ]
   }
 }

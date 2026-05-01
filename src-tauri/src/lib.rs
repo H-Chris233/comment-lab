@@ -93,20 +93,43 @@ fn spawn_node_sidecar(app: &tauri::AppHandle, python_base_url: &str) -> Option<(
     }
   };
 
-  let sidecar_path = find_named_sidecar_binary(&resource_dir, "comment-lab-node-server")
-    .or_else(|| find_named_sidecar_binary(&resource_dir.join("_up_"), "comment-lab-node-server"))
-    .or_else(|| find_named_sidecar_binary(&resource_dir.join("bin"), "comment-lab-node-server"));
-
-  let Some(binary_path) = sidecar_path else {
-    let msg = "未找到 Node 本地服务侧车可执行文件，请重新安装桌面应用";
-    eprintln!("[desktop] {msg}");
-    let log_path = resolve_sidecar_log_path(app);
-    emit_sidecar_error(app, msg, &log_path);
-    return None;
-  };
-
   let node_port = pick_available_local_port().unwrap_or(LOCAL_NUXT_PORT);
-  let mut command = Command::new(&binary_path);
+  let mut command = if cfg!(target_os = "windows") {
+    let runtime_path = find_named_sidecar_binary(&resource_dir, "comment-lab-node-runtime")
+      .or_else(|| find_named_sidecar_binary(&resource_dir.join("_up_"), "comment-lab-node-runtime"))
+      .or_else(|| find_named_sidecar_binary(&resource_dir.join("bin"), "comment-lab-node-runtime"))
+      .or_else(|| find_named_sidecar_binary(&resource_dir.join("binaries"), "comment-lab-node-runtime"));
+    let Some(runtime_path) = runtime_path else {
+      let msg = "未找到 Node runtime，可执行文件缺失，请重新安装桌面应用";
+      eprintln!("[desktop] {msg}");
+      let log_path = resolve_sidecar_log_path(app);
+      emit_sidecar_error(app, msg, &log_path);
+      return None;
+    };
+    let server_entry = resolve_server_entry_path(&resource_dir);
+    let Some(server_entry) = server_entry else {
+      let msg = "未找到 Node 服务入口 server/index.mjs，请重新安装桌面应用";
+      eprintln!("[desktop] {msg}");
+      let log_path = resolve_sidecar_log_path(app);
+      emit_sidecar_error(app, msg, &log_path);
+      return None;
+    };
+    let mut cmd = Command::new(&runtime_path);
+    cmd.arg(&server_entry).current_dir(&resource_dir);
+    cmd
+  } else {
+    let sidecar_path = find_named_sidecar_binary(&resource_dir, "comment-lab-node-server")
+      .or_else(|| find_named_sidecar_binary(&resource_dir.join("_up_"), "comment-lab-node-server"))
+      .or_else(|| find_named_sidecar_binary(&resource_dir.join("bin"), "comment-lab-node-server"));
+    let Some(binary_path) = sidecar_path else {
+      let msg = "未找到 Node 本地服务侧车可执行文件，请重新安装桌面应用";
+      eprintln!("[desktop] {msg}");
+      let log_path = resolve_sidecar_log_path(app);
+      emit_sidecar_error(app, msg, &log_path);
+      return None;
+    };
+    Command::new(&binary_path)
+  };
   command
     .stdin(Stdio::null())
     .stdout(Stdio::null())
@@ -152,6 +175,17 @@ fn spawn_node_sidecar(app: &tauri::AppHandle, python_base_url: &str) -> Option<(
       None
     }
   }
+}
+
+fn resolve_server_entry_path(resource_dir: &Path) -> Option<PathBuf> {
+  let candidates = [
+    resource_dir.join("server").join("index.mjs"),
+    resource_dir.join("_up_").join("server").join("index.mjs"),
+    resource_dir.join("_up_").join(".output").join("server").join("index.mjs"),
+    resource_dir.join("bin").join("server").join("index.mjs"),
+    resource_dir.join("binaries").join("server").join("index.mjs"),
+  ];
+  candidates.into_iter().find(|path| path.is_file())
 }
 
 #[derive(Serialize)]
