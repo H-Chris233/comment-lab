@@ -8,6 +8,7 @@ use tauri::Emitter;
 use tauri::Manager;
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
+use tauri::Url;
 
 const SIDECAR_STARTUP_MAX_ATTEMPTS: usize = 3;
 const SIDECAR_STARTUP_READY_TIMEOUT_SECS: u64 = 20;
@@ -414,8 +415,21 @@ fn pick_available_local_port() -> Option<u16> {
 fn update_main_window_url(app: &tauri::AppHandle, node_port: u16) {
   let url = format!("http://127.0.0.1:{node_port}");
   if let Some(main_window) = app.get_webview_window("main") {
-    if let Err(error) = main_window.eval(&format!("window.location.replace({url:?});")) {
-      eprintln!("[desktop] main window URL 切换失败: {error}, target={url}");
+    match Url::parse(&url) {
+      Ok(parsed) => {
+        if let Err(error) = main_window.navigate(parsed) {
+          eprintln!("[desktop] main window navigate 失败: {error}, target={url}");
+          if let Err(eval_error) = main_window.eval(&format!("window.location.replace({url:?});")) {
+            eprintln!("[desktop] main window eval 回退也失败: {eval_error}, target={url}");
+          }
+        }
+      }
+      Err(parse_error) => {
+        eprintln!("[desktop] main window URL 解析失败: {parse_error}, raw={url}");
+        if let Err(error) = main_window.eval(&format!("window.location.replace({url:?});")) {
+          eprintln!("[desktop] main window eval 回退失败: {error}, target={url}");
+        }
+      }
     }
   } else {
     eprintln!("[desktop] 未找到 main window，无法切换到 Node 动态端口: {url}");

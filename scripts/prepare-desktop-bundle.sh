@@ -59,8 +59,12 @@ fi
 NODE_OUT_DIR="$ROOT_DIR/.output/desktop"
 mkdir -p "$NODE_OUT_DIR"
 NODE_OUT="$NODE_OUT_DIR/$NODE_BASE_NAME$SUFFIX"
+PKG_STAGE_DIR="$NODE_OUT_DIR/pkg-input"
+rm -rf "$PKG_STAGE_DIR"
+mkdir -p "$PKG_STAGE_DIR"
+cp -R "$ROOT_DIR/.output/server" "$PKG_STAGE_DIR/server"
 
-npx --yes pkg "$NODE_SRC" \
+npx --yes pkg "$PKG_STAGE_DIR/server/index.mjs" \
   --targets "$PKG_TARGET" \
   --assets "$ROOT_DIR/prompts/*.txt" \
   --output "$NODE_OUT"
