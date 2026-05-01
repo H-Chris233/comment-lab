@@ -226,4 +226,4 @@ if __name__ == "__main__":
     import uvicorn
 
     port = int(os.getenv("COMMENT_LAB_SIDECAR_PORT", "8001"))
-    uvicorn.run("app:app", host="127.0.0.1", port=port)
+    uvicorn.run(app, host="127.0.0.1", port=port)
