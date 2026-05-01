@@ -6,7 +6,6 @@ PY_DIR="$ROOT_DIR/python_service"
 BIN_DIR="$ROOT_DIR/src-tauri/binaries"
 PY_BASE_NAME="comment-lab-python-sidecar"
 NODE_BASE_NAME="comment-lab-node-server"
-NODE_RUNTIME_BASE_NAME="comment-lab-node-runtime"
 FFMPEG_BASE_NAME="comment-lab-ffmpeg"
 
 if ! command -v uv >/dev/null 2>&1; then
@@ -66,8 +65,51 @@ if [[ "$TARGET_TRIPLE" == *"windows"* ]]; then
     echo "[prepare-desktop-bundle] 未找到 node runtime，可执行文件不存在" >&2
     exit 1
   fi
+  SEA_LAUNCHER="$NODE_OUT_DIR/launcher.cjs"
+  SEA_CONFIG="$NODE_OUT_DIR/sea-config.json"
+  SEA_BLOB="$NODE_OUT_DIR/sea-prep.blob"
+  cat > "$SEA_LAUNCHER" <<'EOF'
+const { pathToFileURL } = require('node:url');
+const path = require('node:path');
+
+function resolveServerEntry() {
+  const candidates = [
+    path.join(__dirname, 'server', 'index.mjs'),
+    path.join(__dirname, '_up_', 'server', 'index.mjs'),
+    path.join(__dirname, 'bin', 'server', 'index.mjs'),
+    path.join(__dirname, 'binaries', 'server', 'index.mjs'),
+    path.join(__dirname, '..', 'server', 'index.mjs'),
+    path.join(__dirname, '..', '.output', 'server', 'index.mjs'),
+  ];
+  return candidates.find((candidate) => require('node:fs').existsSync(candidate));
+}
+
+(async () => {
+  const serverEntry = resolveServerEntry();
+  if (!serverEntry) {
+    throw new Error('未找到 Node 服务入口 server/index.mjs');
+  }
+  const serverRoot = path.dirname(path.dirname(serverEntry));
+  process.chdir(serverRoot);
+  await import(pathToFileURL(serverEntry).href);
+})().catch((error) => {
+  console.error('[node-sidecar] failed to start server entry:', error);
+  process.exit(1);
+});
+EOF
+  cat > "$SEA_CONFIG" <<EOF
+{
+  "main": "$SEA_LAUNCHER",
+  "output": "$SEA_BLOB",
+  "disableExperimentalSEAWarning": true,
+  "useSnapshot": false,
+  "useCodeCache": false
+}
+EOF
+  "$NODE_RUNTIME_BIN" --experimental-sea-config "$SEA_CONFIG"
   cp "$NODE_RUNTIME_BIN" "$NODE_OUT"
-  chmod +x "$NODE_OUT" || true
+  npx --yes postject "$NODE_OUT" NODE_SEA_BLOB "$SEA_BLOB" \
+    --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2
 else
   PKG_STAGE_DIR="$NODE_OUT_DIR/pkg-input"
   rm -rf "$PKG_STAGE_DIR"
@@ -97,7 +139,6 @@ uv run --directory "$PY_DIR" --with pyinstaller \
 PY_SRC_BIN="$PY_DIR/dist/$PY_BASE_NAME$SUFFIX"
 PY_DST_BIN="$BIN_DIR/$PY_BASE_NAME-$TARGET_TRIPLE$SUFFIX"
 NODE_DST_BIN="$BIN_DIR/$NODE_BASE_NAME-$TARGET_TRIPLE$SUFFIX"
-NODE_RUNTIME_DST_BIN="$BIN_DIR/$NODE_RUNTIME_BASE_NAME-$TARGET_TRIPLE$SUFFIX"
 FFMPEG_DST_BIN="$BIN_DIR/$FFMPEG_BASE_NAME-$TARGET_TRIPLE$SUFFIX"
 
 if [[ ! -f "$PY_SRC_BIN" ]]; then
@@ -122,12 +163,11 @@ if [[ ! -f "$FFMPEG_BIN" ]]; then
 fi
 
 mkdir -p "$BIN_DIR"
-chmod u+w "$PY_DST_BIN" "$NODE_DST_BIN" "$NODE_RUNTIME_DST_BIN" "$FFMPEG_DST_BIN" 2>/dev/null || true
-rm -f "$PY_DST_BIN" "$NODE_DST_BIN" "$NODE_RUNTIME_DST_BIN" "$FFMPEG_DST_BIN"
+chmod u+w "$PY_DST_BIN" "$NODE_DST_BIN" "$FFMPEG_DST_BIN" 2>/dev/null || true
+rm -f "$PY_DST_BIN" "$NODE_DST_BIN" "$FFMPEG_DST_BIN"
 install -m 0755 "$PY_SRC_BIN" "$PY_DST_BIN"
 if [[ "$TARGET_TRIPLE" == *"windows"* ]]; then
   install -m 0755 "$NODE_OUT" "$NODE_DST_BIN"
-  install -m 0755 "$NODE_OUT" "$NODE_RUNTIME_DST_BIN"
 else
   install -m 0755 "$NODE_OUT" "$NODE_DST_BIN"
 fi
@@ -149,19 +189,9 @@ if [[ -z "$PY_BIN_SIZE" || "$PY_BIN_SIZE" -lt 1000000 ]]; then
 fi
 
 if [[ "$TARGET_TRIPLE" == *"windows"* ]]; then
-  NODE_BIN_SIZE=$(wc -c < "$NODE_RUNTIME_DST_BIN" | tr -d '[:space:]')
+  NODE_BIN_SIZE=$(wc -c < "$NODE_DST_BIN" | tr -d '[:space:]')
   if [[ -z "$NODE_BIN_SIZE" || "$NODE_BIN_SIZE" -lt 1000000 ]]; then
-    echo "[prepare-desktop-bundle] Node runtime 体积异常($NODE_BIN_SIZE bytes): $NODE_RUNTIME_DST_BIN" >&2
-    exit 1
-  fi
-  NODE_SERVER_DST_BIN="$BIN_DIR/$NODE_BASE_NAME-$TARGET_TRIPLE$SUFFIX"
-  if [[ ! -f "$NODE_SERVER_DST_BIN" ]]; then
-    echo "[prepare-desktop-bundle] 未找到 Windows Node 侧车兼容副本: $NODE_SERVER_DST_BIN" >&2
-    exit 1
-  fi
-  NODE_SERVER_BIN_SIZE=$(wc -c < "$NODE_SERVER_DST_BIN" | tr -d '[:space:]')
-  if [[ -z "$NODE_SERVER_BIN_SIZE" || "$NODE_SERVER_BIN_SIZE" -lt 1000000 ]]; then
-    echo "[prepare-desktop-bundle] Node server 兼容副本体积异常($NODE_SERVER_BIN_SIZE bytes): $NODE_SERVER_DST_BIN" >&2
+    echo "[prepare-desktop-bundle] Node sidecar 体积异常($NODE_BIN_SIZE bytes): $NODE_DST_BIN" >&2
     exit 1
   fi
 else
@@ -185,7 +215,7 @@ else
 fi
 
 if [[ "$TARGET_TRIPLE" == *"windows"* ]]; then
-  echo "[prepare-desktop-bundle] 完成: $PY_DST_BIN, $NODE_DST_BIN, $NODE_RUNTIME_DST_BIN, $FFMPEG_DST_BIN"
+  echo "[prepare-desktop-bundle] 完成: $PY_DST_BIN, $NODE_DST_BIN, $FFMPEG_DST_BIN"
 else
   echo "[prepare-desktop-bundle] 完成: $PY_DST_BIN, $NODE_DST_BIN, $FFMPEG_DST_BIN"
 fi

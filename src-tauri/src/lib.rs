@@ -100,46 +100,32 @@ fn spawn_node_sidecar(
 
     let node_port = pick_available_local_port().unwrap_or(LOCAL_NUXT_PORT);
     let mut command = if cfg!(target_os = "windows") {
-        let runtime_path = find_named_sidecar_binary(&resource_dir, "comment-lab-node-runtime")
-            .or_else(|| find_named_sidecar_binary(&resource_dir, "comment-lab-node-server"))
-            .or_else(|| {
-                find_named_sidecar_binary(&resource_dir.join("_up_"), "comment-lab-node-runtime")
-            })
+        let sidecar_path = find_named_sidecar_binary(&resource_dir, "comment-lab-node-server")
             .or_else(|| {
                 find_named_sidecar_binary(&resource_dir.join("_up_"), "comment-lab-node-server")
-            })
-            .or_else(|| {
-                find_named_sidecar_binary(&resource_dir.join("bin"), "comment-lab-node-runtime")
             })
             .or_else(|| {
                 find_named_sidecar_binary(&resource_dir.join("bin"), "comment-lab-node-server")
             })
             .or_else(|| {
-                find_named_sidecar_binary(
-                    &resource_dir.join("binaries"),
-                    "comment-lab-node-runtime",
-                )
-            })
-            .or_else(|| {
                 find_named_sidecar_binary(&resource_dir.join("binaries"), "comment-lab-node-server")
             });
-        let Some(runtime_path) = runtime_path else {
-            let msg = "未找到 Node runtime，可执行文件缺失，请重新安装桌面应用";
+        let Some(sidecar_path) = sidecar_path else {
+            let msg = "未找到 Node 侧车可执行文件，请重新安装桌面应用";
             eprintln!("[desktop] {msg}");
             let log_path = resolve_sidecar_log_path(app);
             emit_sidecar_error(app, msg, &log_path);
             return None;
         };
-        let server_entry = resolve_server_entry_path(&resource_dir);
-        let Some(server_entry) = server_entry else {
+        if resolve_server_entry_path(&resource_dir).is_none() {
             let msg = "未找到 Node 服务入口 server/index.mjs，请重新安装桌面应用";
             eprintln!("[desktop] {msg}");
             let log_path = resolve_sidecar_log_path(app);
             emit_sidecar_error(app, msg, &log_path);
             return None;
-        };
-        let mut cmd = Command::new(&runtime_path);
-        cmd.arg(&server_entry).current_dir(&resource_dir);
+        }
+        let mut cmd = Command::new(&sidecar_path);
+        cmd.current_dir(&resource_dir);
         cmd
     } else {
         let sidecar_path = find_named_sidecar_binary(&resource_dir, "comment-lab-node-server")
