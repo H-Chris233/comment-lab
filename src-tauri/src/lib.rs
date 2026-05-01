@@ -41,27 +41,42 @@ pub fn run() {
     spawn_python_sidecar(app.handle())
   };
 
+  let node_port_for_window = std::sync::Arc::new(std::sync::Mutex::new(None::<u16>));
+  let node_port_for_window_setup = node_port_for_window.clone();
+
   let mut node_sidecar = if cfg!(debug_assertions) {
     None
   } else {
     let python_base_url = current_sidecar_base_url();
     match spawn_node_sidecar(app.handle(), &python_base_url) {
       Some((child, node_port)) => {
-        update_main_window_url(app.handle(), node_port);
+        if let Ok(mut slot) = node_port_for_window_setup.lock() {
+          *slot = Some(node_port);
+        }
         Some(child)
       }
       None => None,
     }
   };
 
-  app.run(move |_app_handle, event| {
-    if matches!(event, tauri::RunEvent::Exit) {
-      if let Some(child) = node_sidecar.as_mut() {
-        graceful_stop_sidecar(child);
+  app.run(move |app_handle, event| {
+    match event {
+      tauri::RunEvent::Ready => {
+        if let Ok(slot) = node_port_for_window.lock() {
+          if let Some(port) = *slot {
+            update_main_window_url(app_handle, port);
+          }
+        }
       }
-      if let Some(child) = sidecar.as_mut() {
-        graceful_stop_sidecar(child);
+      tauri::RunEvent::Exit => {
+        if let Some(child) = node_sidecar.as_mut() {
+          graceful_stop_sidecar(child);
+        }
+        if let Some(child) = sidecar.as_mut() {
+          graceful_stop_sidecar(child);
+        }
       }
+      _ => {}
     }
   });
 }
@@ -399,7 +414,9 @@ fn pick_available_local_port() -> Option<u16> {
 fn update_main_window_url(app: &tauri::AppHandle, node_port: u16) {
   let url = format!("http://127.0.0.1:{node_port}");
   if let Some(main_window) = app.get_webview_window("main") {
-    let _ = main_window.eval(&format!("window.location.replace({url:?});"));
+    if let Err(error) = main_window.eval(&format!("window.location.replace({url:?});")) {
+      eprintln!("[desktop] main window URL 切换失败: {error}, target={url}");
+    }
   } else {
     eprintln!("[desktop] 未找到 main window，无法切换到 Node 动态端口: {url}");
   }
