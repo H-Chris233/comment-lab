@@ -12,7 +12,6 @@ use tauri::Url;
 
 const SIDECAR_STARTUP_MAX_ATTEMPTS: usize = 3;
 const SIDECAR_STARTUP_READY_TIMEOUT_SECS: u64 = 20;
-const LOCAL_NUXT_PORT: u16 = 3000;
 
 static SIDECAR_BASE_URL: OnceLock<Mutex<String>> = OnceLock::new();
 static ENV_WRITE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -98,7 +97,16 @@ fn spawn_node_sidecar(
         }
     };
 
-    let node_port = pick_available_local_port().unwrap_or(LOCAL_NUXT_PORT);
+    let node_port = match pick_available_local_port() {
+        Some(port) => port,
+        None => {
+            let msg = "无法分配 Node 本地服务端口，请重启应用后重试";
+            eprintln!("[desktop] {msg}");
+            let log_path = resolve_sidecar_log_path(app);
+            emit_sidecar_error(app, msg, &log_path);
+            return None;
+        }
+    };
     let mut command = if cfg!(target_os = "windows") {
         let sidecar_path = find_named_sidecar_binary(&resource_dir, "comment-lab-node-server")
             .or_else(|| {

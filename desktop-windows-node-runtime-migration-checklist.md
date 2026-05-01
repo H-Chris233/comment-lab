@@ -3,6 +3,8 @@
 - [x] Windows 侧改为打包 `node.exe + .output/server`，不再使用 pkg 产出 Node 侧车。
 - [x] Tauri 启动逻辑改为 Windows 下通过 node runtime 启动 server/index.mjs。
 - [x] 将 `server/` 与 `prompts/` 作为桌面资源打包，确保运行时可读。
+- [x] Windows SEA 配置改用 Windows 路径，避免 `.output/desktop/launcher.cjs` 在 CI 中被误读成 MSYS 路径。
+- [x] Node 侧车端口改为纯动态分配，不再回落到 3000。
 - [x] 运行校验并回填结果。
 - [x] Windows 安装包收敛为单一 `comment-lab-node-server.exe`，并且双击直接启动侧车，不再进入 REPL。
 
@@ -11,3 +13,4 @@
 - `bash -n scripts/prepare-desktop-bundle.sh` ✅
 - `npm run build` ✅
 - `cargo check --manifest-path src-tauri/Cargo.toml` ✅
+- `git diff --check` ✅

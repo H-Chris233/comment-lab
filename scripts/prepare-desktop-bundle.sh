@@ -68,6 +68,15 @@ if [[ "$TARGET_TRIPLE" == *"windows"* ]]; then
   SEA_LAUNCHER="$NODE_OUT_DIR/launcher.cjs"
   SEA_CONFIG="$NODE_OUT_DIR/sea-config.json"
   SEA_BLOB="$NODE_OUT_DIR/sea-prep.blob"
+  if command -v cygpath >/dev/null 2>&1; then
+    SEA_LAUNCHER_WIN="$(cygpath -w "$SEA_LAUNCHER")"
+    SEA_BLOB_WIN="$(cygpath -w "$SEA_BLOB")"
+  else
+    SEA_LAUNCHER_WIN="$SEA_LAUNCHER"
+    SEA_BLOB_WIN="$SEA_BLOB"
+  fi
+  SEA_LAUNCHER_JSON=${SEA_LAUNCHER_WIN//\\/\\\\}
+  SEA_BLOB_JSON=${SEA_BLOB_WIN//\\/\\\\}
   cat > "$SEA_LAUNCHER" <<'EOF'
 const { pathToFileURL } = require('node:url');
 const path = require('node:path');
@@ -99,8 +108,8 @@ function resolveServerEntry() {
 EOF
   cat > "$SEA_CONFIG" <<EOF
 {
-  "main": "$SEA_LAUNCHER",
-  "output": "$SEA_BLOB",
+  "main": "$SEA_LAUNCHER_JSON",
+  "output": "$SEA_BLOB_JSON",
   "disableExperimentalSEAWarning": true,
   "useSnapshot": false,
   "useCodeCache": false
