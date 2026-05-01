@@ -63,9 +63,20 @@ PKG_STAGE_DIR="$NODE_OUT_DIR/pkg-input"
 rm -rf "$PKG_STAGE_DIR"
 mkdir -p "$PKG_STAGE_DIR"
 cp -R "$ROOT_DIR/.output/server" "$PKG_STAGE_DIR/server"
+cat > "$PKG_STAGE_DIR/launcher.cjs" <<'EOF'
+const { pathToFileURL } = require('node:url');
+const path = require('node:path');
 
-npx --yes pkg "$PKG_STAGE_DIR/server/index.mjs" \
+const entry = pathToFileURL(path.join(__dirname, 'server', 'index.mjs')).href;
+import(entry).catch((error) => {
+  console.error('[node-sidecar] failed to import server entry:', error);
+  process.exit(1);
+});
+EOF
+
+npx --yes pkg "$PKG_STAGE_DIR/launcher.cjs" \
   --targets "$PKG_TARGET" \
+  --assets "$PKG_STAGE_DIR/server/**/*" \
   --assets "$ROOT_DIR/prompts/*.txt" \
   --output "$NODE_OUT"
 
