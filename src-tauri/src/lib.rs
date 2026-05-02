@@ -247,10 +247,7 @@ struct DesktopDiagnostics {
 
 #[tauri::command]
 fn get_desktop_diagnostics(app: tauri::AppHandle) -> Result<DesktopDiagnostics, String> {
-    let app_log_dir = app
-        .path()
-        .app_log_dir()
-        .map_err(|e| format!("无法读取日志目录: {e}"))?;
+    let app_log_dir = resolve_app_log_dir(&app).map_err(|e| format!("无法读取应用目录: {e}"))?;
     let sidecar_log_path = app_log_dir.join("python-sidecar.stderr.log");
     Ok(DesktopDiagnostics {
         app_log_dir: app_log_dir.display().to_string(),
@@ -267,10 +264,7 @@ fn read_sidecar_log(app: tauri::AppHandle) -> Result<String, String> {
 
 #[tauri::command]
 fn open_app_log_dir(app: tauri::AppHandle) -> Result<(), String> {
-    let dir = app
-        .path()
-        .app_log_dir()
-        .map_err(|e| format!("无法读取日志目录: {e}"))?;
+    let dir = resolve_app_log_dir(&app).map_err(|e| format!("无法读取应用目录: {e}"))?;
     #[cfg(target_os = "macos")]
     {
         std::process::Command::new("open")
@@ -497,13 +491,9 @@ fn find_named_sidecar_binary(dir: &std::path::Path, base_name: &str) -> Option<P
 }
 
 fn resolve_sidecar_log_path(app: &tauri::AppHandle) -> PathBuf {
-    if let Ok(log_dir) = app.path().app_log_dir() {
-        return log_dir.join("python-sidecar.stderr.log");
-    }
-    if let Ok(resource_dir) = app.path().resource_dir() {
-        return resource_dir.join("python-sidecar.stderr.log");
-    }
-    PathBuf::from("python-sidecar.stderr.log")
+    resolve_app_log_dir(app)
+        .map(|dir| dir.join("python-sidecar.stderr.log"))
+        .unwrap_or_else(|_| PathBuf::from("python-sidecar.stderr.log"))
 }
 
 fn open_sidecar_log_file(path: &Path) -> io::Result<std::fs::File> {
@@ -522,13 +512,9 @@ fn open_node_log_file(app: &tauri::AppHandle) -> io::Result<std::fs::File> {
 }
 
 fn resolve_node_log_path(app: &tauri::AppHandle) -> PathBuf {
-    if let Ok(log_dir) = app.path().app_log_dir() {
-        return log_dir.join("node-sidecar.stderr.log");
-    }
-    if let Ok(resource_dir) = app.path().resource_dir() {
-        return resource_dir.join("node-sidecar.stderr.log");
-    }
-    PathBuf::from("node-sidecar.stderr.log")
+    resolve_app_log_dir(app)
+        .map(|dir| dir.join("node-sidecar.stderr.log"))
+        .unwrap_or_else(|_| PathBuf::from("node-sidecar.stderr.log"))
 }
 
 fn is_sidecar_ready(port: u16) -> bool {
@@ -581,6 +567,13 @@ fn build_python_sidecar_exit_message(log_path: &Path) -> String {
             .to_string();
     }
     "Python 侧车启动失败，请在日志中查看详细错误".to_string()
+}
+
+fn resolve_app_log_dir(app: &tauri::AppHandle) -> Result<PathBuf, tauri::Error> {
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        return Ok(resource_dir);
+    }
+    app.path().app_log_dir()
 }
 
 fn read_log_tail(path: &Path, max_lines: usize) -> String {
