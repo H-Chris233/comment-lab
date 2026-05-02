@@ -29,6 +29,7 @@
     "targets": "all",
     "resources": {
       "../.output/server": "server",
+      "../.output/public": "public",
       "../prompts": "prompts"
     },
     "icon": [
