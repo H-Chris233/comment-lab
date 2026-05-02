@@ -88,6 +88,8 @@ fn spawn_node_sidecar(
     python_base_url: &str,
 ) -> Option<(std::process::Child, u16)> {
     use std::process::{Command, Stdio};
+    #[cfg(target_os = "windows")]
+    use std::os::windows::process::CommandExt;
 
     let resource_dir = match app.path().resource_dir() {
         Ok(dir) => dir,
@@ -132,9 +134,19 @@ fn spawn_node_sidecar(
             emit_sidecar_error(app, msg, &log_path);
             return None;
         }
-        let mut cmd = Command::new(&sidecar_path);
-        cmd.current_dir(&resource_dir);
-        cmd
+        #[cfg(target_os = "windows")]
+        {
+            let mut cmd = Command::new(&sidecar_path);
+            cmd.current_dir(&resource_dir);
+            cmd.creation_flags(0x08000000);
+            cmd
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            let mut cmd = Command::new(&sidecar_path);
+            cmd.current_dir(&resource_dir);
+            cmd
+        }
     } else {
         let sidecar_path = find_named_sidecar_binary(&resource_dir, "comment-lab-node-server")
             .or_else(|| {
@@ -150,7 +162,16 @@ fn spawn_node_sidecar(
             emit_sidecar_error(app, msg, &log_path);
             return None;
         };
-        Command::new(&binary_path)
+        #[cfg(target_os = "windows")]
+        {
+            let mut cmd = Command::new(&binary_path);
+            cmd.creation_flags(0x08000000);
+            cmd
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            Command::new(&binary_path)
+        }
     };
     command
         .stdin(Stdio::null())
@@ -280,6 +301,8 @@ fn open_app_log_dir(app: tauri::AppHandle) -> Result<(), String> {
 
 fn spawn_python_sidecar(app: &tauri::AppHandle) -> Option<std::process::Child> {
     use std::process::{Command, Stdio};
+    #[cfg(target_os = "windows")]
+    use std::os::windows::process::CommandExt;
 
     let resource_dir = match app.path().resource_dir() {
         Ok(dir) => dir,
@@ -334,6 +357,13 @@ fn spawn_python_sidecar(app: &tauri::AppHandle) -> Option<std::process::Child> {
             Some(&base_url),
         );
         let stderr_file = open_sidecar_log_file(&log_path).ok();
+        #[cfg(target_os = "windows")]
+        let mut command = {
+            let mut command = Command::new(&binary_path);
+            command.creation_flags(0x08000000);
+            command
+        };
+        #[cfg(not(target_os = "windows"))]
         let mut command = Command::new(&binary_path);
         if let Some(file) = stderr_file {
             command.stderr(Stdio::from(file));
