@@ -431,20 +431,8 @@ onMounted(() => {
                       <input v-model="localSettings.aliyunApiKey" type="password" placeholder="留空则使用环境变量" />
                     </label>
                     <label class="settings-field">
-                      <span>阿里云 Base URL</span>
-                      <input v-model="localSettings.aliyunBaseUrl" type="text" placeholder="可留空" />
-                    </label>
-                    <label class="settings-field">
                       <span>TikHub API Key</span>
                       <input v-model="localSettings.tikhubApiKey" type="password" placeholder="留空则使用环境变量" />
-                    </label>
-                    <label class="settings-field">
-                      <span>Python 侧车地址</span>
-                      <input
-                        v-model="localSettings.pythonServiceUrl"
-                        type="text"
-                        :placeholder="desktopDiagnostics?.sidecar_base_url || 'http://127.0.0.1:8001'"
-                      />
                     </label>
                     <label class="settings-field">
                       <span>默认模型</span>
