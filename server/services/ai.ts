@@ -30,6 +30,11 @@ function getPythonServiceBaseUrl() {
   return (config.pythonDashscopeServiceUrl || 'http://127.0.0.1:8001').replace(/\/+$/, '')
 }
 
+function getInjectedPythonServiceBaseUrl() {
+  const injected = process.env.PYTHON_DASHSCOPE_SERVICE_URL?.trim()
+  return injected ? injected.replace(/\/+$/, '') : ''
+}
+
 function buildSidecarPayload(params: {
   model: string
   prompt: string
@@ -158,7 +163,9 @@ async function callPythonSidecar(params: {
   signal?: AbortSignal
 }) {
   const localSettings = await readLocalSettings()
-  const baseUrl = (localSettings.pythonServiceUrl || getPythonServiceBaseUrl()).replace(/\/+$/, '')
+  const baseUrl = getInjectedPythonServiceBaseUrl()
+    || localSettings.pythonServiceUrl
+    || getPythonServiceBaseUrl()
   const response = await fetch(`${baseUrl}/generate`, {
     method: 'POST',
     headers: {

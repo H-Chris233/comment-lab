@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
 
+const mockReadLocalSettings = vi.hoisted(() => vi.fn(async () => ({})))
+
+vi.mock('../../server/services/local-settings', () => ({
+  readLocalSettings: mockReadLocalSettings
+}))
+
 import { countCompleteItemsByLines, createCompleteLineCollector, generateFromVideoFile } from '../../server/services/ai'
 
 describe('countCompleteItemsByLines', () => {
@@ -150,6 +156,45 @@ describe('generateFromVideoFile', () => {
       expect(fetchMock).toHaveBeenCalledTimes(2)
     } finally {
       vi.unstubAllGlobals()
+    }
+  })
+
+  it('桌面注入的 Python 侧车地址会覆盖本地保存的旧地址', async () => {
+    const previousUrl = process.env.PYTHON_DASHSCOPE_SERVICE_URL
+    process.env.PYTHON_DASHSCOPE_SERVICE_URL = 'http://127.0.0.1:9123'
+    mockReadLocalSettings.mockResolvedValueOnce({
+      pythonServiceUrl: 'http://127.0.0.1:9999'
+    })
+
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        rawText: '第一条\n'
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock as any)
+
+    try {
+      await generateFromVideoFile({
+        model: 'qwen3.6-plus',
+        prompt: 'base prompt',
+        videoPath: '/tmp/video.mp4',
+        requestId: 'req_test_base_url_override'
+      })
+
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+      const [url] = fetchMock.mock.calls[0] as [string, RequestInit]
+      expect(url).toBe('http://127.0.0.1:9123/generate')
+    } finally {
+      vi.unstubAllGlobals()
+      if (previousUrl == null) {
+        delete process.env.PYTHON_DASHSCOPE_SERVICE_URL
+      } else {
+        process.env.PYTHON_DASHSCOPE_SERVICE_URL = previousUrl
+      }
+      mockReadLocalSettings.mockReset()
+      mockReadLocalSettings.mockImplementation(async () => ({}))
     }
   })
 
