@@ -266,9 +266,7 @@ watch(isPasswordModalOpen, (open) => {
 })
 
 watch(thinkingSupported, (supported) => {
-  if (!supported && enableThinking.value) {
-    enableThinking.value = false
-  }
+  enableThinking.value = supported
 }, { immediate: true })
 
 onBeforeUnmount(() => {
