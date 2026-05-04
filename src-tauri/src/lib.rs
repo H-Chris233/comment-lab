@@ -1,4 +1,5 @@
 use serde::Serialize;
+use serde::Deserialize;
 use std::fs::{self, OpenOptions};
 use std::io;
 use std::net::{SocketAddr, TcpListener, TcpStream};
@@ -15,6 +16,12 @@ const SIDECAR_STARTUP_READY_TIMEOUT_SECS: u64 = 20;
 
 static SIDECAR_BASE_URL: OnceLock<Mutex<String>> = OnceLock::new();
 static ENV_WRITE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+#[derive(Serialize, Deserialize, Clone)]
+struct SidecarRegistry {
+    node_port: u16,
+    python_base_url: String,
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -39,29 +46,31 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
 
-    let mut sidecar = if cfg!(debug_assertions) {
-        None
-    } else {
-        spawn_python_sidecar(app.handle())
-    };
-
     let node_port_for_window = std::sync::Arc::new(std::sync::Mutex::new(None::<u16>));
     let node_port_for_window_setup = node_port_for_window.clone();
 
-    let mut node_sidecar = if cfg!(debug_assertions) {
-        None
-    } else {
-        let python_base_url = current_sidecar_base_url();
-        match spawn_node_sidecar(app.handle(), &python_base_url) {
-            Some((child, node_port)) => {
-                if let Ok(mut slot) = node_port_for_window_setup.lock() {
-                    *slot = Some(node_port);
-                }
-                Some(child)
+    if !cfg!(debug_assertions) {
+        if let Some(existing) = load_reusable_sidecar_registry(app.handle()) {
+            set_sidecar_base_url(existing.python_base_url.clone());
+            set_process_env_var("PYTHON_DASHSCOPE_SERVICE_URL", &existing.python_base_url);
+            if let Ok(mut slot) = node_port_for_window_setup.lock() {
+                *slot = Some(existing.node_port);
             }
-            None => None,
+        } else {
+            let _python_sidecar = spawn_python_sidecar(app.handle());
+            let python_base_url = current_sidecar_base_url();
+            match spawn_node_sidecar(app.handle(), &python_base_url) {
+                Some((child, node_port)) => {
+                    if let Ok(mut slot) = node_port_for_window_setup.lock() {
+                        *slot = Some(node_port);
+                    }
+                    persist_sidecar_registry(app.handle(), node_port, &python_base_url);
+                    let _node_sidecar = child;
+                }
+                None => {}
+            }
         }
-    };
+    }
 
     app.run(move |app_handle, event| match event {
         tauri::RunEvent::Ready => {
@@ -76,24 +85,49 @@ pub fn run() {
             event: tauri::WindowEvent::CloseRequested { .. },
             ..
         } if label == "main" => {
-            if let Some(child) = node_sidecar.as_mut() {
-                graceful_stop_sidecar(child);
-            }
-            if let Some(child) = sidecar.as_mut() {
-                graceful_stop_sidecar(child);
-            }
             app_handle.exit(0);
         }
-        tauri::RunEvent::Exit => {
-            if let Some(child) = node_sidecar.as_mut() {
-                graceful_stop_sidecar(child);
-            }
-            if let Some(child) = sidecar.as_mut() {
-                graceful_stop_sidecar(child);
-            }
-        }
+        tauri::RunEvent::Exit => {}
         _ => {}
     });
+}
+
+fn load_reusable_sidecar_registry(app: &tauri::AppHandle) -> Option<SidecarRegistry> {
+    let path = resolve_sidecar_registry_path(app);
+    let content = fs::read_to_string(path).ok()?;
+    let registry: SidecarRegistry = serde_json::from_str(&content).ok()?;
+    let python_port = parse_local_port_from_base_url(&registry.python_base_url)?;
+    if !is_sidecar_ready(registry.node_port) || !is_sidecar_ready(python_port) {
+        return None;
+    }
+    Some(registry)
+}
+
+fn persist_sidecar_registry(app: &tauri::AppHandle, node_port: u16, python_base_url: &str) {
+    let path = resolve_sidecar_registry_path(app);
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    let payload = SidecarRegistry {
+        node_port,
+        python_base_url: python_base_url.to_string(),
+    };
+    if let Ok(json) = serde_json::to_string(&payload) {
+        let _ = fs::write(path, json);
+    }
+}
+
+fn resolve_sidecar_registry_path(app: &tauri::AppHandle) -> PathBuf {
+    resolve_app_log_dir(app)
+        .map(|dir| dir.join("sidecar-registry.json"))
+        .unwrap_or_else(|_| PathBuf::from("sidecar-registry.json"))
+}
+
+fn parse_local_port_from_base_url(base_url: &str) -> Option<u16> {
+    let value = base_url.trim().trim_end_matches('/');
+    let port_text = value.rsplit(':').next()?;
+    let port = port_text.parse::<u16>().ok()?;
+    Some(port)
 }
 
 fn spawn_node_sidecar(
@@ -663,38 +697,6 @@ fn emit_sidecar_status(
         base_url: base_url.map(|v| v.to_string()),
     };
     let _ = app.emit("sidecar-status", payload);
-}
-
-fn graceful_stop_sidecar(child: &mut std::process::Child) {
-    if child.try_wait().ok().flatten().is_some() {
-        return;
-    }
-
-    #[cfg(target_family = "unix")]
-    {
-        // SAFETY: pid comes from Child::id and SIGTERM is best-effort.
-        unsafe {
-            let _ = libc::kill(child.id() as libc::pid_t, libc::SIGTERM);
-        }
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        let _ = std::process::Command::new("taskkill")
-            .args(["/PID", &child.id().to_string(), "/T", "/F"])
-            .status();
-    }
-
-    let deadline = Instant::now() + Duration::from_secs(3);
-    while Instant::now() < deadline {
-        if child.try_wait().ok().flatten().is_some() {
-            return;
-        }
-        std::thread::sleep(Duration::from_millis(100));
-    }
-
-    let _ = child.kill();
-    let _ = child.wait();
 }
 
 fn configure_runtime_paths(app: &tauri::AppHandle) {
