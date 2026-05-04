@@ -35,6 +35,16 @@ function getInjectedPythonServiceBaseUrl() {
   return injected ? injected.replace(/\/+$/, '') : ''
 }
 
+function resolvePythonBaseUrl(localSettings: { pythonServiceUrl?: string }) {
+  const injected = getInjectedPythonServiceBaseUrl()
+  if (injected) return { baseUrl: injected, source: 'injected-env' as const }
+
+  const saved = localSettings.pythonServiceUrl?.trim()
+  if (saved) return { baseUrl: saved.replace(/\/+$/, ''), source: 'local-settings' as const }
+
+  return { baseUrl: getPythonServiceBaseUrl(), source: 'runtime-config' as const }
+}
+
 function buildSidecarPayload(params: {
   model: string
   prompt: string
@@ -163,9 +173,12 @@ async function callPythonSidecar(params: {
   signal?: AbortSignal
 }) {
   const localSettings = await readLocalSettings()
-  const baseUrl = getInjectedPythonServiceBaseUrl()
-    || localSettings.pythonServiceUrl
-    || getPythonServiceBaseUrl()
+  const { baseUrl, source } = resolvePythonBaseUrl(localSettings)
+  console.info('[ai.generate] sidecar target', {
+    requestId: params.requestId,
+    baseUrl,
+    source
+  })
   const response = await fetch(`${baseUrl}/generate`, {
     method: 'POST',
     headers: {
