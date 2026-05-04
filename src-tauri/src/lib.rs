@@ -2,6 +2,7 @@ use serde::Serialize;
 use serde::Deserialize;
 use std::fs::{self, OpenOptions};
 use std::io;
+use std::io::Write;
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::Path;
 use std::path::PathBuf;
@@ -15,8 +16,6 @@ const SIDECAR_STARTUP_MAX_ATTEMPTS: usize = 3;
 const SIDECAR_STARTUP_READY_TIMEOUT_SECS: u64 = 20;
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
-#[cfg(target_os = "windows")]
-const DETACHED_PROCESS: u32 = 0x00000008;
 
 static SIDECAR_BASE_URL: OnceLock<Mutex<String>> = OnceLock::new();
 static ENV_WRITE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -25,6 +24,13 @@ static ENV_WRITE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 struct SidecarRegistry {
     node_port: u16,
     python_base_url: String,
+    node_pid: u32,
+    python_pid: u32,
+    active_instances: u32,
+}
+
+struct RegistryLock {
+    path: PathBuf,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -53,26 +59,59 @@ pub fn run() {
     let node_port_for_window = std::sync::Arc::new(std::sync::Mutex::new(None::<u16>));
     let node_port_for_window_setup = node_port_for_window.clone();
 
+    let mut release_on_exit = false;
     if !cfg!(debug_assertions) {
-        if let Some(existing) = load_reusable_sidecar_registry(app.handle()) {
-            set_sidecar_base_url(existing.python_base_url.clone());
-            set_process_env_var("PYTHON_DASHSCOPE_SERVICE_URL", &existing.python_base_url);
-            if let Ok(mut slot) = node_port_for_window_setup.lock() {
-                *slot = Some(existing.node_port);
-            }
-        } else {
-            let _python_sidecar = spawn_python_sidecar(app.handle());
-            let python_base_url = current_sidecar_base_url();
-            match spawn_node_sidecar(app.handle(), &python_base_url) {
-                Some((child, node_port)) => {
-                    if let Ok(mut slot) = node_port_for_window_setup.lock() {
-                        *slot = Some(node_port);
-                    }
-                    persist_sidecar_registry(app.handle(), node_port, &python_base_url);
-                    let _node_sidecar = child;
+        let Some(_lock) = acquire_registry_lock(app.handle()) else {
+            eprintln!("[desktop] sidecar registry lock unavailable, skip shared-sidecar lifecycle");
+            if let Some((node_child, node_port)) = spawn_standalone_sidecars(app.handle()) {
+                if let Ok(mut slot) = node_port_for_window_setup.lock() {
+                    *slot = Some(node_port);
                 }
-                None => {}
+                let _local_node_sidecar = node_child;
             }
+            app.run(move |app_handle, event| match event {
+                tauri::RunEvent::Ready => {
+                    if let Ok(slot) = node_port_for_window.lock() {
+                        if let Some(port) = *slot {
+                            update_main_window_url(app_handle, port);
+                        }
+                    }
+                }
+                tauri::RunEvent::WindowEvent {
+                    label,
+                    event: tauri::WindowEvent::CloseRequested { .. },
+                    ..
+                } if label == "main" => {
+                    app_handle.exit(0);
+                }
+                _ => {}
+            });
+            return;
+        };
+        if let Some(existing) = load_reusable_sidecar_registry(app.handle()) {
+          set_sidecar_base_url(existing.python_base_url.clone());
+          set_process_env_var("PYTHON_DASHSCOPE_SERVICE_URL", &existing.python_base_url);
+          if let Ok(mut slot) = node_port_for_window_setup.lock() {
+              *slot = Some(existing.node_port);
+          }
+          release_on_exit = register_sidecar_instance(app.handle());
+        } else {
+          match spawn_standalone_sidecars(app.handle()) {
+              Some((node_child, node_port)) => {
+                  if let Ok(mut slot) = node_port_for_window_setup.lock() {
+                      *slot = Some(node_port);
+                  }
+                  release_on_exit = persist_sidecar_registry(
+                      app.handle(),
+                      node_port,
+                      &current_sidecar_base_url(),
+                      node_child.id(),
+                      read_python_pid_from_lock(app.handle()).unwrap_or_default(),
+                  );
+                  let _owned_node_sidecar = node_child;
+              }
+              None => {}
+          }
         }
     }
 
@@ -91,7 +130,11 @@ pub fn run() {
         } if label == "main" => {
             app_handle.exit(0);
         }
-        tauri::RunEvent::Exit => {}
+        tauri::RunEvent::Exit => {
+            if release_on_exit {
+                release_sidecar_instance(app_handle);
+            }
+        }
         _ => {}
     });
 }
@@ -107,7 +150,51 @@ fn load_reusable_sidecar_registry(app: &tauri::AppHandle) -> Option<SidecarRegis
     Some(registry)
 }
 
-fn persist_sidecar_registry(app: &tauri::AppHandle, node_port: u16, python_base_url: &str) {
+fn register_sidecar_instance(app: &tauri::AppHandle) -> bool {
+    let path = resolve_sidecar_registry_path(app);
+    let Ok(content) = fs::read_to_string(&path) else {
+        return false;
+    };
+    let Ok(mut registry) = serde_json::from_str::<SidecarRegistry>(&content) else {
+        return false;
+    };
+    registry.active_instances = registry.active_instances.saturating_add(1);
+    if let Ok(json) = serde_json::to_string(&registry) {
+        return fs::write(path, json).is_ok();
+    }
+    false
+}
+
+fn release_sidecar_instance(app: &tauri::AppHandle) {
+    let _lock = acquire_registry_lock(app);
+    let path = resolve_sidecar_registry_path(app);
+    let Ok(content) = fs::read_to_string(&path) else {
+        return;
+    };
+    let Ok(mut registry) = serde_json::from_str::<SidecarRegistry>(&content) else {
+        return;
+    };
+
+    registry.active_instances = registry.active_instances.saturating_sub(1);
+    if registry.active_instances > 0 {
+        if let Ok(json) = serde_json::to_string(&registry) {
+            let _ = fs::write(path, json);
+        }
+        return;
+    }
+
+    stop_sidecar_pid(registry.node_pid, "comment-lab-node-server");
+    stop_sidecar_pid(registry.python_pid, "comment-lab-python-sidecar");
+    let _ = fs::remove_file(path);
+}
+
+fn persist_sidecar_registry(
+    app: &tauri::AppHandle,
+    node_port: u16,
+    python_base_url: &str,
+    node_pid: u32,
+    python_pid: u32,
+) -> bool {
     let path = resolve_sidecar_registry_path(app);
     if let Some(parent) = path.parent() {
         let _ = fs::create_dir_all(parent);
@@ -115,10 +202,14 @@ fn persist_sidecar_registry(app: &tauri::AppHandle, node_port: u16, python_base_
     let payload = SidecarRegistry {
         node_port,
         python_base_url: python_base_url.to_string(),
+        node_pid,
+        python_pid,
+        active_instances: 1,
     };
     if let Ok(json) = serde_json::to_string(&payload) {
-        let _ = fs::write(path, json);
+        return fs::write(path, json).is_ok();
     }
+    false
 }
 
 fn resolve_sidecar_registry_path(app: &tauri::AppHandle) -> PathBuf {
@@ -132,6 +223,127 @@ fn parse_local_port_from_base_url(base_url: &str) -> Option<u16> {
     let port_text = value.rsplit(':').next()?;
     let port = port_text.parse::<u16>().ok()?;
     Some(port)
+}
+
+fn stop_sidecar_pid(pid: u32, expected_name: &str) {
+    if pid == 0 {
+        return;
+    }
+    if !matches_expected_process(pid, expected_name) {
+        eprintln!("[desktop] skip stop pid={pid}, expected={expected_name}, identity mismatch");
+        return;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        if !matches_expected_process(pid, expected_name) {
+            eprintln!("[desktop] skip stop pid={pid}, expected={expected_name}, identity mismatch");
+            return;
+        }
+    }
+    #[cfg(target_family = "unix")]
+    {
+        // SAFETY: best-effort terminate by known PID.
+        unsafe {
+            let _ = libc::kill(pid as libc::pid_t, libc::SIGTERM);
+        }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        let mut cmd = std::process::Command::new("taskkill");
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        let _ = cmd.args(["/PID", &pid.to_string(), "/T", "/F"]).status();
+    }
+}
+
+fn matches_expected_process(pid: u32, expected_name: &str) -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        let mut cmd = std::process::Command::new("tasklist");
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        let output = cmd
+            .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
+            .output()
+            .ok();
+        let text = output
+            .as_ref()
+            .map(|v| String::from_utf8_lossy(&v.stdout).to_string())
+            .unwrap_or_default()
+            .to_lowercase();
+        text.contains(&expected_name.to_lowercase())
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (pid, expected_name);
+        true
+    }
+}
+
+fn acquire_registry_lock(app: &tauri::AppHandle) -> Option<RegistryLock> {
+    let path = resolve_registry_lock_path(app);
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    for _ in 0..80 {
+        let file = OpenOptions::new().write(true).create_new(true).open(&path);
+        if let Ok(mut f) = file {
+            let _ = writeln!(f, "{}", std::process::id());
+            return Some(RegistryLock { path });
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    eprintln!("[desktop] failed to acquire sidecar registry lock");
+    None
+}
+
+fn spawn_standalone_sidecars(app: &tauri::AppHandle) -> Option<(std::process::Child, u16)> {
+    let python_sidecar = spawn_python_sidecar(app);
+    let python_base_url = current_sidecar_base_url();
+    match (python_sidecar, spawn_node_sidecar(app, &python_base_url)) {
+        (Some(python_child), Some((node_child, node_port))) => {
+            write_python_pid_lock(app, python_child.id());
+            Some((node_child, node_port))
+        }
+        (Some(mut python_child), None) => {
+            let _ = python_child.kill();
+            let _ = python_child.wait();
+            None
+        }
+        _ => None
+    }
+}
+
+fn resolve_python_pid_path(app: &tauri::AppHandle) -> PathBuf {
+    resolve_app_log_dir(app)
+        .map(|dir| dir.join("python-sidecar.pid"))
+        .unwrap_or_else(|_| PathBuf::from("python-sidecar.pid"))
+}
+
+fn write_python_pid_lock(app: &tauri::AppHandle, pid: u32) {
+    let path = resolve_python_pid_path(app);
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    let _ = fs::write(path, pid.to_string());
+}
+
+fn read_python_pid_from_lock(app: &tauri::AppHandle) -> Option<u32> {
+    let path = resolve_python_pid_path(app);
+    let content = fs::read_to_string(path).ok()?;
+    content.trim().parse::<u32>().ok()
+}
+
+fn resolve_registry_lock_path(app: &tauri::AppHandle) -> PathBuf {
+    resolve_app_log_dir(app)
+        .map(|dir| dir.join("sidecar-registry.lock"))
+        .unwrap_or_else(|_| PathBuf::from("sidecar-registry.lock"))
+}
+
+impl Drop for RegistryLock {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.path);
+    }
 }
 
 fn spawn_node_sidecar(
@@ -189,7 +401,7 @@ fn spawn_node_sidecar(
         {
             let mut cmd = Command::new(&sidecar_path);
             cmd.current_dir(&resource_dir);
-            cmd.creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS);
+            cmd.creation_flags(CREATE_NO_WINDOW);
             cmd
         }
         #[cfg(not(target_os = "windows"))]
@@ -216,7 +428,7 @@ fn spawn_node_sidecar(
         #[cfg(target_os = "windows")]
         {
             let mut cmd = Command::new(&binary_path);
-            cmd.creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS);
+            cmd.creation_flags(CREATE_NO_WINDOW);
             cmd
         }
         #[cfg(not(target_os = "windows"))]
@@ -405,7 +617,7 @@ fn spawn_python_sidecar(app: &tauri::AppHandle) -> Option<std::process::Child> {
         #[cfg(target_os = "windows")]
         let mut command = {
             let mut command = Command::new(&binary_path);
-            command.creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS);
+            command.creation_flags(CREATE_NO_WINDOW);
             command
         };
         #[cfg(not(target_os = "windows"))]
