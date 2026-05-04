@@ -13,6 +13,10 @@ use tauri::Url;
 
 const SIDECAR_STARTUP_MAX_ATTEMPTS: usize = 3;
 const SIDECAR_STARTUP_READY_TIMEOUT_SECS: u64 = 20;
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+#[cfg(target_os = "windows")]
+const DETACHED_PROCESS: u32 = 0x00000008;
 
 static SIDECAR_BASE_URL: OnceLock<Mutex<String>> = OnceLock::new();
 static ENV_WRITE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -185,7 +189,7 @@ fn spawn_node_sidecar(
         {
             let mut cmd = Command::new(&sidecar_path);
             cmd.current_dir(&resource_dir);
-            cmd.creation_flags(0x08000000);
+            cmd.creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS);
             cmd
         }
         #[cfg(not(target_os = "windows"))]
@@ -212,7 +216,7 @@ fn spawn_node_sidecar(
         #[cfg(target_os = "windows")]
         {
             let mut cmd = Command::new(&binary_path);
-            cmd.creation_flags(0x08000000);
+            cmd.creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS);
             cmd
         }
         #[cfg(not(target_os = "windows"))]
@@ -401,7 +405,7 @@ fn spawn_python_sidecar(app: &tauri::AppHandle) -> Option<std::process::Child> {
         #[cfg(target_os = "windows")]
         let mut command = {
             let mut command = Command::new(&binary_path);
-            command.creation_flags(0x08000000);
+            command.creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS);
             command
         };
         #[cfg(not(target_os = "windows"))]

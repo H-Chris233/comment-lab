@@ -327,7 +327,7 @@ function isBundleHeading(line: string) {
 
 function isInvalidLength(line: string) {
   const visibleLength = countVisibleLengthWithoutEmojiAndPunctuation(line)
-  return visibleLength < 2 || visibleLength > 30
+  return visibleLength < 3 || visibleLength > 30
 }
 
 function isSingleEmojiLine(line: string) {
