@@ -71,6 +71,19 @@ pub fn run() {
                 }
             }
         }
+        tauri::RunEvent::WindowEvent {
+            label,
+            event: tauri::WindowEvent::CloseRequested { .. },
+            ..
+        } if label == "main" => {
+            if let Some(child) = node_sidecar.as_mut() {
+                graceful_stop_sidecar(child);
+            }
+            if let Some(child) = sidecar.as_mut() {
+                graceful_stop_sidecar(child);
+            }
+            app_handle.exit(0);
+        }
         tauri::RunEvent::Exit => {
             if let Some(child) = node_sidecar.as_mut() {
                 graceful_stop_sidecar(child);
@@ -668,7 +681,7 @@ fn graceful_stop_sidecar(child: &mut std::process::Child) {
     #[cfg(target_os = "windows")]
     {
         let _ = std::process::Command::new("taskkill")
-            .args(["/PID", &child.id().to_string()])
+            .args(["/PID", &child.id().to_string(), "/T", "/F"])
             .status();
     }
 
