@@ -174,24 +174,35 @@ async function callPythonSidecar(params: {
 }) {
   const localSettings = await readLocalSettings()
   const { baseUrl, source } = resolvePythonBaseUrl(localSettings)
-  console.info('[ai.generate] sidecar target', {
+  console.warn('[ai.generate] sidecar target', {
     requestId: params.requestId,
     baseUrl,
     source
   })
-  const response = await fetch(`${baseUrl}/generate`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-request-id': params.requestId
-    },
-    body: JSON.stringify(buildSidecarPayload({
-      ...params,
-      aliyunApiKey: localSettings.aliyunApiKey,
-      aliyunBaseUrl: localSettings.aliyunBaseUrl
-    })),
-    signal: params.signal
-  })
+  let response: Response
+  try {
+    response = await fetch(`${baseUrl}/generate`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-request-id': params.requestId
+      },
+      body: JSON.stringify(buildSidecarPayload({
+        ...params,
+        aliyunApiKey: localSettings.aliyunApiKey,
+        aliyunBaseUrl: localSettings.aliyunBaseUrl
+      })),
+      signal: params.signal
+    })
+  } catch (error) {
+    console.error('[ai.generate] sidecar request failed', {
+      requestId: params.requestId,
+      baseUrl,
+      source,
+      reason: error instanceof Error ? error.message : String(error)
+    })
+    throw error
+  }
 
   if (!response.ok) {
     const payload = await response.json().catch(() => null) as null | {
