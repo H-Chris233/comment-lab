@@ -17,10 +17,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: ubuntu-22.04
-            args: "--bundles deb,rpm"
-          - platform: macos-latest
-            args: "--bundles dmg"
           - platform: windows-latest
             args: "--bundles nsis"
 
@@ -153,10 +149,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: ubuntu-22.04
-            args: "--bundles deb,rpm"
-          - platform: macos-latest
-            args: "--bundles dmg"
           - platform: windows-latest
             args: "--bundles nsis"
 
