@@ -297,16 +297,16 @@ describe('normalizeComments', () => {
     const raw = ['😄', '哈哈😄', '😂。', '纯文字'].join('\n')
     const result = normalizeComments(raw, { dedupe: true, cleanEmpty: true })
 
-    expect(result.comments).toEqual(['纯文字。'])
-    expect(result.removedInvalid).toBe(3)
+    expect(result.comments).toEqual([])
+    expect(result.removedInvalid).toBe(4)
   })
 
-  it('会去除去标点后不足 3 字的内容', () => {
+  it('会去除去标点后不足 4 字的内容', () => {
     const raw = ['好！', '真好。', '冲冲冲！！！'].join('\n')
     const result = normalizeComments(raw, { dedupe: true, cleanEmpty: true })
 
-    expect(result.comments).toEqual(['冲冲冲！！！'])
-    expect(result.removedInvalid).toBe(2)
+    expect(result.comments).toEqual([])
+    expect(result.removedInvalid).toBe(3)
   })
 
   it('会把“那个/这个”开头控制在 3%，超出的行会去掉前缀', () => {
