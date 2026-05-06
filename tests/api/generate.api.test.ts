@@ -30,6 +30,12 @@ vi.mock('../../server/services/video-compress', () => ({
     cleanup: async () => {},
     bytes: params.maxBytes ?? 0,
     compressed: false
+  })),
+  transcodeVideoForProviderRetry: vi.fn(async (params: any) => ({
+    sourcePath: '/tmp/provider-retry.mp4',
+    cleanup: async () => {},
+    bytes: 1024,
+    compressed: true
   }))
 }))
 
@@ -57,7 +63,7 @@ vi.mock('../../server/services/video-probe', () => ({
 import { generateFromVideoUrl, generateFromVideoFile } from '../../server/services/ai'
 import { downloadVideoUrlToTempFile, saveVideoUploadToTempFile } from '../../server/services/file'
 import { parseDouyinLink, resolveDouyinDownloadVideoUrl, resolveDouyinLowQualityDownloadVideoUrl } from '../../server/services/douyin'
-import { ensureVideoUnderLimit, getMaxCompressVideoBytes } from '../../server/services/video-compress'
+import { ensureVideoUnderLimit, getMaxCompressVideoBytes, transcodeVideoForProviderRetry } from '../../server/services/video-compress'
 import { probeVideoFileForModel } from '../../server/services/video-probe'
 import generateHandler from '../../server/api/generate.post'
 
@@ -439,6 +445,47 @@ describe('POST /api/generate', () => {
     expect(res.body.code).toBe('VIDEO_INVALID')
     expect(generateFromVideoFile).not.toHaveBeenCalled()
     expect(cleanup).toHaveBeenCalledTimes(1)
+  })
+
+  it('云端判定视频无效时会转换标准 MP4 并重试一次', async () => {
+    let callCount = 0
+    vi.mocked(generateFromVideoFile).mockImplementation(async (params: any) => {
+      callCount += 1
+      if (callCount === 1) {
+        throw createAppError({
+          code: 'MODEL_CALL_FAILED',
+          message: 'HTTP 400 | InvalidParameter | <400> InternalError.Algo.InvalidParameter: Invalid video file.',
+          statusCode: 502
+        })
+      }
+      return {
+        rawText: buildStyleRawText(params.prompt, params.stopAfterItems),
+        model: 'qwen3.5-omni-plus',
+        streamChunkCount: Math.max(1, params.stopAfterItems || 1),
+        durationMs: 10
+      } as any
+    })
+
+    const app = createApp()
+    app.use('/api/generate', generateHandler)
+
+    const res = await request(toNodeListener(app))
+      .post('/api/generate?stream=1')
+      .set('Accept', 'text/event-stream')
+      .field('mode', 'upload')
+      .field('count', '1')
+      .field('basePrompt', 'base')
+      .attach('video', Buffer.from('1234'), { filename: 'ok.mp4', contentType: 'video/mp4' })
+
+    expect(res.status).toBe(200)
+    expect(res.text).toContain('云端拒绝原视频，正在转换为标准 MP4 后重试')
+    expect(transcodeVideoForProviderRetry).toHaveBeenCalledWith(expect.objectContaining({
+      sourcePath: '/tmp/mock.mp4'
+    }))
+    expect(generateFromVideoFile).toHaveBeenCalledTimes(2)
+    expect(vi.mocked(generateFromVideoFile).mock.calls[1]?.[0]).toEqual(expect.objectContaining({
+      videoPath: '/tmp/provider-retry.mp4'
+    }))
   })
 
   it('CN 区域链接在 inputMode=file 时会优先下载高画质链接', async () => {

@@ -401,4 +401,47 @@ export async function compressVideoIfNeeded(params: CompressVideoIfNeededParams)
   })
 }
 
+export async function transcodeVideoForProviderRetry(params: CompressVideoIfNeededParams): Promise<CompressVideoResult> {
+  const maxBytes = params.maxBytes ?? getMaxCompressVideoBytes() ?? DEFAULT_MAX_COMPRESS_VIDEO_BYTES
+
+  if (params.signal?.aborted) {
+    throw createAbortAppError()
+  }
+
+  let stat
+  try {
+    stat = await fs.stat(params.sourcePath)
+  } catch {
+    throw createCompressionAppError('视频文件不存在或无法读取')
+  }
+
+  console.info('[video-compress] provider-retry-transcode:start', {
+    requestId: params.requestId,
+    inputPath: path.basename(params.sourcePath),
+    bytes: stat.size,
+    maxBytes
+  })
+
+  emitCompressStatus(params.onStatus, {
+    requestId: params.requestId,
+    phase: 'compressing',
+    message: '云端拒绝原视频，正在转换为标准 MP4 后重试',
+    percent: null,
+    downloadedBytes: stat.size,
+    contentLength: stat.size,
+    details: {
+      reason: 'provider-invalid-video',
+      maxBytes
+    }
+  })
+
+  return await compressVideoFile({
+    inputPath: params.sourcePath,
+    maxBytes,
+    signal: params.signal,
+    requestId: params.requestId,
+    onStatus: params.onStatus
+  })
+}
+
 export const ensureVideoUnderLimit = compressVideoIfNeeded

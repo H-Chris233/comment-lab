@@ -3,7 +3,7 @@ import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { compressVideoIfNeeded } from '../../server/services/video-compress'
+import { compressVideoIfNeeded, transcodeVideoForProviderRetry } from '../../server/services/video-compress'
 import { runProcess } from '../../server/services/process-runner'
 
 vi.mock('../../server/services/process-runner', () => ({
@@ -78,6 +78,36 @@ describe('compressVideoIfNeeded', () => {
     expect(path.extname(result.sourcePath)).toBe('.mp4')
     expect(result.bytes).toBe(3)
     expect(vi.mocked(runProcess)).toHaveBeenCalledTimes(1)
+
+    await result.cleanup()
+  })
+
+  it('can force-transcode a small provider-rejected file for retry', async () => {
+    const sourcePath = await createSparseVideoFile(4 * MB, 'provider-rejected.mp4')
+    const onStatus = vi.fn()
+
+    vi.mocked(runProcess).mockImplementation(async ({ args }: any) => {
+      const outputPath = args[args.length - 1] as string
+      await fs.mkdir(path.dirname(outputPath), { recursive: true })
+      await fs.writeFile(outputPath, Buffer.from([1, 2, 3]))
+      return {
+        stdout: '',
+        stderr: '',
+        exitCode: 0,
+        signal: null
+      }
+    })
+
+    const result = await transcodeVideoForProviderRetry({ sourcePath, onStatus, requestId: 'req_transcode_retry' })
+
+    expect(result.compressed).toBe(true)
+    expect(result.sourcePath).not.toBe(sourcePath)
+    expect(runProcess).toHaveBeenCalledTimes(1)
+    expect(onStatus).toHaveBeenCalledWith(expect.objectContaining({
+      requestId: 'req_transcode_retry',
+      phase: 'compressing',
+      message: '云端拒绝原视频，正在转换为标准 MP4 后重试'
+    }))
 
     await result.cleanup()
   })

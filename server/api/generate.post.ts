@@ -14,7 +14,7 @@ import { normalizeComments } from '../services/normalize'
 import { countVisibleLengthWithoutEmojiAndPunctuation } from '../services/emoji'
 import type { ParsedVideoResult } from '../services/douyin'
 import { parseDouyinLink, resolveDouyinDownloadVideoUrl } from '../services/douyin'
-import { ensureVideoUnderLimit, getMaxCompressVideoBytes } from '../services/video-compress'
+import { ensureVideoUnderLimit, getMaxCompressVideoBytes, transcodeVideoForProviderRetry } from '../services/video-compress'
 import { probeVideoFileForModel } from '../services/video-probe'
 import {
   STYLE_ORDER,
@@ -137,6 +137,37 @@ function normalizeStatusPayload(payload: GenerateStatusData) {
     downloadedBytes: payload.downloadedBytes,
     contentLength: payload.contentLength,
     details: payload.details
+  }
+}
+
+function isProviderInvalidVideoError(error: unknown) {
+  if (!error || typeof error !== 'object') return false
+  const maybe = error as { code?: unknown; message?: unknown; data?: unknown }
+  const message = String(maybe.message || '').toLowerCase()
+  const data = maybe.data && typeof maybe.data === 'object' ? maybe.data as Record<string, unknown> : {}
+  const providerCode = String(data.code || data.providerCode || data.upstreamCode || '').toLowerCase()
+  const providerDetail = String(data.detail || data.providerDetail || '').toLowerCase()
+  const combined = `${message}\n${providerCode}\n${providerDetail}`
+  const hasProviderInvalidParameter = combined.includes('invalidparameter')
+    || combined.includes('invalid_parameter')
+    || combined.includes('invalid parameter')
+  const hasInvalidVideo = combined.includes('invalid video file')
+    || combined.includes('invalid video')
+    || combined.includes('video file invalid')
+  return maybe.code === 'MODEL_CALL_FAILED' && hasInvalidVideo && hasProviderInvalidParameter
+}
+
+function createLinkedAbortController(parentSignal: AbortSignal) {
+  const controller = new AbortController()
+  const abort = () => controller.abort(parentSignal.reason)
+  if (parentSignal.aborted) {
+    abort()
+  } else {
+    parentSignal.addEventListener('abort', abort, { once: true })
+  }
+  return {
+    controller,
+    cleanup: () => parentSignal.removeEventListener('abort', abort)
   }
 }
 
@@ -533,6 +564,7 @@ export default defineEventHandler(async (event) => {
     let beforeNormalizeCount = 0
     let afterNormalizeCount = 0
     let streamedItemCount = 0
+    let providerRetryTranscoded = false
 
     const maxRounds = Math.max(2, Math.ceil(count / 50) + MAX_ROUNDS_BUFFER)
 
@@ -594,8 +626,9 @@ export default defineEventHandler(async (event) => {
           }, {})
         })
 
-        const aiResults = await Promise.all(
-          promptEntries.map(({ style, target, prompt }) => {
+        const runAiRound = async () => {
+          const { controller: roundAbortController, cleanup: cleanupRoundAbort } = createLinkedAbortController(abortController.signal)
+          const aiRequests = promptEntries.map(({ style, target, prompt }) => {
             const commonParams = {
               model,
               prompt,
@@ -615,7 +648,7 @@ export default defineEventHandler(async (event) => {
                 })
               },
               enableThinking,
-              signal: abortController.signal
+              signal: roundAbortController.signal
             }
 
             return inputMode === 'url'
@@ -628,7 +661,60 @@ export default defineEventHandler(async (event) => {
                   videoPath: localVideoPath
                 })
           })
-        )
+
+          try {
+            return await Promise.all(aiRequests)
+          } catch (error) {
+            roundAbortController.abort(error)
+            await Promise.allSettled(aiRequests)
+            throw error
+          } finally {
+            cleanupRoundAbort()
+          }
+        }
+
+        let aiResults: Awaited<ReturnType<typeof runAiRound>>
+        try {
+          aiResults = await runAiRound()
+        } catch (error) {
+          if (inputMode !== 'url' && localVideoPath && !providerRetryTranscoded && isProviderInvalidVideoError(error)) {
+            providerRetryTranscoded = true
+            console.warn('[api.generate] step:provider-invalid-video-transcode-retry', {
+              requestId,
+              round,
+              sourcePath: localVideoPath
+            })
+            emitStatus({
+              requestId,
+              phase: 'compressing',
+              message: '云端拒绝原视频，正在转换为标准 MP4 后重试',
+              round
+            })
+
+            const transcoded = await transcodeVideoForProviderRetry({
+              sourcePath: localVideoPath,
+              requestId,
+              signal: abortController.signal,
+              onStatus: emitStatus
+            })
+            const previousCleanup = cleanupVideoSource
+            cleanupVideoSource = async () => {
+              await transcoded.cleanup().catch(() => {})
+              await previousCleanup?.().catch(() => {})
+            }
+            localVideoPath = transcoded.sourcePath
+
+            emitStatus({
+              requestId,
+              phase: 'calling_model',
+              message: `视频格式转换完成，正在重试模型调用（第 ${round} 轮）`,
+              round
+            })
+            aiResults = await runAiRound()
+          } else {
+            throw error
+          }
+        }
         ensureClientConnected(`round-${round}-after-ai`)
 
         console.info('[api.generate] step:round:ai-ok', {
