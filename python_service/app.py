@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import mimetypes
 import os
 from pathlib import Path
 from time import perf_counter
@@ -113,16 +114,25 @@ def describe_video_source(request: GenerateRequest, source: str) -> dict[str, ob
     raw_path = source.removeprefix("file://")
     exists = os.path.exists(raw_path)
     size = None
+    readable = False
+    first16_hex = None
     if exists:
         try:
             size = os.path.getsize(raw_path)
+            with open(raw_path, "rb") as video_file:
+                first16_hex = video_file.read(16).hex()
+                readable = True
         except OSError:
             size = None
     return {
         "input_mode": "file",
         "video_path_basename": os.path.basename(raw_path),
+        "video_path_suffix": Path(raw_path).suffix or None,
         "video_exists": exists,
         "video_bytes": size,
+        "video_readable": readable,
+        "video_mime_guess": mimetypes.guess_type(raw_path)[0],
+        "video_first16_hex": first16_hex,
     }
 
 

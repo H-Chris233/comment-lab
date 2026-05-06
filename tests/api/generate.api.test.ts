@@ -33,10 +33,22 @@ vi.mock('../../server/services/video-compress', () => ({
   }))
 }))
 
+vi.mock('../../server/services/video-probe', () => ({
+  probeVideoFileForModel: vi.fn(async () => ({
+    ok: true,
+    bytes: 4,
+    format: 'mov,mp4,m4a,3gp,3g2,mj2',
+    duration: '00:00:03.00',
+    videoCodec: 'h264',
+    resolution: '720x1280'
+  }))
+}))
+
 import { generateFromVideoUrl, generateFromVideoFile } from '../../server/services/ai'
 import { downloadVideoUrlToTempFile, saveVideoUploadToTempFile } from '../../server/services/file'
 import { parseDouyinLink, resolveDouyinDownloadVideoUrl, resolveDouyinLowQualityDownloadVideoUrl } from '../../server/services/douyin'
 import { ensureVideoUnderLimit, getMaxCompressVideoBytes } from '../../server/services/video-compress'
+import { probeVideoFileForModel } from '../../server/services/video-probe'
 import generateHandler from '../../server/api/generate.post'
 
 function styleTargetFromPrompt(prompt: string) {
@@ -375,6 +387,47 @@ describe('POST /api/generate', () => {
     expect(downloadVideoUrlToTempFile).toHaveBeenCalledTimes(1)
     expect(generateFromVideoFile).toHaveBeenCalledTimes(2)
     expect(ensureVideoUnderLimit).not.toHaveBeenCalled()
+    expect(probeVideoFileForModel).toHaveBeenCalledWith(expect.objectContaining({
+      sourcePath: '/tmp/mock.mp4',
+      bytes: 4,
+      stepLabel: 'link-download'
+    }))
+  })
+
+  it('link 模式下载到不可解析视频时不会继续调用模型', async () => {
+    const cleanup = vi.fn(async () => {})
+    vi.mocked(downloadVideoUrlToTempFile).mockResolvedValueOnce({
+      bytes: 3_450_786,
+      mime: 'video/mp4',
+      sourcePath: '/tmp/broken-video.mp4',
+      cleanup
+    } as any)
+    vi.mocked(probeVideoFileForModel).mockRejectedValueOnce(createAppError({
+      code: 'VIDEO_INVALID',
+      message: '下载到的视频文件不可解析，请重试或改用本地上传',
+      statusCode: 422,
+      data: {
+        bytes: 3_450_786,
+        reason: 'Invalid data found when processing input'
+      }
+    }))
+
+    const app = createApp()
+    app.use('/api/generate', generateHandler)
+
+    const res = await request(toNodeListener(app))
+      .post('/api/generate')
+      .field('mode', 'link')
+      .field('inputMode', 'file')
+      .field('url', 'https://v.douyin.com/abcde/')
+      .field('count', '2')
+      .field('basePrompt', 'base')
+
+    expect(res.status).toBe(422)
+    expect(res.body.ok).toBe(false)
+    expect(res.body.code).toBe('VIDEO_INVALID')
+    expect(generateFromVideoFile).not.toHaveBeenCalled()
+    expect(cleanup).toHaveBeenCalledTimes(1)
   })
 
   it('CN 区域链接在 inputMode=file 时会优先下载高画质链接', async () => {

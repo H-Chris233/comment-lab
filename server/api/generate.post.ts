@@ -15,6 +15,7 @@ import { countVisibleLengthWithoutEmojiAndPunctuation } from '../services/emoji'
 import type { ParsedVideoResult } from '../services/douyin'
 import { parseDouyinLink, resolveDouyinDownloadVideoUrl } from '../services/douyin'
 import { ensureVideoUnderLimit, getMaxCompressVideoBytes } from '../services/video-compress'
+import { probeVideoFileForModel } from '../services/video-probe'
 import {
   STYLE_ORDER,
   buildStylePrompts,
@@ -147,13 +148,28 @@ async function compressVideoSourceIfNeeded(params: {
   onStatus?: StatusEmitter
 }) {
   const maxVideoBytes = getMaxCompressVideoBytes()
+  const probePreparedSource = async (source: TempVideoSource) => {
+    try {
+      await probeVideoFileForModel({
+        sourcePath: source.sourcePath,
+        bytes: source.bytes,
+        requestId: params.requestId,
+        stepLabel: params.stepLabel
+      })
+      return source
+    } catch (error) {
+      await source.cleanup().catch(() => {})
+      throw error
+    }
+  }
+
   if (params.source.bytes <= maxVideoBytes) {
     console.info(`[api.generate] step:${params.stepLabel}-compress:skip`, {
       requestId: params.requestId,
       bytes: params.source.bytes,
       maxBytes: maxVideoBytes
     })
-    return params.source
+    return await probePreparedSource(params.source)
   }
 
   console.info(`[api.generate] step:${params.stepLabel}-compress:start`, {
@@ -178,7 +194,7 @@ async function compressVideoSourceIfNeeded(params: {
         bytes: params.source.bytes,
         maxBytes: maxVideoBytes
       })
-      return params.source
+      return await probePreparedSource(params.source)
     }
 
     console.info(`[api.generate] step:${params.stepLabel}-compress:done`, {
@@ -189,7 +205,7 @@ async function compressVideoSourceIfNeeded(params: {
       compressed: true
     })
 
-    return {
+    return await probePreparedSource({
       sourcePath: compressed.sourcePath,
       bytes: compressed.bytes,
       cleanup: async () => {
@@ -197,7 +213,7 @@ async function compressVideoSourceIfNeeded(params: {
         await params.source.cleanup().catch(() => {})
       },
       mime: params.source.mime
-    }
+    })
   } catch (error) {
     await params.source.cleanup().catch(() => {})
     throw error

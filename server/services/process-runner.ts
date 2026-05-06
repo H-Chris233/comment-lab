@@ -77,7 +77,8 @@ export async function runProcess(params: RunProcessParams): Promise<RunProcessRe
     const child = spawn(params.command, params.args, {
       cwd: params.cwd,
       env: params.env,
-      stdio: ['ignore', 'pipe', 'pipe']
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true
     })
 
     let stdout = ''

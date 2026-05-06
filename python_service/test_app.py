@@ -1,11 +1,15 @@
 import unittest
+import tempfile
+from pathlib import Path
 
 from python_service.app import (
     THINKING_BUDGET,
     build_thinking_kwargs,
+    describe_video_source,
     describe_dashscope_failure,
     ensure_dashscope_success,
     extract_text,
+    GenerateRequest,
     resolve_enable_thinking,
     supports_thinking_toggle,
 )
@@ -102,6 +106,30 @@ class ThinkingModeTests(unittest.TestCase):
             {"enable_thinking": False},
         )
         self.assertEqual(build_thinking_kwargs("qwen3.5-omni-plus", True), {})
+
+
+class VideoSourceDiagnosticsTests(unittest.TestCase):
+    def test_file_source_diagnostics_include_non_sensitive_video_clues(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            video_path = Path(tmpdir) / "video.mp4"
+            video_path.write_bytes(b"\x00\x00\x00\x18ftypmp42rest")
+            request = GenerateRequest(
+                model="qwen3.6-plus",
+                prompt="test",
+                input_mode="file",
+                video_path=str(video_path),
+            )
+
+            source = describe_video_source(request, f"file://{video_path}")
+
+        self.assertEqual(source["input_mode"], "file")
+        self.assertEqual(source["video_path_basename"], "video.mp4")
+        self.assertEqual(source["video_path_suffix"], ".mp4")
+        self.assertTrue(source["video_exists"])
+        self.assertTrue(source["video_readable"])
+        self.assertEqual(source["video_bytes"], 16)
+        self.assertEqual(source["video_mime_guess"], "video/mp4")
+        self.assertEqual(source["video_first16_hex"], "00000018667479706d70343272657374")
 
 
 if __name__ == "__main__":
