@@ -40,6 +40,7 @@ export type GenerateStatusPhase =
   | 'downloading'
   | 'retrying'
   | 'compressing'
+  | 'probing_video'
   | 'calling_model'
   | 'normalizing'
   | 'done'

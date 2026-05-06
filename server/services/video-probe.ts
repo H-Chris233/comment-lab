@@ -2,6 +2,7 @@ import path from 'node:path'
 
 import { createAppError } from '../utils/errors'
 import { runProcess } from './process-runner'
+import type { GenerateStatusData } from '../../types/api'
 
 export type VideoProbeResult = {
   ok: true
@@ -43,9 +44,17 @@ export async function probeVideoFileForModel(params: {
   bytes: number
   requestId?: string
   stepLabel: string
+  onStatus?: (status: GenerateStatusData) => void
 }): Promise<VideoProbeResult> {
   const command = ffmpegCommand()
   const basename = path.basename(params.sourcePath)
+  const emitStatus = (payload: Omit<GenerateStatusData, 'requestId'>) => {
+    if (!params.onStatus || !params.requestId) return
+    params.onStatus({
+      requestId: params.requestId,
+      ...payload
+    })
+  }
 
   console.info('[video-probe] start', {
     requestId: params.requestId,
@@ -53,6 +62,14 @@ export async function probeVideoFileForModel(params: {
     sourcePath: basename,
     bytes: params.bytes,
     command: path.basename(command)
+  })
+  emitStatus({
+    phase: 'probing_video',
+    message: '正在检测视频是否可用',
+    details: {
+      bytes: params.bytes,
+      stepLabel: params.stepLabel
+    }
   })
 
   try {
@@ -89,6 +106,19 @@ export async function probeVideoFileForModel(params: {
       videoCodec: probeResult.videoCodec,
       resolution: probeResult.resolution
     })
+    emitStatus({
+      phase: 'probing_video',
+      message: '视频检测通过',
+      percent: 100,
+      downloadedBytes: params.bytes,
+      contentLength: params.bytes,
+      details: {
+        format: probeResult.format,
+        duration: probeResult.duration,
+        videoCodec: probeResult.videoCodec,
+        resolution: probeResult.resolution
+      }
+    })
     return probeResult
   } catch (error) {
     const maybe = error as {
@@ -107,6 +137,13 @@ export async function probeVideoFileForModel(params: {
         bytes: params.bytes,
         message
       })
+      emitStatus({
+        phase: 'probing_video',
+        message: '未找到视频检测工具，跳过可用性检测',
+        details: {
+          reason: message
+        }
+      })
       return {
         ok: true,
         bytes: params.bytes
@@ -120,6 +157,15 @@ export async function probeVideoFileForModel(params: {
       bytes: params.bytes,
       message,
       stderr: preview(stderr)
+    })
+    emitStatus({
+      phase: 'failed',
+      message: params.stepLabel === 'upload'
+        ? '上传的视频文件不可解析'
+        : '下载到的视频文件不可解析',
+      details: {
+        reason: preview(stderr || message)
+      }
     })
 
     throw createAppError({

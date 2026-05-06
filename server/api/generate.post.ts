@@ -154,7 +154,8 @@ async function compressVideoSourceIfNeeded(params: {
         sourcePath: source.sourcePath,
         bytes: source.bytes,
         requestId: params.requestId,
-        stepLabel: params.stepLabel
+        stepLabel: params.stepLabel,
+        onStatus: params.onStatus
       })
       return source
     } catch (error) {

@@ -14,6 +14,7 @@ describe('probeVideoFileForModel', () => {
   })
 
   it('logs ffmpeg-derived video metadata for valid files', async () => {
+    const onStatus = vi.fn()
     vi.mocked(runProcess).mockResolvedValueOnce({
       stdout: '',
       stderr: [
@@ -29,7 +30,8 @@ describe('probeVideoFileForModel', () => {
       sourcePath: '/tmp/video.mp4',
       bytes: 3_450_786,
       requestId: 'req_test_probe',
-      stepLabel: 'link-download'
+      stepLabel: 'link-download',
+      onStatus
     })
 
     expect(result).toEqual(expect.objectContaining({
@@ -48,6 +50,17 @@ describe('probeVideoFileForModel', () => {
         '-frames:v',
         '1'
       ])
+    }))
+    expect(onStatus).toHaveBeenCalledWith(expect.objectContaining({
+      requestId: 'req_test_probe',
+      phase: 'probing_video',
+      message: '正在检测视频是否可用'
+    }))
+    expect(onStatus).toHaveBeenCalledWith(expect.objectContaining({
+      requestId: 'req_test_probe',
+      phase: 'probing_video',
+      message: '视频检测通过',
+      percent: 100
     }))
   })
 

@@ -34,14 +34,24 @@ vi.mock('../../server/services/video-compress', () => ({
 }))
 
 vi.mock('../../server/services/video-probe', () => ({
-  probeVideoFileForModel: vi.fn(async () => ({
-    ok: true,
-    bytes: 4,
-    format: 'mov,mp4,m4a,3gp,3g2,mj2',
-    duration: '00:00:03.00',
-    videoCodec: 'h264',
-    resolution: '720x1280'
-  }))
+  probeVideoFileForModel: vi.fn(async (params: any) => {
+    params.onStatus?.({
+      requestId: params.requestId,
+      phase: 'probing_video',
+      message: '正在检测视频是否可用',
+      details: {
+        bytes: params.bytes
+      }
+    })
+    return {
+      ok: true,
+      bytes: 4,
+      format: 'mov,mp4,m4a,3gp,3g2,mj2',
+      duration: '00:00:03.00',
+      videoCodec: 'h264',
+      resolution: '720x1280'
+    }
+  })
 }))
 
 import { generateFromVideoUrl, generateFromVideoFile } from '../../server/services/ai'
@@ -338,6 +348,7 @@ describe('POST /api/generate', () => {
     expect(res.status).toBe(200)
     expect(res.headers['content-type']).toContain('text/event-stream')
     expect(res.text).toContain('event: status')
+    expect(res.text).toContain('正在检测视频是否可用')
     expect(res.text).toContain('正在调用模型')
     expect(res.text).toContain('生成完成')
     expect(res.text).toContain('"requestId":"req_')
