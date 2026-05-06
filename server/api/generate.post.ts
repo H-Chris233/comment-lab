@@ -152,7 +152,6 @@ function isProviderInvalidVideoError(error: unknown) {
     || combined.includes('invalid_parameter')
     || combined.includes('invalid parameter')
   const hasInvalidVideo = combined.includes('invalid video file')
-    || combined.includes('invalid video')
     || combined.includes('video file invalid')
   return maybe.code === 'MODEL_CALL_FAILED' && hasInvalidVideo && hasProviderInvalidParameter
 }
@@ -628,6 +627,7 @@ export default defineEventHandler(async (event) => {
 
         const runAiRound = async () => {
           const { controller: roundAbortController, cleanup: cleanupRoundAbort } = createLinkedAbortController(abortController.signal)
+          let roundStreamedItemCount = 0
           const aiRequests = promptEntries.map(({ style, target, prompt }) => {
             const commonParams = {
               model,
@@ -637,8 +637,8 @@ export default defineEventHandler(async (event) => {
               stopAfterItems: target,
               onLine: (comment: string) => {
                 if (countVisibleLengthWithoutEmojiAndPunctuation(comment) > 30) return
-                if (streamedItemCount >= count) return
-                streamedItemCount += 1
+                if (streamedItemCount + roundStreamedItemCount >= count) return
+                roundStreamedItemCount += 1
                 emitProgress('item', {
                   requestId,
                   round,
@@ -663,7 +663,9 @@ export default defineEventHandler(async (event) => {
           })
 
           try {
-            return await Promise.all(aiRequests)
+            const results = await Promise.all(aiRequests)
+            streamedItemCount += roundStreamedItemCount
+            return results
           } catch (error) {
             roundAbortController.abort(error)
             await Promise.allSettled(aiRequests)
