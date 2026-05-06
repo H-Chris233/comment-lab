@@ -3,10 +3,13 @@ import unittest
 from python_service.app import (
     THINKING_BUDGET,
     build_thinking_kwargs,
+    describe_dashscope_failure,
+    ensure_dashscope_success,
     extract_text,
     resolve_enable_thinking,
     supports_thinking_toggle,
 )
+from fastapi import HTTPException
 
 
 class ExtractTextTests(unittest.TestCase):
@@ -46,6 +49,31 @@ class ExtractTextTests(unittest.TestCase):
             }
         }
         self.assertEqual(extract_text(payload), "直接返回字符串")
+
+
+class DashScopeResponseStatusTests(unittest.TestCase):
+    def test_success_response_passes_status_check(self):
+        ensure_dashscope_success({"status_code": 200, "output": {"text": "你好"}})
+
+    def test_error_response_raises_with_dashscope_detail(self):
+        with self.assertRaises(HTTPException) as raised:
+            ensure_dashscope_success({
+                "status_code": 401,
+                "code": "InvalidApiKey",
+                "message": "Invalid API-key provided.",
+                "request_id": "abc",
+            })
+
+        self.assertEqual(raised.exception.status_code, 502)
+        self.assertIn("HTTP 401", str(raised.exception.detail))
+        self.assertIn("InvalidApiKey", str(raised.exception.detail))
+        self.assertIn("request_id=abc", str(raised.exception.detail))
+
+    def test_describes_empty_success_response_for_diagnostics(self):
+        self.assertEqual(
+            describe_dashscope_failure({"status_code": 200, "request_id": "req-1"}),
+            "HTTP 200 | request_id=req-1",
+        )
 
 
 class ThinkingModeTests(unittest.TestCase):

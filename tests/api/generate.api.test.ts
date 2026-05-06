@@ -303,9 +303,9 @@ describe('POST /api/generate', () => {
 
   it('流式模式会推送 requestId 绑定的 status 事件', async () => {
     vi.mocked(generateFromVideoFile).mockImplementation(async (params: any) => {
-      params.onLine?.('即时-1-1')
+      params.onLine?.('即时评论1')
       return {
-        rawText: '第1条',
+        rawText: '即时评论1',
         model: 'qwen3.5-omni-plus',
         streamChunkCount: 1,
         durationMs: 1

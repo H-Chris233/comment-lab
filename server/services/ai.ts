@@ -214,6 +214,14 @@ async function callPythonSidecar(params: {
       : typeof payload?.message === 'string'
         ? payload.message
         : `Python sidecar 请求失败（HTTP ${response.status}）`
+    console.error('[ai.generate] sidecar http error', {
+      requestId: params.requestId,
+      baseUrl,
+      source,
+      status: response.status,
+      statusText: response.statusText,
+      detail
+    })
     throw createAppError({
       code: 'MODEL_CALL_FAILED',
       message: detail,
@@ -229,6 +237,11 @@ async function callPythonSidecar(params: {
   }
 
   if (!payload) {
+    console.error('[ai.generate] sidecar empty response', {
+      requestId: params.requestId,
+      baseUrl,
+      source
+    })
     throw createAppError({
       code: 'MODEL_CALL_FAILED',
       message: 'Python sidecar 响应为空',
@@ -236,12 +249,21 @@ async function callPythonSidecar(params: {
     })
   }
 
-  return {
+  const result = {
     rawText: typeof payload.rawText === 'string' ? payload.rawText : '',
     model: typeof payload.model === 'string' ? payload.model : params.model,
     usage: payload.usage,
     finishReason: typeof payload.finishReason === 'string' ? payload.finishReason : null
   }
+  console.info('[ai.generate] sidecar response ok', {
+    requestId: params.requestId,
+    baseUrl,
+    source,
+    rawTextLength: result.rawText.length,
+    model: result.model,
+    finishReason: result.finishReason
+  })
+  return result
 }
 
 async function callPythonSidecarWithRetry(params: Parameters<typeof callPythonSidecar>[0]) {

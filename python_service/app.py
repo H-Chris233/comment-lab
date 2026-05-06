@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from pathlib import Path
+from time import perf_counter
 from typing import Literal, Optional
+from urllib.parse import urlparse
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from dotenv import load_dotenv
@@ -28,6 +31,11 @@ class GenerateRequest(BaseModel):
 
 
 app = FastAPI(title="Comment Lab DashScope Sidecar")
+logging.basicConfig(
+    level=os.getenv("COMMENT_LAB_PYTHON_LOG_LEVEL", "INFO").upper(),
+    format="[python-sidecar] %(asctime)s %(levelname)s %(message)s",
+)
+logger = logging.getLogger("comment_lab_sidecar")
 
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -57,6 +65,13 @@ def normalize_base_url(override: Optional[str] = None) -> str:
     return base_url.rstrip("/").replace("/compatible-mode/v1", "/api/v1")
 
 
+def _url_origin(value: str) -> str:
+    parsed = urlparse(value)
+    if not parsed.scheme or not parsed.netloc:
+        return value
+    return f"{parsed.scheme}://{parsed.netloc}"
+
+
 def ensure_file_uri(video_path: str) -> str:
     if video_path.startswith("file://"):
         return video_path
@@ -83,6 +98,32 @@ def build_thinking_kwargs(model: str, requested: bool) -> dict[str, object]:
     if enable_thinking:
         kwargs["thinking_budget"] = THINKING_BUDGET
     return kwargs
+
+
+def describe_video_source(request: GenerateRequest, source: str) -> dict[str, object]:
+    if request.input_mode == "url":
+        parsed = urlparse(source)
+        return {
+            "input_mode": "url",
+            "video_host": parsed.netloc or None,
+            "video_scheme": parsed.scheme or None,
+            "video_url_length": len(source),
+        }
+
+    raw_path = source.removeprefix("file://")
+    exists = os.path.exists(raw_path)
+    size = None
+    if exists:
+        try:
+            size = os.path.getsize(raw_path)
+        except OSError:
+            size = None
+    return {
+        "input_mode": "file",
+        "video_path_basename": os.path.basename(raw_path),
+        "video_exists": exists,
+        "video_bytes": size,
+    }
 
 
 def _as_mapping(value: object) -> dict[str, object] | None:
@@ -150,7 +191,49 @@ def extract_text(result: object) -> str:
     return ""
 
 
-async def run_conversation(request: GenerateRequest) -> dict[str, object]:
+def _stringify_response_field(value: object) -> str:
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+def _response_status_code(result: object) -> int | None:
+    value = _get_attr(result, "status_code")
+    try:
+        return int(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def describe_dashscope_failure(result: object) -> str:
+    status_code = _response_status_code(result)
+    code = _stringify_response_field(_get_attr(result, "code"))
+    message = _stringify_response_field(_get_attr(result, "message"))
+    request_id = _stringify_response_field(_get_attr(result, "request_id"))
+
+    parts: list[str] = []
+    if status_code is not None:
+        parts.append(f"HTTP {status_code}")
+    if code:
+        parts.append(code)
+    if message:
+        parts.append(message)
+    if request_id:
+        parts.append(f"request_id={request_id}")
+
+    return " | ".join(parts) or "DashScope 调用失败"
+
+
+def ensure_dashscope_success(result: object) -> None:
+    status_code = _response_status_code(result)
+    code = _stringify_response_field(_get_attr(result, "code"))
+
+    if (status_code is not None and status_code != 200) or code:
+        raise HTTPException(status_code=502, detail=describe_dashscope_failure(result))
+
+
+async def run_conversation(request: GenerateRequest, request_id: str) -> dict[str, object]:
+    started_at = perf_counter()
     source: Optional[str]
     if request.input_mode == "url":
         source = (request.video_url or "").strip()
@@ -177,6 +260,7 @@ async def run_conversation(request: GenerateRequest) -> dict[str, object]:
 
     api_key = get_api_key(request.aliyun_api_key)
     if not api_key:
+        logger.error("request api-key-missing request_id=%s model=%s", request_id, request.model)
         raise HTTPException(status_code=500, detail="DashScope API Key 未配置")
 
     try:
@@ -186,10 +270,21 @@ async def run_conversation(request: GenerateRequest) -> dict[str, object]:
         raise HTTPException(status_code=500, detail="DashScope SDK 未安装") from exc
 
     dashscope.base_http_api_url = normalize_base_url(request.aliyun_base_url)
+    call_kwargs = build_thinking_kwargs(request.model, request.enable_thinking)
+    logger.info(
+        "request start request_id=%s model=%s fps=%s prompt_chars=%s api_key_present=%s base_origin=%s thinking_requested=%s thinking_kwargs=%s source=%s",
+        request_id,
+        request.model,
+        request.fps,
+        len(request.prompt),
+        bool(api_key),
+        _url_origin(dashscope.base_http_api_url),
+        request.enable_thinking,
+        call_kwargs,
+        describe_video_source(request, source),
+    )
 
     def _call():
-        call_kwargs = build_thinking_kwargs(request.model, request.enable_thinking)
-
         return MultiModalConversation.call(
             api_key=api_key,
             model=request.model,
@@ -198,7 +293,38 @@ async def run_conversation(request: GenerateRequest) -> dict[str, object]:
         )
 
     result = await asyncio.to_thread(_call)
+    elapsed_ms = int((perf_counter() - started_at) * 1000)
+    logger.info(
+        "dashscope response request_id=%s status_code=%s code=%s dashscope_request_id=%s elapsed_ms=%s detail=%s",
+        request_id,
+        _response_status_code(result),
+        _stringify_response_field(_get_attr(result, "code")) or None,
+        _stringify_response_field(_get_attr(result, "request_id")) or None,
+        elapsed_ms,
+        describe_dashscope_failure(result),
+    )
+    ensure_dashscope_success(result)
     raw_text = extract_text(result)
+    if not raw_text:
+        logger.error(
+            "dashscope empty-text request_id=%s status_code=%s dashscope_request_id=%s elapsed_ms=%s output_type=%s",
+            request_id,
+            _response_status_code(result),
+            _stringify_response_field(_get_attr(result, "request_id")) or None,
+            elapsed_ms,
+            type(_get_attr(result, "output")).__name__,
+        )
+        raise HTTPException(
+            status_code=502,
+            detail=f"DashScope 响应为空或不包含文本内容: {describe_dashscope_failure(result)}",
+        )
+    logger.info(
+        "request success request_id=%s model=%s raw_text_chars=%s elapsed_ms=%s",
+        request_id,
+        request.model,
+        len(raw_text),
+        elapsed_ms,
+    )
 
     return {
         "ok": True,
@@ -213,12 +339,20 @@ async def health():
 
 
 @app.post("/generate")
-async def generate(request: GenerateRequest):
+async def generate(request: GenerateRequest, http_request: Request):
+    request_id = http_request.headers.get("x-request-id", "") or "unknown"
     try:
-        return await run_conversation(request)
-    except HTTPException:
+        return await run_conversation(request, request_id)
+    except HTTPException as exc:
+        logger.error(
+            "request failed request_id=%s status_code=%s detail=%s",
+            request_id,
+            exc.status_code,
+            exc.detail,
+        )
         raise
     except Exception as exc:  # pragma: no cover - surfaced to Node
+        logger.exception("request crashed request_id=%s", request_id)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 

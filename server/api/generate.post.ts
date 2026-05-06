@@ -33,9 +33,11 @@ function mapUserFacingGenerateError(mapped: ReturnType<typeof toApiError>) {
   const next = { ...mapped }
 
   if (next.code === 'MODEL_CALL_FAILED') {
+    const originalMessage = next.message
     next.message = '模型服务暂时不可用，请重启应用后重试'
     next.data = {
       ...next.data,
+      reason: originalMessage,
       action: '若重启后仍失败，请导出侧车日志并反馈请求ID。'
     }
     return next
