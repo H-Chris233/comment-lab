@@ -33,7 +33,7 @@ const basePrompt = ref(DEFAULT_PROMPT)
 const count = ref(100)
 const dedupe = ref(true)
 const cleanEmpty = ref(true)
-const enableThinking = ref(false)
+const enableThinking = ref(supportsThinkingMode(selectedModel.value))
 const parseStatus = ref('')
 const copiedHint = ref('')
 const showRawDebug = ref(false)
@@ -220,10 +220,8 @@ watch(authUnlocked, (unlocked) => {
   }
 })
 
-watch(thinkingSupported, (supported) => {
-  if (!supported && enableThinking.value) {
-    enableThinking.value = false
-  }
+watch(selectedModel, (model) => {
+  enableThinking.value = supportsThinkingMode(model)
 }, { immediate: true })
 
 onBeforeUnmount(() => {

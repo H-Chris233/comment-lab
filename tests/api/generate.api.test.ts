@@ -275,11 +275,11 @@ describe('POST /api/generate', () => {
 
   it('流式模式会在每条评论完成时推送 item 事件', async () => {
     vi.mocked(generateFromVideoFile).mockImplementation(async (params: any) => {
-      params.onLine?.('即时-1-1')
+      params.onLine?.('即时评论一')
       params.onLine?.('这是一条超过三十个字符的长长评论内容应该被跳过这是一条超过三十个字符的长长评论内容应该被跳过')
-      params.onLine?.('即时-1-3')
+      params.onLine?.('即时评论三')
       return {
-        rawText: '第1条\n第2条\n第3条',
+        rawText: '第一条评论\n第二条评论\n第三条评论',
         model: 'qwen3.5-omni-plus',
         streamChunkCount: 1,
         durationMs: 1
@@ -300,16 +300,16 @@ describe('POST /api/generate', () => {
     expect(res.status).toBe(200)
     expect(res.headers['content-type']).toContain('text/event-stream')
     expect((res.text.match(/event: item/g) || []).length).toBe(2)
-    expect(res.text).toContain('即时-1-1')
-    expect(res.text).toContain('即时-1-3')
+    expect(res.text).toContain('即时评论一')
+    expect(res.text).toContain('即时评论三')
     expect(res.text).not.toContain('超过三十个字符的长长评论内容应该被跳过')
   })
 
   it('流式模式会推送 requestId 绑定的 status 事件', async () => {
     vi.mocked(generateFromVideoFile).mockImplementation(async (params: any) => {
-      params.onLine?.('即时-1-1')
+      params.onLine?.('即时评论一')
       return {
-        rawText: '第1条',
+        rawText: '第一条评论',
         model: 'qwen3.5-omni-plus',
         streamChunkCount: 1,
         durationMs: 1
