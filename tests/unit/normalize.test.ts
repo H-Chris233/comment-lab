@@ -3,7 +3,7 @@ import { normalizeComments, spreadCommentsByPrefix } from '../../server/services
 
 describe('normalizeComments', () => {
   it('应清洗无效行并统计', () => {
-    const raw = ['1. 这个真有点上头', '', '评论如下', '这个真有点上头', '好', '   太长'.repeat(30)].join('\n')
+    const raw = ['1. 这个真有点上头', '', '评论如下', '这个真有点上头', '好', '太短', '   太长'.repeat(30)].join('\n')
     const result = normalizeComments(raw, { dedupe: true, cleanEmpty: true })
 
     expect(result.comments).toEqual(['真有点上头。'])
@@ -15,8 +15,8 @@ describe('normalizeComments', () => {
   })
 
   it('文本模式可以清洗重复与废话行', () => {
-    const result = normalizeComments('  1. 真的好看  \n评论如下\n真的好看\n哈哈', { dedupe: true, cleanEmpty: true })
-    expect(result.comments).toEqual(['真的好看。', '哈哈'])
+    const result = normalizeComments('  1. 真的好看  \n评论如下\n真的好看\n确实好看', { dedupe: true, cleanEmpty: true })
+    expect(result.comments).toEqual(['真的好看。', '确实好看'])
   })
 
   it('会保留原始 emoji，不再强制重排到固定位置', () => {
@@ -30,9 +30,9 @@ describe('normalizeComments', () => {
   })
 
   it('去掉句末句号后仍会正确去重', () => {
-    const result = normalizeComments('哈哈。\n哈哈', { dedupe: true, cleanEmpty: true })
+    const result = normalizeComments('真的好看。\n真的好看', { dedupe: true, cleanEmpty: true })
 
-    expect(result.comments).toEqual(['哈哈。'])
+    expect(result.comments).toEqual(['真的好看。'])
     expect(result.removedDuplicate).toBe(1)
   })
 
@@ -294,11 +294,11 @@ describe('normalizeComments', () => {
   })
 
   it('会直接去除只有一个 emoji 的整行', () => {
-    const raw = ['😄', '哈哈😄', '😂。', '纯文字'].join('\n')
+    const raw = ['😄', '哈哈😄', '😂。', '四字评论'].join('\n')
     const result = normalizeComments(raw, { dedupe: true, cleanEmpty: true })
 
-    expect(result.comments).toEqual(['哈哈。', '纯文字'])
-    expect(result.removedInvalid).toBe(2)
+    expect(result.comments).toEqual(['四字评论。'])
+    expect(result.removedInvalid).toBe(3)
   })
 
   it('会把“那个/这个”开头控制在 3%，超出的行会去掉前缀', () => {
@@ -404,7 +404,7 @@ describe('normalizeComments', () => {
   })
 
   it('去重后句末标点会按分布统一处理，不会把同文案不同标点当成不同评论', () => {
-    const raw = ['哈哈。', '哈哈！', '哈哈'].join('\n')
+    const raw = ['真的好看。', '真的好看！', '真的好看'].join('\n')
     const result = normalizeComments(raw, {
       dedupe: true,
       cleanEmpty: true,
@@ -415,7 +415,7 @@ describe('normalizeComments', () => {
     })
 
     expect(result.comments).toHaveLength(1)
-    expect(result.comments[0]).toBe('哈哈。')
+    expect(result.comments[0]).toBe('真的好看。')
   })
 
   it('会按前两个字尽量打散相邻重复开头', () => {

@@ -3,8 +3,10 @@ import { validateCount, validateInputMode, validateModel, validatePromptLength, 
 
 describe('validators', () => {
   it('validateCount 支持预设和自定义范围', () => {
-    expect(validateCount('100')).toBe(100)
+    expect(validateCount('50')).toBe(50)
+    expect(validateCount('150')).toBe(150)
     expect(validateCount('200')).toBe(200)
+    expect(validateCount('100')).toBe(100)
     expect(validateCount('37')).toBe(37)
     expect(() => validateCount('0')).toThrowError(/自定义数量范围为 1~1500/)
     expect(() => validateCount('1501')).toThrowError(/自定义数量范围为 1~1500/)

@@ -20,7 +20,7 @@ export function validateCount(raw?: string): number {
   }
 
   const intCount = Math.floor(count)
-  const preset = [100, 200, 300]
+  const preset = [50, 150, 200]
 
   if (preset.includes(intCount)) return intCount
 
